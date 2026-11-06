@@ -54,3 +54,10 @@ export function formatAgo(iso: string): string {
   }
   return "just now";
 }
+
+/** A duration, roughly: "40 seconds", "12 minutes", "3 hours". */
+export function formatDuration(seconds: number): string {
+  if (seconds < 90) return `${Math.max(1, Math.round(seconds))} seconds`;
+  if (seconds < 90 * 60) return `${Math.round(seconds / 60)} minutes`;
+  return `${Math.round(seconds / 3600)} hours`;
+}

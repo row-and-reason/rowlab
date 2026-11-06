@@ -467,7 +467,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Start running every task with every model on the rows in the job's scope. It runs in the\nbackground: poll `GET /v1/runs/{id}` for its progress and answers. Answers already given are\nfree: they come from the response cache.",
+        "description": "Queue a run of every task with every model on the rows in the job's scope. It makes a new\ndataset (`dataset_id`), created right away with those rows, whose answer columns fill in as the\nrun works through them in the background: poll `GET /v1/runs/{id}` for its progress. Answers\nalready given are free: they come from the response cache.",
         "operationId": "createRun",
         "parameters": [
           {
@@ -504,22 +504,21 @@
         }
       }
     },
-    "/v1/datasets/{dataset_id}/runs": {
+    "/v1/runs/{run_id}": {
       "get": {
         "tags": [
           "runs"
         ],
-        "summary": "List Runs",
-        "description": "A dataset's runs, newest first, without their answers.",
-        "operationId": "listRuns",
+        "summary": "Get Run",
+        "operationId": "getRun",
         "parameters": [
           {
-            "name": "dataset_id",
+            "name": "run_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Dataset Id"
+              "title": "Run Id"
             }
           }
         ],
@@ -529,11 +528,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/RunSummary"
-                  },
-                  "title": "Response Listruns"
+                  "$ref": "#/components/schemas/Run"
                 }
               }
             }
@@ -551,14 +546,57 @@
         }
       }
     },
-    "/v1/runs/{run_id}": {
-      "get": {
+    "/v1/runs/{run_id}/stop": {
+      "post": {
         "tags": [
           "runs"
         ],
-        "summary": "Get Run",
-        "description": "A run with its settings, costs and answers for every row.",
-        "operationId": "getRun",
+        "summary": "Stop Run",
+        "description": "Stop after the calls in flight. The chunk in progress is redone on resume, for free.",
+        "operationId": "stopRun",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runs/{run_id}/resume": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Resume Run",
+        "description": "Continue a stopped or failed run from its first unwritten chunk.",
+        "operationId": "resumeRun",
         "parameters": [
           {
             "name": "run_id",
@@ -827,16 +865,6 @@
             "type": "string",
             "title": "Source"
           },
-          "format": {
-            "type": "string",
-            "enum": [
-              "csv",
-              "json",
-              "jsonl",
-              "parquet"
-            ],
-            "title": "Format"
-          },
           "row_count": {
             "type": "integer",
             "title": "Row Count"
@@ -857,22 +885,28 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "last_activity_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Last Activity At",
-            "description": "When it was added or last run, whichever is later."
-          },
-          "running": {
+          "parent_id": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/RunProgress"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Its latest run, while that is running."
+            "title": "Parent Id",
+            "description": "The dataset it was made from by a run."
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatasetRun"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run that makes it; its rows fill in as it goes."
           }
         },
         "type": "object",
@@ -880,15 +914,59 @@
           "id",
           "name",
           "source",
-          "format",
           "row_count",
           "size_bytes",
           "columns",
           "created_at",
-          "last_activity_at",
-          "running"
+          "parent_id",
+          "run"
         ],
         "title": "Dataset"
+      },
+      "DatasetRun": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number",
+            "description": "1, 2, \u2026 per parent dataset."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "stopping",
+              "stopped",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "description": "Model calls answered so far."
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Model calls the run makes."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "number",
+          "status",
+          "done",
+          "total"
+        ],
+        "title": "DatasetRun",
+        "description": "The run that makes a dataset."
       },
       "Filter": {
         "properties": {
@@ -1322,43 +1400,25 @@
           },
           "dataset_id": {
             "type": "string",
-            "title": "Dataset Id"
+            "title": "Dataset Id",
+            "description": "The dataset it makes."
           },
           "number": {
             "type": "integer",
             "title": "Number",
-            "description": "1, 2, \u2026 per dataset."
+            "description": "1, 2, \u2026 per parent dataset."
           },
           "status": {
             "type": "string",
             "enum": [
+              "queued",
               "running",
+              "stopping",
+              "stopped",
               "done",
               "failed"
             ],
             "title": "Status"
-          },
-          "done": {
-            "type": "integer",
-            "title": "Done",
-            "description": "Model calls answered so far."
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total",
-            "description": "Model calls the run makes."
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error",
-            "description": "Why the run failed."
           },
           "config": {
             "$ref": "#/components/schemas/JobConfig-Output",
@@ -1378,28 +1438,60 @@
             },
             "type": "array",
             "title": "Costs",
-            "description": "Per task and model."
+            "description": "Per task and model, so far."
           },
           "row_count": {
             "type": "integer",
             "title": "Row Count"
           },
+          "next_chunk": {
+            "type": "integer",
+            "title": "Next Chunk",
+            "description": "The first chunk of rows not yet written."
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "description": "Model calls answered (or failed) so far."
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Model calls the run makes."
+          },
           "cost": {
             "type": "number",
             "title": "Cost",
-            "description": "USD spent by this run; cached answers are free."
+            "description": "USD spent so far; cached answers are free."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Why the run failed."
           },
           "created_at": {
             "type": "string",
             "format": "date-time",
             "title": "Created At"
           },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/RunRow"
-            },
-            "type": "array",
-            "title": "Rows"
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
           }
         },
         "type": "object",
@@ -1408,176 +1500,19 @@
           "dataset_id",
           "number",
           "status",
-          "done",
-          "total",
-          "error",
           "config",
           "columns",
           "costs",
           "row_count",
+          "next_chunk",
+          "done",
+          "total",
           "cost",
+          "error",
           "created_at",
-          "rows"
+          "updated_at"
         ],
         "title": "Run"
-      },
-      "RunProgress": {
-        "properties": {
-          "run_id": {
-            "type": "string",
-            "title": "Run Id"
-          },
-          "number": {
-            "type": "integer",
-            "title": "Number"
-          },
-          "done": {
-            "type": "integer",
-            "title": "Done",
-            "description": "Model calls answered so far."
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total",
-            "description": "Model calls the run makes."
-          }
-        },
-        "type": "object",
-        "required": [
-          "run_id",
-          "number",
-          "done",
-          "total"
-        ],
-        "title": "RunProgress"
-      },
-      "RunRow": {
-        "properties": {
-          "row_id": {
-            "type": "integer",
-            "title": "Row Id"
-          },
-          "values": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Values",
-            "description": "Each answer column and its `_proba` column."
-          },
-          "errors": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object",
-            "title": "Errors",
-            "description": "Why an answer column is missing, by column."
-          }
-        },
-        "type": "object",
-        "required": [
-          "row_id",
-          "values",
-          "errors"
-        ],
-        "title": "RunRow"
-      },
-      "RunSummary": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "dataset_id": {
-            "type": "string",
-            "title": "Dataset Id"
-          },
-          "number": {
-            "type": "integer",
-            "title": "Number",
-            "description": "1, 2, \u2026 per dataset."
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "running",
-              "done",
-              "failed"
-            ],
-            "title": "Status"
-          },
-          "done": {
-            "type": "integer",
-            "title": "Done",
-            "description": "Model calls answered so far."
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total",
-            "description": "Model calls the run makes."
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error",
-            "description": "Why the run failed."
-          },
-          "config": {
-            "$ref": "#/components/schemas/JobConfig-Output",
-            "description": "The job's scope and tasks when the run started."
-          },
-          "columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Columns",
-            "description": "The answer columns, each with a `_proba` column."
-          },
-          "costs": {
-            "items": {
-              "$ref": "#/components/schemas/TaskModelCost"
-            },
-            "type": "array",
-            "title": "Costs",
-            "description": "Per task and model."
-          },
-          "row_count": {
-            "type": "integer",
-            "title": "Row Count"
-          },
-          "cost": {
-            "type": "number",
-            "title": "Cost",
-            "description": "USD spent by this run; cached answers are free."
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "dataset_id",
-          "number",
-          "status",
-          "done",
-          "total",
-          "error",
-          "config",
-          "columns",
-          "costs",
-          "row_count",
-          "cost",
-          "created_at"
-        ],
-        "title": "RunSummary"
       },
       "Scope": {
         "properties": {

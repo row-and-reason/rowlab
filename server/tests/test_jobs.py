@@ -19,16 +19,21 @@ def chat_model(id_, price, structured=True):
 
 
 class FakeOpenRouter:
-    """Stands in for OpenRouter's HTTP API. Says yes when the prompt mentions a bad experience."""
+    """Stands in for OpenRouter's HTTP API. Says yes when the prompt mentions a bad experience.
+
+    `busy` makes the next calls fail with a rate limit; `crash_on` makes the call for that prompt
+    fail once like a killed server would, with an error nothing catches."""
 
     def __init__(self):
         self.calls = []
+        self.busy = 0
+        self.crash_on = None
 
     def __call__(self, method, path, *, api_key, body=None):
         self.calls.append((method, path, api_key, body))
         if path == "/v1/key":
             if api_key != "sk-good":
-                raise openrouter.OpenRouterError("HTTP 401: Invalid key")
+                raise openrouter.OpenRouterError("HTTP 401: Invalid key", status=401)
             return {"data": {}}
         if path == "/v1/models?output_modalities=decisions":
             return {
@@ -48,8 +53,14 @@ class FakeOpenRouter:
             prompt = body["messages"][1]["content"]
             content = json.dumps({"answer": _bad(prompt), "proba": 0.8})
             return {"choices": [{"message": {"content": content}}], "usage": {"cost": 0.01}}
+        if self.busy:
+            self.busy -= 1
+            raise openrouter.OpenRouterError("HTTP 429: Rate limited", status=429)
+        if body["state"] == self.crash_on:
+            self.crash_on = None
+            raise KeyboardInterrupt
         if body["state"] == "fail":
-            raise openrouter.OpenRouterError("HTTP 402: Insufficient credits")
+            raise openrouter.OpenRouterError("HTTP 402: Insufficient credits", status=402)
         return {
             "answers": {"answer": {"type": "noul", "noul": 0.9 if _bad(body["state"]) else 0.1}},
             "usage": {"input_tokens": 100, "output_tokens": 1, "cost": 0.001},
@@ -61,16 +72,12 @@ def _bad(text):
 
 
 @pytest.fixture(autouse=True)
-def inline_runs(monkeypatch):
-    """Run a run's work right away instead of in a background thread."""
-    monkeypatch.setattr(runs, "_start", lambda work: work())
-
-
-@pytest.fixture(autouse=True)
 def fake(monkeypatch):
     fake = FakeOpenRouter()
     monkeypatch.setattr(openrouter, "_request", fake)
     monkeypatch.setattr(openrouter, "_catalog", None)
+    monkeypatch.setattr(openrouter, "RETRY_BASE_SECONDS", 0)
+    monkeypatch.setattr(runs, "PROGRESS_INTERVAL_SECONDS", 0.01)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     return fake
 
@@ -103,8 +110,25 @@ def update(client, job, **config):
     return response.json()
 
 
-def run(client, job):
+def start(client, job):
+    """Queue a run of the job, as the Run button does."""
     return client.post(f"/v1/jobs/{job['id']}/runs").json()
+
+
+def run(client, job):
+    """Queue a run and let the runner process it, as its thread would."""
+    created = start(client, job)
+    if "id" not in created:
+        return created
+    while runs.process_next():
+        pass
+    return client.get(f"/v1/runs/{created['id']}").json()
+
+
+def rows(client, run_):
+    """The rows of the dataset a run makes, by `__row_id`."""
+    response = client.post(f"/v1/datasets/{run_['dataset_id']}/query", json={})
+    return {r["__row_id"]: r for r in response.json()["rows"]}
 
 
 def test_create_list_and_update_jobs(client, dataset, job):
@@ -133,14 +157,15 @@ def test_jobs_are_deleted_with_their_dataset(client, dataset, job):
 
 
 def test_run_answers_each_row(client, job, api_key, fake):
-    result = run(client, job)
-    assert result["columns"] == ["negative__jev-1.14"]
-    assert [(r["row_id"], r["values"]) for r in result["rows"]] == [
-        (0, {"negative__jev-1.14": True, "negative__jev-1.14_proba": 0.9}),
-        (1, {"negative__jev-1.14": False, "negative__jev-1.14_proba": pytest.approx(0.9)}),
-        (2, {"negative__jev-1.14": True, "negative__jev-1.14_proba": 0.9}),
-    ]
-    assert result["cost"] == pytest.approx(0.003)
+    finished = run(client, job)
+    assert finished["status"] == "done"
+    assert (finished["done"], finished["total"]) == (3, 3)
+    assert finished["columns"] == ["negative__jev-1.14"]
+    assert finished["cost"] == pytest.approx(0.003)
+    found = rows(client, finished)
+    assert (found[0]["negative__jev-1.14"], found[0]["negative__jev-1.14_proba"]) == (True, 0.9)
+    assert found[1]["negative__jev-1.14"] is False
+    assert found[1]["negative__jev-1.14_proba"] == pytest.approx(0.9)
 
     # Rows are asked in parallel, so in any order.
     decisions = sorted(
@@ -149,11 +174,49 @@ def test_run_answers_each_row(client, job, api_key, fake):
     )
     _, _, key, body = decisions[0]
     assert key == "sk-good"
-    assert body["model"] == "typesafe/jev-1.14"
     assert body["state"] == "Is this review negative? Broke after a day"
     assert body["questions"] == {
         "answer": {"type": "noul", "instructions": "Answer the question in the text."}
     }
+
+
+def test_a_run_makes_a_dataset_that_fills_in_as_it_goes(client, dataset, job, api_key, data_dir):
+    job = update(client, job, scope={"filters": [{"column": "stars", "op": "eq", "value": "1"}]})
+    created = start(client, job)
+    made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
+    assert (made["name"], made["source"]) == ("reviews-run1", "Run #1 of reviews")
+    assert made["parent_id"] == dataset["id"]
+    assert made["run"] == {
+        "id": created["id"],
+        "number": 1,
+        "status": "queued",
+        "done": 0,
+        "total": 2,
+    }
+    assert [c["name"] for c in made["columns"]] == [
+        "__row_id",
+        "negative__jev-1.14",
+        "negative__jev-1.14_proba",
+        "review",
+        "stars",
+    ]
+    assert made["row_count"] == 2
+    # It is listed first, as the newest dataset, before a single answer is in.
+    assert client.get("/v1/datasets").json()[0]["id"] == made["id"]
+    assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [None, None]
+
+    while runs.process_next():
+        pass
+    assert [(i, r["negative__jev-1.14"]) for i, r in rows(client, created).items()] == [
+        (0, True),
+        (2, True),
+    ]
+    done = client.get(f"/v1/datasets/{made['id']}").json()
+    assert done["run"]["status"] == "done"
+    assert done["columns"] == made["columns"]
+    # Once done it is one Parquet file, like any other dataset.
+    files = sorted(p.name for p in (data_dir / "datasets" / made["id"]).iterdir())
+    assert files == ["data.parquet"]
 
 
 def test_run_runs_every_task_with_every_model(client, job, api_key):
@@ -165,122 +228,134 @@ def test_run_runs_every_task_with_every_model(client, job, api_key):
         "models": ["x/llm"],
     }
     negative = {**NEGATIVE, "models": ["typesafe/jev-1.14", "x/llm"]}
-    result = run(client, update(client, job, tasks=[negative, stars]))
-    assert result["columns"] == ["negative__jev-1.14", "negative__llm", "stars__llm"]
-    first = result["rows"][0]["values"]
+    finished = run(client, update(client, job, tasks=[negative, stars]))
+    assert finished["columns"] == ["negative__jev-1.14", "negative__llm", "stars__llm"]
+    first = rows(client, finished)[0]
     assert first["negative__jev-1.14"] is True
-    assert first["negative__llm"] is True
     assert first["negative__llm_proba"] == 0.8
     # The fake LLM answers yes/no questions only, so the scale task fails with a format error.
-    assert result["rows"][0]["errors"] == {
-        "stars__llm": "The model's reply did not have the expected answer."
-    }
-    assert [(c["model"], c["failed"]) for c in result["costs"]] == [
+    assert first["stars__llm"] is None
+    assert [(c["model"], c["failed"]) for c in finished["costs"]] == [
         ("typesafe/jev-1.14", 0),
         ("x/llm", 0),
         ("x/llm", 3),
     ]
-    assert result["cost"] == pytest.approx(0.003 + 0.03 + 0.03)
+    assert finished["cost"] == pytest.approx(0.003 + 0.03 + 0.03)
 
 
-def test_run_never_pays_twice(client, job, api_key, fake):
-    run(client, job)
-    calls = len(fake.calls)
+def test_runs_go_in_chunks_and_never_pay_twice(client, job, api_key, fake, monkeypatch):
+    monkeypatch.setattr(runs, "CHUNK_ROWS", 2)
+    first = run(client, job)
+    assert first["next_chunk"] == 2
+    paid = len(fake.calls)
     again = run(client, job)
-    assert len(fake.calls) == calls
+    assert len(fake.calls) == paid
     assert again["cost"] == 0
+    assert [
+        {k: v for k, v in r.items() if k.startswith("negative")}
+        for r in rows(client, again).values()
+    ] == [
+        {k: v for k, v in r.items() if k.startswith("negative")}
+        for r in rows(client, first).values()
+    ]
 
 
 def test_run_uses_the_scope(client, job, api_key):
     scope = {
-        "search": "",
         "filters": [{"column": "stars", "op": "eq", "value": "1"}],
         "sort": [{"column": "review", "desc": False}],
         "limit": 1,
     }
-    result = run(client, update(client, job, scope=scope))
+    finished = run(client, update(client, job, scope=scope))
     # Sorted by review, "Broke after a day" (row 2) comes before "Terrible product" (row 0).
-    assert [r["row_id"] for r in result["rows"]] == [2]
+    assert finished["row_count"] == 1
+    assert list(rows(client, finished)) == [2]
 
 
-def test_run_is_limited_to_a_thousand_rows(client, job, api_key, monkeypatch):
-    monkeypatch.setattr(runs, "MAX_RUN_ROWS", 2)
-    response = client.post(f"/v1/jobs/{update(client, job, scope={'limit': None})['id']}/runs")
-    assert response.status_code == 400
-    assert response.json()["detail"] == (
-        "The scope has 3 rows. Runs are limited to 2 rows for now: set a limit."
-    )
+def test_run_retries_rate_limits(client, job, api_key, fake):
+    fake.busy = 2
+    finished = run(client, job)
+    assert finished["costs"][0]["failed"] == 0
 
 
 def test_run_reports_failed_rows(client, job, api_key):
-    rows = run(client, update(client, job, tasks=[{**NEGATIVE, "template": "fail"}]))["rows"]
-    assert rows[0]["errors"] == {"negative__jev-1.14": "HTTP 402: Insufficient credits"}
-    assert rows[0]["values"] == {}
+    finished = run(client, update(client, job, tasks=[{**NEGATIVE, "template": "fail"}]))
+    assert rows(client, finished)[0]["negative__jev-1.14"] is None
+    assert finished["costs"][0]["failed"] == 3
 
 
-def test_runs_are_kept_numbered_and_frozen(client, dataset, job, api_key):
-    first = run(client, job)
-    assert first["number"] == 1
-    assert first["row_count"] == 3
-    assert first["config"]["tasks"] == job["tasks"]
+def test_a_stopped_run_resumes_where_it_was(client, job, api_key, monkeypatch):
+    monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
+    created = start(client, job)
+    stopped = client.post(f"/v1/runs/{created['id']}/stop").json()
+    assert stopped["status"] == "stopped"
+    assert runs.process_next() is False
 
-    changed = update(client, job, scope={**job["scope"], "limit": 1})
-    second = run(client, changed)
-    assert second["number"] == 2
-    assert second["row_count"] == 1
-
-    listed = client.get(f"/v1/datasets/{dataset['id']}/runs").json()
-    assert [(r["number"], r["row_count"]) for r in listed] == [(2, 1), (1, 3)]
-    assert "rows" not in listed[0]
-
-    # The first run keeps the settings and answers it ran with.
-    again = client.get(f"/v1/runs/{first['id']}").json()
-    assert again["config"]["scope"]["limit"] == 20
-    assert again["rows"] == first["rows"]
-
-
-def test_a_run_reports_its_progress_and_moves_its_dataset_to_the_top(
-    client, tmp_path, dataset, job, api_key, monkeypatch
-):
-    other = tmp_path / "other.csv"
-    other.write_text("a\n1\n")
-    newer = client.post("/v1/datasets", data={"source": str(other)}).json()
-    assert [d["id"] for d in client.get("/v1/datasets").json()] == [newer["id"], dataset["id"]]
-
-    started = []
-    monkeypatch.setattr(runs, "_start", started.append)
-    created = run(client, job)
-    assert (created["status"], created["done"], created["total"]) == ("running", 0, 3)
-    listed = client.get("/v1/datasets").json()
-    assert [d["id"] for d in listed] == [dataset["id"], newer["id"]]
-    assert listed[0]["running"] == {
-        "run_id": created["id"],
-        "number": 1,
-        "done": 0,
-        "total": 3,
-    }
-    assert listed[0]["last_activity_at"] == created["created_at"]
-
-    started[0]()
+    resumed = client.post(f"/v1/runs/{created['id']}/resume").json()
+    assert resumed["status"] == "queued"
+    while runs.process_next():
+        pass
     finished = client.get(f"/v1/runs/{created['id']}").json()
-    assert (finished["status"], finished["done"]) == ("done", 3)
-    assert len(finished["rows"]) == 3
-    assert client.get("/v1/datasets").json()[0]["running"] is None
+    assert (finished["status"], finished["next_chunk"]) == ("done", 3)
+    assert client.post(f"/v1/runs/{created['id']}/resume").status_code == 400
 
 
-def test_runs_cut_off_by_a_restart_are_failed(client, job, api_key, monkeypatch):
-    monkeypatch.setattr(runs, "_start", lambda work: None)
-    created = run(client, job)
-    runs.fail_interrupted_runs()
-    failed = client.get(f"/v1/runs/{created['id']}").json()
-    assert failed["status"] == "failed"
-    assert failed["error"] == "The server stopped during the run."
+def test_a_run_killed_mid_way_completes_after_a_restart_without_paying_twice(
+    client, job, api_key, fake, monkeypatch
+):
+    monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
+    fake.crash_on = "Is this review negative? Love it"  # row 1, the second chunk
+    created = start(client, job)
+    with pytest.raises(KeyboardInterrupt):
+        runs.process_next()
+    cut_off = client.get(f"/v1/runs/{created['id']}").json()
+    assert (cut_off["status"], cut_off["next_chunk"]) == ("running", 1)
+
+    # The server starts again: the run is queued and continues from its first unwritten chunk.
+    runs.recover_interrupted_runs()
+    while runs.process_next():
+        pass
+    finished = client.get(f"/v1/runs/{created['id']}").json()
+    assert finished["status"] == "done"
+    asked = [call[3]["state"] for call in fake.calls if call[1] == "/alpha/decisions"]
+    # Each row was paid for once; the crashed call never got an answer, so it was asked again.
+    assert sorted(asked) == sorted(
+        [
+            "Is this review negative? Terrible product",
+            "Is this review negative? Love it",
+            "Is this review negative? Love it",
+            "Is this review negative? Broke after a day",
+        ]
+    )
+    assert finished["cost"] == pytest.approx(0.003)
 
 
-def test_runs_are_deleted_with_their_dataset(client, dataset, job, api_key):
-    created = run(client, job)
+def test_runs_are_numbered_per_parent_and_frozen(client, dataset, job, api_key):
+    first = run(client, job)
+    second = run(client, update(client, job, scope={**job["scope"], "limit": 1}))
+    assert (first["number"], second["number"]) == (1, 2)
+    made = [client.get(f"/v1/datasets/{r['dataset_id']}").json() for r in (first, second)]
+    assert [(d["name"], d["row_count"]) for d in made] == [("reviews-run1", 3), ("reviews-run2", 1)]
+    assert client.get(f"/v1/runs/{first['id']}").json()["config"]["scope"]["limit"] == 20
+
+
+def test_a_run_goes_with_the_dataset_it_makes(client, dataset, job, api_key, data_dir):
+    finished = run(client, job)
+    # Deleting the parent keeps what was made from it: its rows were copied.
     client.delete(f"/v1/datasets/{dataset['id']}")
-    assert client.get(f"/v1/runs/{created['id']}").status_code == 404
+    made = client.get(f"/v1/datasets/{finished['dataset_id']}").json()
+    assert made["row_count"] == 3
+    assert client.get(f"/v1/runs/{finished['id']}").status_code == 200
+
+    client.delete(f"/v1/datasets/{made['id']}")
+    assert client.get(f"/v1/runs/{finished['id']}").status_code == 404
+    assert not (data_dir / "datasets" / made["id"]).exists()
+
+
+def test_an_empty_scope_makes_nothing(client, job, api_key):
+    empty = update(client, job, scope={"search": "no such review"})
+    assert start(client, empty)["detail"] == "The scope has no rows."
+    assert len(client.get("/v1/datasets").json()) == 1
 
 
 def test_run_explains_what_is_missing(client, job):
@@ -297,6 +372,15 @@ def test_run_explains_what_is_missing(client, job):
     )
     assert detail(tasks=[NEGATIVE, NEGATIVE]) == (
         "Two tasks write the same column: negative__jev-1.14."
+    )
+
+
+def test_a_run_on_a_dataset_a_run_made_needs_new_column_names(client, job, api_key):
+    finished = run(client, job)
+    made = client.post(f"/v1/datasets/{finished['dataset_id']}/jobs", json={"tasks": [NEGATIVE]})
+    again = run(client, made.json())
+    assert again["detail"] == (
+        "The dataset already has a column negative__jev-1.14. Rename the task's result column."
     )
 
 

@@ -10,6 +10,7 @@ Both report their cost in USD as `usage.cost`.
 
 import hashlib
 import json
+import random
 import time
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -23,6 +24,11 @@ from rowlab.core.errors import InvalidRequest
 
 BASE_URL = "https://openrouter.ai/api"
 CATALOG_TTL_SECONDS = 3600
+
+# Per call: wait this long for an answer, and try this many times when the failure may pass.
+TIMEOUT_SECONDS = 60
+ATTEMPTS = 4
+RETRY_BASE_SECONDS = 1.0
 
 
 class Model(BaseModel):
@@ -44,6 +50,18 @@ class Response(BaseModel):
 
 class OpenRouterError(Exception):
     """A failed OpenRouter call, with OpenRouter's own message."""
+
+    def __init__(
+        self, message: str, *, status: int | None = None, retry_after: float | None = None
+    ):
+        super().__init__(message)
+        self.status = status  # None when OpenRouter couldn't be reached or didn't answer in time
+        self.retry_after = retry_after
+
+    @property
+    def retryable(self) -> bool:
+        """Rate limits, server errors and timeouts may pass; anything else will fail again."""
+        return self.status is None or self.status == 429 or self.status >= 500
 
 
 _catalog: tuple[float, list[Model]] | None = None
@@ -118,13 +136,27 @@ def _cached_post(path: str, body: dict[str, Any], api_key: str) -> tuple[dict[st
         row = conn.execute("SELECT response FROM responses WHERE key = ?", (key,)).fetchone()
     if row is not None:
         return json.loads(row["response"]), True
-    response = _request("POST", path, api_key=api_key, body=body)
+    response = _post_with_retries(path, body, api_key)
     with db.connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO responses (key, response, created_at) VALUES (?, ?, ?)",
             (key, json.dumps(response), datetime.now(UTC).isoformat()),
         )
     return response, False
+
+
+def _post_with_retries(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
+    """POST, retrying failures that may pass, waiting longer each time (or as long as OpenRouter
+    asks), with some randomness so parallel calls don't retry in step."""
+    for attempt in range(ATTEMPTS):
+        try:
+            return _request("POST", path, api_key=api_key, body=body)
+        except OpenRouterError as e:
+            if not e.retryable or attempt == ATTEMPTS - 1:
+                raise
+            wait = e.retry_after or RETRY_BASE_SECONDS * 2**attempt * random.uniform(1, 1.5)
+            time.sleep(wait)
+    raise AssertionError("unreachable")
 
 
 def _model(data: dict[str, Any], kind: Literal["decision", "llm"]) -> Model:
@@ -144,7 +176,9 @@ def _request(method: str, path: str, *, api_key: str | None, body: Any = None) -
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     try:
-        response = httpx.request(method, BASE_URL + path, headers=headers, json=body, timeout=120)
+        response = httpx.request(
+            method, BASE_URL + path, headers=headers, json=body, timeout=TIMEOUT_SECONDS
+        )
     except httpx.HTTPError as e:
         raise OpenRouterError(f"Could not reach OpenRouter: {e}") from e
     if response.is_error:
@@ -152,5 +186,10 @@ def _request(method: str, path: str, *, api_key: str | None, body: Any = None) -
             message = response.json()["error"]["message"]
         except (ValueError, KeyError, TypeError):
             message = response.text[:200]
-        raise OpenRouterError(f"HTTP {response.status_code}: {message}")
+        retry_after = response.headers.get("retry-after")
+        raise OpenRouterError(
+            f"HTTP {response.status_code}: {message}",
+            status=response.status_code,
+            retry_after=float(retry_after) if retry_after and retry_after.isdigit() else None,
+        )
     return response.json()

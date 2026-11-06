@@ -161,31 +161,12 @@ export interface paths {
         put?: never;
         /**
          * Create Run
-         * @description Start running every task with every model on the rows in the job's scope. It runs in the
-         *     background: poll `GET /v1/runs/{id}` for its progress and answers. Answers already given are
-         *     free: they come from the response cache.
+         * @description Queue a run of every task with every model on the rows in the job's scope. It makes a new
+         *     dataset (`dataset_id`), created right away with those rows, whose answer columns fill in as the
+         *     run works through them in the background: poll `GET /v1/runs/{id}` for its progress. Answers
+         *     already given are free: they come from the response cache.
          */
         post: operations["createRun"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Runs
-         * @description A dataset's runs, newest first, without their answers.
-         */
-        get: operations["listRuns"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -199,13 +180,50 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Run
-         * @description A run with its settings, costs and answers for every row.
-         */
+        /** Get Run */
         get: operations["getRun"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Run
+         * @description Stop after the calls in flight. The chunk in progress is redone on resume, for free.
+         */
+        post: operations["stopRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume Run
+         * @description Continue a stopped or failed run from its first unwritten chunk.
+         */
+        post: operations["resumeRun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -318,11 +336,6 @@ export interface components {
             name: string;
             /** Source */
             source: string;
-            /**
-             * Format
-             * @enum {string}
-             */
-            format: "csv" | "json" | "jsonl" | "parquet";
             /** Row Count */
             row_count: number;
             /** Size Bytes */
@@ -335,13 +348,40 @@ export interface components {
              */
             created_at: string;
             /**
-             * Last Activity At
-             * Format: date-time
-             * @description When it was added or last run, whichever is later.
+             * Parent Id
+             * @description The dataset it was made from by a run.
              */
-            last_activity_at: string;
-            /** @description Its latest run, while that is running. */
-            running: components["schemas"]["RunProgress"] | null;
+            parent_id: string | null;
+            /** @description The run that makes it; its rows fill in as it goes. */
+            run: components["schemas"]["DatasetRun"] | null;
+        };
+        /**
+         * DatasetRun
+         * @description The run that makes a dataset.
+         */
+        DatasetRun: {
+            /** Id */
+            id: string;
+            /**
+             * Number
+             * @description 1, 2, … per parent dataset.
+             */
+            number: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed";
+            /**
+             * Done
+             * @description Model calls answered so far.
+             */
+            done: number;
+            /**
+             * Total
+             * @description Model calls the run makes.
+             */
+            total: number;
         };
         /** Filter */
         Filter: {
@@ -549,33 +589,21 @@ export interface components {
         Run: {
             /** Id */
             id: string;
-            /** Dataset Id */
+            /**
+             * Dataset Id
+             * @description The dataset it makes.
+             */
             dataset_id: string;
             /**
              * Number
-             * @description 1, 2, … per dataset.
+             * @description 1, 2, … per parent dataset.
              */
             number: number;
             /**
              * Status
              * @enum {string}
              */
-            status: "running" | "done" | "failed";
-            /**
-             * Done
-             * @description Model calls answered so far.
-             */
-            done: number;
-            /**
-             * Total
-             * @description Model calls the run makes.
-             */
-            total: number;
-            /**
-             * Error
-             * @description Why the run failed.
-             */
-            error: string | null;
+            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed";
             /** @description The job's scope and tasks when the run started. */
             config: components["schemas"]["JobConfig-Output"];
             /**
@@ -585,115 +613,43 @@ export interface components {
             columns: string[];
             /**
              * Costs
-             * @description Per task and model.
+             * @description Per task and model, so far.
              */
             costs: components["schemas"]["TaskModelCost"][];
             /** Row Count */
             row_count: number;
             /**
+             * Next Chunk
+             * @description The first chunk of rows not yet written.
+             */
+            next_chunk: number;
+            /**
+             * Done
+             * @description Model calls answered (or failed) so far.
+             */
+            done: number;
+            /**
+             * Total
+             * @description Model calls the run makes.
+             */
+            total: number;
+            /**
              * Cost
-             * @description USD spent by this run; cached answers are free.
+             * @description USD spent so far; cached answers are free.
              */
             cost: number;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Rows */
-            rows: components["schemas"]["RunRow"][];
-        };
-        /** RunProgress */
-        RunProgress: {
-            /** Run Id */
-            run_id: string;
-            /** Number */
-            number: number;
-            /**
-             * Done
-             * @description Model calls answered so far.
-             */
-            done: number;
-            /**
-             * Total
-             * @description Model calls the run makes.
-             */
-            total: number;
-        };
-        /** RunRow */
-        RunRow: {
-            /** Row Id */
-            row_id: number;
-            /**
-             * Values
-             * @description Each answer column and its `_proba` column.
-             */
-            values: {
-                [key: string]: unknown;
-            };
-            /**
-             * Errors
-             * @description Why an answer column is missing, by column.
-             */
-            errors: {
-                [key: string]: string;
-            };
-        };
-        /** RunSummary */
-        RunSummary: {
-            /** Id */
-            id: string;
-            /** Dataset Id */
-            dataset_id: string;
-            /**
-             * Number
-             * @description 1, 2, … per dataset.
-             */
-            number: number;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "running" | "done" | "failed";
-            /**
-             * Done
-             * @description Model calls answered so far.
-             */
-            done: number;
-            /**
-             * Total
-             * @description Model calls the run makes.
-             */
-            total: number;
             /**
              * Error
              * @description Why the run failed.
              */
             error: string | null;
-            /** @description The job's scope and tasks when the run started. */
-            config: components["schemas"]["JobConfig-Output"];
-            /**
-             * Columns
-             * @description The answer columns, each with a `_proba` column.
-             */
-            columns: string[];
-            /**
-             * Costs
-             * @description Per task and model.
-             */
-            costs: components["schemas"]["TaskModelCost"][];
-            /** Row Count */
-            row_count: number;
-            /**
-             * Cost
-             * @description USD spent by this run; cached answers are free.
-             */
-            cost: number;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Updated At */
+            updated_at: string | null;
         };
         /**
          * Scope
@@ -1243,12 +1199,12 @@ export interface operations {
             };
         };
     };
-    listRuns: {
+    getRun: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                dataset_id: string;
+                run_id: string;
             };
             cookie?: never;
         };
@@ -1260,7 +1216,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunSummary"][];
+                    "application/json": components["schemas"]["Run"];
                 };
             };
             /** @description Validation Error */
@@ -1274,7 +1230,38 @@ export interface operations {
             };
         };
     };
-    getRun: {
+    stopRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resumeRun: {
         parameters: {
             query?: never;
             header?: never;

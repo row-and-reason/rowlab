@@ -19,11 +19,12 @@ import { Spinner } from "@/components/ui/spinner";
 import { ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
 import type { Dataset, Settings } from "@/lib/api/client";
 import { formatNumber } from "@/lib/format";
+import { isActive } from "@/lib/runs";
 import { useSlideReorder } from "@/lib/use-slide-reorder";
 
-type RunProgressData = NonNullable<Dataset["running"]>;
+type DatasetRun = NonNullable<Dataset["run"]>;
 
-/** The left column: every dataset, uploaded or produced by a run, and app-wide settings. */
+/** The left column: every dataset, added from a file or made by a run, and app-wide settings. */
 export function DatasetsPanel({
   datasets,
   selectedId,
@@ -40,7 +41,7 @@ export function DatasetsPanel({
   onKey: () => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
-  // The most recently active dataset comes first; a run moves its dataset to the top.
+  // The newest dataset comes first; a run's dataset slides in at the top.
   const slideRef = useSlideReorder(datasets?.map((d) => d.id) ?? []);
 
   return (
@@ -76,14 +77,13 @@ export function DatasetsPanel({
                       />
                     }
                   >
-                    {dataset.running && <RunProgress progress={dataset.running} />}
+                    {dataset.run && isActive(dataset.run) && <RunProgress run={dataset.run} />}
                     <ItemContent className="min-w-0">
                       <ItemTitle className="w-full truncate" title={dataset.name}>
                         {dataset.name}
                       </ItemTitle>
-                      <ItemDescription className="text-xs">
-                        {formatNumber(dataset.row_count)} rows · {dataset.columns.length - 1}{" "}
-                        columns
+                      <ItemDescription className="truncate text-xs">
+                        {describe(dataset, datasets)}
                       </ItemDescription>
                     </ItemContent>
                   </ContextMenuTrigger>
@@ -127,14 +127,25 @@ export function DatasetsPanel({
   );
 }
 
-/** A thin bar along the top edge of a dataset whose run is going: how many model calls are done. */
-function RunProgress({ progress }: { progress: RunProgressData }) {
-  const percent = progress.total ? (100 * progress.done) / progress.total : 0;
+/** E.g. "600 rows · 12 columns", or "Run #1 of titanic · stopped" for one a run made. */
+function describe(dataset: Dataset, datasets: Dataset[]): string {
+  if (!dataset.run) {
+    return `${formatNumber(dataset.row_count)} rows · ${dataset.columns.length - 1} columns`;
+  }
+  const parent = datasets.find((d) => d.id === dataset.parent_id)?.name ?? "a deleted dataset";
+  const status =
+    dataset.run.status === "done" ? `${formatNumber(dataset.row_count)} rows` : dataset.run.status;
+  return `Run #${dataset.run.number} of ${parent} · ${status}`;
+}
+
+/** A thin bar along the top edge of a dataset a run is making: how many model calls are done. */
+function RunProgress({ run }: { run: DatasetRun }) {
+  const percent = run.total ? (100 * run.done) / run.total : 0;
   return (
     <ProgressPrimitive.Root
       value={percent}
-      aria-label={`Run #${progress.number}`}
-      title={`Run #${progress.number}: ${formatNumber(progress.done)} of ${formatNumber(progress.total)} answers`}
+      aria-label={`Run #${run.number}`}
+      title={`Run #${run.number}: ${formatNumber(run.done)} of ${formatNumber(run.total)} answers`}
       className="absolute inset-x-0 top-0"
     >
       <ProgressTrack className="h-0.5 rounded-none bg-transparent">

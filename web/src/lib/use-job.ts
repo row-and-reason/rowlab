@@ -17,7 +17,10 @@ export function useJob(datasetId: string) {
   useEffect(() => {
     let current = true;
     if (!loading.has(datasetId)) {
-      loading.set(datasetId, loadOrCreate(datasetId).finally(() => loading.delete(datasetId)));
+      loading.set(
+        datasetId,
+        loadOrCreate(datasetId).finally(() => loading.delete(datasetId)),
+      );
     }
     loading.get(datasetId)!.then((loaded) => {
       if (!current || !loaded) return;
@@ -46,12 +49,9 @@ export function useJob(datasetId: string) {
     return () => clearTimeout(timer);
   }, [job, save]);
 
-  const update = useCallback(
-    (changes: Partial<JobConfig> | ((job: Job) => Partial<JobConfig>)) => {
-      setJob((job) => job && { ...job, ...(typeof changes === "function" ? changes(job) : changes) });
-    },
-    [],
-  );
+  const update = useCallback((changes: Partial<JobConfig> | ((job: Job) => Partial<JobConfig>)) => {
+    setJob((job) => job && { ...job, ...(typeof changes === "function" ? changes(job) : changes) });
+  }, []);
 
   /** Save pending changes now, e.g. before a preview runs the saved job. */
   const flush = useCallback(() => (job ? save(job) : Promise.resolve()), [job, save]);
@@ -59,7 +59,8 @@ export function useJob(datasetId: string) {
   return { job, update, flush };
 }
 
-async function loadOrCreate(datasetId: string): Promise<Job | undefined> {
+/** A dataset's job, created with one empty task if it has none yet. */
+export async function loadOrCreate(datasetId: string): Promise<Job | undefined> {
   const path = { params: { path: { dataset_id: datasetId } } };
   const { data, error } = await api.GET("/v1/datasets/{dataset_id}/jobs", path);
   if (error) {

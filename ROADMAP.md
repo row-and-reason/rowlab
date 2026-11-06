@@ -6,7 +6,9 @@ filters, sort and paging; 1M rows ingest in under a second and every page query 
 A prompt template can be composed from columns with a live per-row preview and token estimates.
 Milestone 3 is in progress: a job runs several tasks (yes/no, pick one, pick any, scale), each with one or
 more decision models or LLMs, on the rows its scope picks (search, filters, sort, limit), with costs per
-task and model; LLM-only answer types are next.
+task and model; LLM-only answer types are next. Milestones 4 and 5 are done: every run makes a new
+dataset that appears at once and fills in as the run works in the background in chunks of 500 rows; runs
+can be stopped and resumed, survive a server restart without paying twice, and show live progress.
 `rowlab serve` serves the API and UI on one port, and `make build` produces a wheel with the UI bundled.
 
 **MVP:** a local tool that takes a CSV/JSON/JSONL/Parquet file from disk, HTTP or S3, runs a configured
@@ -15,42 +17,41 @@ resumed without paying twice, shows all work and its live progress, and writes t
 
 ## Terms
 
-- **Dataset** — an ingested file, or the result of a run. Stored once as Parquet with a stable `__row_id`;
-  never modified.
+- **Dataset** — an ingested file, or what a run made from another dataset. Stored as Parquet with a stable
+  `__row_id`, whatever the original format, and named without a file extension; never modified once
+  complete. The format to export to is picked at export time.
 - **Job** — a saved configuration: the dataset rows to process and the tasks to run on each.
 - **Task** — one thing to produce per row: a prompt (the question, with the row's columns in it), an answer
   type with its options, a result column name, and the models that answer it.
-- **Run** — one execution of a job. Holds a frozen copy of the job's settings, progress and per-row results,
-  and produces a new dataset.
+- **Run** — one execution of a job, which makes a new dataset. Holds a frozen copy of the job's settings,
+  its progress and costs. It belongs to the dataset it makes: that dataset's Lineage tab shows it.
 
 ## Workflow: a loop
 
-Labeling a dataset never changes it; a run produces a new dataset with the result columns added, which
-appears in the dataset list like any upload. Pick it to filter on the new labels and label again, e.g. a
+Labeling a dataset never changes it; a run makes a new dataset with the result columns added, which
+appears at the top of the dataset list straight away and fills in as the run goes. Pick it to filter on the new labels and label again, e.g. a
 cheap yes/no filter first, then an LLM extraction on the "yes" rows only.
 
 - A produced dataset holds **only the rows the run processed** (the job's scope), with the
   parent's columns plus the result columns. `__row_id` is kept from the parent, so every row can be traced
   back to the original file.
-- It records its parent dataset and the run that made it — one link, shown as an origin line ("from
-  customers.csv · sentiment"). No version history or branching graph.
+- It records its parent dataset and the run that made it, shown in the list ("Run #1 of customers") and in
+  its Lineage tab: what it was made from, how (scope, tasks, models, costs), and what was made from it.
+  Its rows are copied when the run starts, so it doesn't depend on its parent.
 
 ## UI layout
 
 One page with three resizable columns (widths are remembered):
 
-- **Datasets** — a feed of recent dataset activity, newest first: uploads, and datasets being produced by
-  runs with a small live progress bar (labeling, stopped, failed), plus "Add data".
+- **Datasets** — every dataset, newest first: added files, and datasets made by runs, with a thin live
+  progress bar while a run is making them, plus "Add data".
 - **Rows** — the selected dataset's data: the rows table (search, filters, sort, limit), a Columns tab
-  with statistics for every column and nested field, and a Runs tab listing its runs. Columns are
-  dragged from here into a task's prompt. The search, filters, sort and limit are the new run's
-  **scope**: the table shows exactly the rows it processes. Viewing a run shows its rows with its
-  answers as extra columns. A dataset still being produced shows the rows finished so far, with
-  stop/resume.
-- **Run** — while composing ("New run"): the tasks (each a prompt with columns dragged in, an answer
-  type, a result column and models) and **Run**. While viewing a past run (picked in the middle's Runs
-  tab): its settings and costs, and later its progress (rows per second, ETA, errors) and exporting to a
-  file or S3.
+  with statistics for every column and nested field, and a Lineage tab. Columns are dragged from here
+  into a task's prompt. The search, filters, sort and limit are the next run's **scope**: the table
+  shows exactly the rows it processes. A dataset still being made shows its answers as they come in,
+  with Stop/Resume in its toolbar.
+- **New run** — the tasks (each a prompt with columns dragged in, an answer type, a result column and
+  models) and **Run**, which opens the dataset the run makes. Later also exporting to a file or S3.
 
 It works like a desktop app: thin column toolbars, Filter and Display popovers instead of forms, menus
 for actions, a ⌘K command palette and shortcuts (⌘↵ run, J/K switch dataset, / search), dark mode
@@ -68,7 +69,8 @@ later). Each milestone ships API, UI and tests together, and ends with `make lin
 ### 1. Datasets: load and explore local files ✅
 
 - Ingest CSV/TSV, JSON (array of objects), JSONL and Parquet, optionally gzipped, with DuckDB →
-  `datasets/{id}/data.parquet` plus `__row_id`. The format is detected from the content, not the name.
+  `datasets/{id}/data.parquet` plus `__row_id`. The format is detected from the content, not the name,
+  and the name drops the file's extension.
   Nested values stay as structs/lists and are shown as JSON.
 - SQLite app state (`datasets` table) with plain SQL migrations. Data dir `~/.rowlab`, overridable.
 - API: `POST /v1/datasets` (upload or local path), list, get, delete, `profile`, `query`.
@@ -119,59 +121,52 @@ use-case archetypes; phase 1 covers everything decision models can answer, phase
   filters, sort and limit) and the tasks; the UI creates one per dataset and saves as you edit. A new job
   is limited to 20 rows, so its first run is cheap. Tasks are small cards that expand to their prompt,
   answer and models.
-- `POST /v1/jobs/{id}/run` runs every task and model on the rows in scope: answers, probabilities and cost
-  per task and model. The UI shows the answers as columns next to the rows. Runs happen within the request
-  for now, so they are limited to 1,000 rows; milestone 4 moves them to the background.
+- Running a job asks every task and model about the rows in scope: answers, probabilities and cost per
+  task and model. The UI shows the answers as columns next to the rows. Runs are milestone 4.
 
 **Phase 2 — to do:** answer types only LLMs can produce: extract named fields, numbers, lists, free text,
 normalization. An optional reason column is a candidate too.
 
 - **Done when** a user can configure each answer type and run it on a few rows.
 
-### 4. Runs: start, stop, resume (started)
+### 4. Runs: start, stop, resume ✅
 
-Done so far — runs are kept and browsable:
+- `POST /v1/jobs/{id}/runs` queues a run and returns at once with the dataset it makes (`dataset_id`):
+  the rows in scope are copied into it (`rows.parquet`), named `<parent>-run<n>`, with empty answer
+  columns. The run keeps a frozen copy of its scope and tasks and is numbered per parent (#1, #2, …).
+  `GET /v1/runs/{id}` returns its status (`queued`, `running`, `stopping`, `stopped`, `done`, `failed`),
+  progress and cost per task and model; each dataset carries its run's status and progress too.
+- One runner thread in the server works through queued runs one at a time, oldest first, with 16 model
+  calls in flight. Rows are split into fixed chunks of 500 by `__row_id`. Each finished chunk's answers
+  are written to its own Parquet part file (`datasets/<id>/parts/part-<n>.parquet`, written to a temporary
+  file and renamed), and SQLite only records the next chunk to do. Progress is saved about twice a second.
+  Until the run is done the dataset is read as its rows joined with the parts written so far, so search,
+  filters and sort work on the answers as they come in.
+- Model calls time out after 60 seconds and are retried up to 4 times with backoff on rate limits, server
+  errors and timeouts, honouring `Retry-After`. A row that still fails has empty answer columns and counts
+  as failed for its task and model.
+  The response cache from milestone 3 means answers already given are free.
+- `POST /v1/runs/{id}/stop` stops after the chunk in progress; `POST /v1/runs/{id}/resume` continues from
+  the next chunk. Runs cut off by a server restart are queued again on startup and continue where they
+  left off: killing the server mid-run and restarting completes the run without paying twice (tested).
+- When a run finishes, its dataset is written out once as `data.parquet`, like any other dataset.
+  Deleting a dataset deletes the run that makes it; datasets made from it stay.
+- UI: Run opens the new dataset. Its rows fill in as chunks finish; its toolbar has Stop or Resume; its
+  Lineage tab shows what it was made from, the run's status, progress bar, answers per second and time
+  left, its settings and costs, "Edit and run again" (puts its scope and tasks back on the parent), and
+  what has been made from it.
 
-- `POST /v1/jobs/{id}/runs` starts a run in a background thread and returns at once. The run keeps a
-  frozen copy of its scope and tasks, its status (`running`, `done`, `failed`) and progress (model calls
-  done of total, saved about twice a second), then its answers per row and cost per task and model.
-  Runs are numbered per dataset (#1, #2, …). Runs cut off by a server restart are marked failed.
-  `GET /v1/datasets/{id}/runs` lists them; `GET /v1/runs/{id}` returns one with its answers.
-- UI: a Runs tab in the middle lists a dataset's runs. Opening one (`?run=<id>`) shows its settings and
-  costs on the right, and its rows and answers in the middle, read-only, with its own scope. "New run"
-  goes back to composing with one empty task on the rows you have picked; "Edit as new run" starts
-  from the run you were looking at instead, its rows and tasks.
+### 5. Live progress in the dataset feed ✅
 
-Still to do:
-
-- Answers stored as they arrive, so a run can resume after a restart; then lift the 1,000-row limit.
-- Starting a run creates its output dataset right away, with a status: `running`, `stopped`, `failed` or
-  `ready`. The dataset records its parent dataset and run.
-- When the run finishes, the output dataset's Parquet is written once: the processed rows with the
-  parent's columns (and `__row_id`) plus the result columns. A `ready` dataset never changes.
-- Uses the response cache from milestone 3, so answers already given are free.
-- One asyncio worker in the server process: bounded concurrency, retry with backoff on rate limits and
-  transient errors, failed rows recorded with their error and retryable.
-- API: `POST /v1/runs/{id}/stop`, `POST /v1/runs/{id}/resume`.
-- Runs left `running` when the server stopped are resumed on startup.
-- **Done when** killing the server mid-run and restarting completes the run with no duplicate paid calls.
-
-### 5. Live progress in the dataset feed (started)
-
-Done so far: the dataset list is ordered by latest activity (added or last run), a run slides its dataset
-to the top, and a running run shows as a thin progress bar on top of its dataset, refreshed every second.
-
-
-- API: `GET /v1/datasets` lists datasets by latest activity and includes progress counts for datasets
-  still being produced; `GET /v1/runs/{id}` for one run's details.
-- UI: the dataset feed shows a small progress bar on datasets being produced, refreshed by polling while
-  any run is active. Selecting one shows the rows finished so far in the middle column, with stop/resume;
-  the job column shows done/failed/cached counts, rows per second, ETA, cost so far and errors.
+- The dataset list is newest first, so a run's dataset slides in at the top. While a run is making it,
+  a thin progress bar shows on top of it, refreshed every second while any run is active.
+- A dataset being made shows its rows filling in, and its Lineage tab the progress, answers per second,
+  time left, cost so far and failed answers per task and model.
 
 ### 6. Export to local
 
-- Export any dataset (uploaded or produced) as CSV, JSONL or Parquet. A produced dataset already holds the
-  original columns plus the result columns.
+- Export any dataset (added or made by a run) as CSV, JSONL or Parquet, picked at export time. A dataset
+  made by a run already holds the original columns plus the result columns.
 - API: `POST /v1/datasets/{id}/export` → download, or write to a local path.
 - UI: export in the job column for the selected dataset.
 

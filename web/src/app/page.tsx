@@ -4,6 +4,7 @@ import {
   DatabaseIcon,
   KeyRoundIcon,
   ListChecksIcon,
+  ListRestartIcon,
   MoonIcon,
   PlayIcon,
   PlusIcon,
@@ -54,9 +55,10 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Dataset, type Settings } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
+import { isActive } from "@/lib/runs";
 
 // The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
-// in the query string (`/?dataset=<id>&tab=rows&run=<id>`), because a static export can't have routes for
+// in the query string (`/?dataset=<id>&tab=rows`), because a static export can't have routes for
 // ids that only exist at runtime. Changing it is a client-side navigation, so the columns stay mounted.
 export default function Home() {
   return (
@@ -73,7 +75,6 @@ function Workspace() {
   const { resolvedTheme, setTheme } = useTheme();
   const selectedId = params.get("dataset");
   const tab: Tab = TABS.find((t) => t === params.get("tab")) ?? "rows";
-  const runId = params.get("run");
   const [datasets, setDatasets] = useState<Dataset[] | null>(null);
   const [settings, setSettings] = useState<Settings>();
   const [adding, setAdding] = useState(false);
@@ -96,8 +97,8 @@ function Workspace() {
     api.GET("/v1/settings").then(({ data }) => setSettings(data));
   }, [load]);
 
-  // While a run is going, keep its progress (and the list's order) current.
-  const anyRunning = datasets?.some((d) => d.running) ?? false;
+  // While a run is going, keep its progress and its dataset's rows current.
+  const anyRunning = datasets?.some((d) => d.run && isActive(d.run)) ?? false;
   useEffect(() => {
     if (!anyRunning) return;
     const timer = setInterval(load, 1000);
@@ -168,13 +169,12 @@ function Workspace() {
           <DatasetPanels
             key={selected.id}
             dataset={selected}
+            datasets={datasets ?? []}
             tab={tab}
-            runId={runId}
-            onOpen={(t, run) =>
-              router.push(`/?dataset=${selected.id}&tab=${t}${run ? `&run=${run}` : ""}`)
-            }
+            onTabChange={(t) => router.push(`/?dataset=${selected.id}&tab=${t}`)}
             onDelete={() => setDeleting(selected)}
-            onRunStarted={load}
+            onChanged={load}
+            onOpenDataset={select}
             actionsRef={jobActionsRef}
           />
         ) : (
@@ -243,9 +243,9 @@ function Workspace() {
                     Run job
                     <CommandShortcut>⌘↵</CommandShortcut>
                   </CommandItem>
-                  <CommandItem onSelect={() => command(() => jobActionsRef.current?.newRun())}>
-                    <PlusIcon />
-                    New run
+                  <CommandItem onSelect={() => command(() => jobActionsRef.current?.clearTasks())}>
+                    <ListRestartIcon />
+                    Clear tasks
                   </CommandItem>
                   <CommandItem onSelect={() => command(() => jobActionsRef.current?.addTask())}>
                     <ListChecksIcon />

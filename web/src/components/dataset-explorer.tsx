@@ -37,24 +37,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  api,
-  type Dataset,
-  type Filter,
-  type RunRow,
-  type QueryResult,
-  type Scope,
-} from "@/lib/api/client";
+import { api, type Dataset, type Filter, type QueryResult, type Scope } from "@/lib/api/client";
 import { errorMessage, formatCell, formatNumber } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 type Row = Record<string, unknown>;
 
 const ROW_ID = "__row_id";
-const RESULT = "__result:";
-
-/** Answers from the job's latest run, shown as extra columns next to the rows they belong to. */
-export type RunRows = { columns: string[]; rows: Map<number, RunRow> };
 
 const features = tableFeatures({});
 const helper = createColumnHelper<typeof features, Row>();
@@ -78,21 +66,19 @@ const PAGE_SIZES = [50, 100, 250, 500].map((n) => ({ value: String(n), label: `$
 
 /**
  * Server-side search, filters, sort, limit and paging over a dataset's rows. All but the paging are
- * the job's scope: the rows shown here are exactly the rows the job runs on. When viewing a run, the
- * scope is that run's and can't be changed.
+ * the job's scope: the rows shown here are exactly the rows the job runs on. `version` changes when
+ * the rows themselves do, e.g. as a run fills in its answers, so the page is fetched again.
  */
 export function DatasetExplorer({
   dataset,
   scope,
   onScopeChange,
-  results,
-  viewing,
+  version,
 }: {
   dataset: Dataset;
   scope: Scope;
   onScopeChange: (changes: Partial<Scope>) => void;
-  results?: RunRows;
-  viewing?: { label: string; onClose: () => void };
+  version?: number;
 }) {
   const { search, filters } = scope;
   const sort = scope.sort[0] ?? null;
@@ -139,40 +125,24 @@ export function DatasetExplorer({
     return () => {
       current = false;
     };
-  }, [dataset.id, request]);
+  }, [dataset.id, request, version]);
 
-  const columns = useMemo(() => {
-    const data = dataset.columns.map((c) =>
-      helper.accessor((row) => row[c.name], {
-        id: c.name,
-        header: c.name,
-        cell: (info) => <CellValue value={info.getValue()} />,
-      }),
-    );
-    if (!results) return data;
-    const answers = results.columns.map((column) =>
-      helper.accessor((row): unknown => row[RESULT], {
-        id: RESULT + column,
-        header: column,
-        cell: (info) => <ResultValue row={info.getValue() as RunRow | undefined} column={column} />,
-      }),
-    );
-    // Right after the row id, so the answers are next to the data they are about.
-    return [data[0], ...answers, ...data.slice(1)];
-  }, [dataset.columns, results]);
   // The last good page stays on screen while the next one loads.
   const [shown, setShown] = useState<QueryResult>();
   if (result?.data && result.data !== shown) setShown(result.data);
-  // Run answers go into the row data rather than being looked up by the columns: the table caches
-  // cell values per row, so new answers must mean new rows.
-  const data = useMemo(
+
+  const columns = useMemo(
     () =>
-      results && shown
-        ? shown.rows.map((row) => ({ ...row, [RESULT]: results.rows.get(row[ROW_ID] as number) }))
-        : (shown?.rows ?? emptyRows),
-    [shown, results],
+      dataset.columns.map((c) =>
+        helper.accessor((row) => row[c.name], {
+          id: c.name,
+          header: c.name,
+          cell: (info) => <CellValue value={info.getValue()} />,
+        }),
+      ),
+    [dataset.columns],
   );
-  const table = useTable({ features, columns, data });
+  const table = useTable({ features, columns, data: shown?.rows ?? emptyRows });
 
   const loading = result?.request !== request;
   const total = shown?.total ?? 0;
@@ -187,77 +157,54 @@ export function DatasetExplorer({
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b px-3 py-2">
-        {viewing ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            title="Back to the new run"
-            onClick={viewing.onClose}
-          >
-            {viewing.label}
-            <XIcon data-icon="inline-end" />
-          </Button>
-        ) : (
-          <>
-            <InputGroup className="w-56">
-              <InputGroupAddon>
-                <SearchIcon />
-              </InputGroupAddon>
-              <InputGroupInput
-                id="rows-search"
-                placeholder="Search"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-            </InputGroup>
-            <FilterButton
-              dataset={dataset}
-              onAdd={(filter) => changeScope({ filters: [...filters, filter] })}
-            />
-            <DisplayButton
-              scope={scope}
-              pageSize={pageSize}
-              onScopeChange={changeScope}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(0);
-              }}
-            />
-          </>
-        )}
-        {viewing && search && (
-          <Badge variant="secondary" className="h-7">
-            “{search}”
-          </Badge>
-        )}
+        <InputGroup className="w-56">
+          <InputGroupAddon>
+            <SearchIcon />
+          </InputGroupAddon>
+          <InputGroupInput
+            id="rows-search"
+            placeholder="Search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </InputGroup>
+        <FilterButton
+          dataset={dataset}
+          onAdd={(filter) => changeScope({ filters: [...filters, filter] })}
+        />
+        <DisplayButton
+          scope={scope}
+          pageSize={pageSize}
+          onScopeChange={changeScope}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
+        />
         {filters.map((f, i) => (
           <Badge key={i} variant="secondary" className="h-7 gap-1 pr-0.5">
             {f.column} {opLabel(f.op)} {takesValue(f.op) && <code>{String(f.value)}</code>}
-            {!viewing && (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Remove filter"
-                onClick={() => changeScope({ filters: filters.filter((_, j) => j !== i) })}
-              >
-                <XIcon />
-              </Button>
-            )}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Remove filter"
+              onClick={() => changeScope({ filters: filters.filter((_, j) => j !== i) })}
+            >
+              <XIcon />
+            </Button>
           </Badge>
         ))}
         {scope.limit && (
           <Badge variant="secondary" className="h-7 gap-1 pr-0.5">
             First {formatNumber(scope.limit)} rows
-            {!viewing && (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Remove limit"
-                onClick={() => changeScope({ limit: null })}
-              >
-                <XIcon />
-              </Button>
-            )}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Remove limit"
+              onClick={() => changeScope({ limit: null })}
+            >
+              <XIcon />
+            </Button>
           </Badge>
         )}
         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
@@ -317,30 +264,23 @@ export function DatasetExplorer({
                   return (
                     <TableHead
                       key={header.id}
-                      className={cn("select-none", header.id.startsWith(RESULT) && "bg-muted")}
-                      draggable={header.id !== ROW_ID && !header.id.startsWith(RESULT)}
+                      className="select-none"
+                      draggable={header.id !== ROW_ID}
                       onDragStart={(e) => e.dataTransfer.setData("text/plain", `{{${header.id}}}`)}
                     >
-                      {header.id.startsWith(RESULT) ? (
-                        <span title="From the job's latest run">
-                          {header.id.slice(RESULT.length)}
-                        </span>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          className="-ml-2"
-                          title={column?.type}
-                          disabled={!!viewing}
-                          onClick={() => toggleSort(header.id)}
-                        >
-                          {header.id}
-                          <SortIcon
-                            data-icon="inline-end"
-                            className={sort?.column !== header.id ? "opacity-30" : undefined}
-                          />
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="-ml-2"
+                        title={column?.type}
+                        onClick={() => toggleSort(header.id)}
+                      >
+                        {header.id}
+                        <SortIcon
+                          data-icon="inline-end"
+                          className={sort?.column !== header.id ? "opacity-30" : undefined}
+                        />
+                      </Button>
                     </TableHead>
                   );
                 })}
@@ -351,13 +291,7 @@ export function DatasetExplorer({
             {table.getRowModel().rows.map((row) => (
               <TableRow key={row.id}>
                 {row.getAllCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    className={cn(
-                      "max-w-80 truncate",
-                      cell.column.id.startsWith(RESULT) && "bg-muted",
-                    )}
-                  >
+                  <TableCell key={cell.id} className="max-w-80 truncate">
                     <table.FlexRender cell={cell} />
                   </TableCell>
                 ))}
@@ -367,29 +301,6 @@ export function DatasetExplorer({
         </Table>
       </div>
     </div>
-  );
-}
-
-function ResultValue({ row, column }: { row: RunRow | undefined; column: string }) {
-  if (!row) return null;
-  if (column in row.errors) {
-    return (
-      <span className="text-destructive" title={row.errors[column]}>
-        Failed
-      </span>
-    );
-  }
-  const value = row.values[column];
-  const proba = row.values[`${column}_proba`] as number | undefined;
-  return (
-    <span className="flex items-center gap-2">
-      {typeof value === "boolean" ? (
-        <Badge variant={value ? "default" : "secondary"}>{value ? "Yes" : "No"}</Badge>
-      ) : (
-        <Badge variant="outline">{String(value)}</Badge>
-      )}
-      <span className="text-xs text-muted-foreground">{proba?.toFixed(2)}</span>
-    </span>
   );
 }
 

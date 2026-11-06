@@ -25,8 +25,8 @@ class Health(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Runs execute in the server process, so any still marked running were cut off by a restart.
-    runs_core.fail_interrupted_runs()
+    # Runs execute in this process; any still marked running were cut off and continue now.
+    runs_core.start_runner()
     yield
 
 

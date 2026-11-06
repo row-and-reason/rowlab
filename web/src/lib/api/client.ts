@@ -13,8 +13,6 @@ export type Job = components["schemas"]["Job"];
 // What the editor changes: the job as returned, which always has every field.
 export type JobConfig = Pick<Job, "scope" | "tasks">;
 export type Run = components["schemas"]["Run"];
-export type RunSummary = components["schemas"]["RunSummary"];
-export type RunRow = components["schemas"]["RunRow"];
 export type Model = components["schemas"]["Model"];
 export type Settings = components["schemas"]["Settings"];
 export type Task = Job["tasks"][number];

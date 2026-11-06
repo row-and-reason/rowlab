@@ -31,9 +31,8 @@ def query(client, dataset_id, **body):
 
 
 def test_create_from_local_path(dataset, csv_file, data_dir):
-    assert dataset["name"] == "people.csv"
+    assert dataset["name"] == "people"
     assert dataset["source"] == str(csv_file)
-    assert dataset["format"] == "csv"
     assert dataset["row_count"] == 3
     assert [c["name"] for c in dataset["columns"]] == ["__row_id", "name", "age", "city"]
     assert (data_dir / "datasets" / dataset["id"] / "data.parquet").is_file()
@@ -69,7 +68,7 @@ def test_parquet(client, tmp_path):
     path = tmp_path / "numbers.parquet"
     duckdb.sql(f"COPY (SELECT range AS n FROM range(5)) TO '{path}' (FORMAT parquet)")
     dataset = client.post("/v1/datasets", data={"source": str(path)}).json()
-    assert dataset["format"] == "parquet"
+    assert dataset["name"] == "numbers"
     assert dataset["row_count"] == 5
 
 
@@ -185,12 +184,12 @@ def test_create_from_url(client, http_dir):
         f.write('{"user": {"id": 1}}\n{"user": {"id": 2}}\n')
 
     people = client.post("/v1/datasets", data={"source": f"{base}/people.csv"}).json()
-    assert people["name"] == "people.csv"
+    assert people["name"] == "people"
     assert people["source"] == f"{base}/people.csv"
     assert people["row_count"] == 3
 
     events = client.post("/v1/datasets", data={"source": f"{base}/events.jsonl.gz"}).json()
-    assert events["format"] == "jsonl"
+    assert events["name"] == "events"
     assert query(client, events["id"])["rows"][1] == {"__row_id": 1, "user": {"id": 2}}
 
 
@@ -200,8 +199,7 @@ def test_url_without_extension(client, http_dir):
 
     response = client.post("/v1/datasets", data={"source": f"{base}/comments"})
     assert response.status_code == 201, response.text
-    assert response.json()["name"] == "comments.json"
-    assert response.json()["format"] == "json"
+    assert response.json()["name"] == "comments"
     assert response.json()["row_count"] == 1
 
 
@@ -227,44 +225,44 @@ def _parquet(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("content", "fmt", "extension"),
+    "content",
     [
-        (lambda _: b"name,age\nAda,36\n", "csv", ".csv"),
-        (lambda _: b"name\tage\nAda\t36\n", "csv", ".csv"),
-        (lambda _: b"\xef\xbb\xbfname;age\nAda;36\n", "csv", ".csv"),
-        (lambda _: b'  [{"name": "Ada"}]', "json", ".json"),
-        (lambda _: b'{"name": "Ada"}\n', "jsonl", ".jsonl"),
-        (lambda _: _gzip("name,age\nAda,36\n"), "csv", ".csv.gz"),
-        (lambda _: _gzip('{"name": "Ada"}\n'), "jsonl", ".jsonl.gz"),
-        (_parquet, "parquet", ".parquet"),
+        lambda _: b"name,age\nAda,36\n",
+        lambda _: b"name\tage\nAda\t36\n",
+        lambda _: b"\xef\xbb\xbfname;age\nAda;36\n",
+        lambda _: b'  [{"name": "Ada"}]',
+        lambda _: b'{"name": "Ada"}\n',
+        lambda _: _gzip("name,age\nAda,36\n"),
+        lambda _: _gzip('{"name": "Ada"}\n'),
+        _parquet,
     ],
     ids=["csv", "tsv", "csv-bom-semicolon", "json", "jsonl", "csv-gz", "jsonl-gz", "parquet"],
 )
-def test_detects_format_from_content(client, tmp_path, content, fmt, extension):
-    # No extension, and a misleading one: both get the extension that matches the content.
-    for filename in ["export", "export.txt"]:
+def test_detects_format_from_content(client, tmp_path, content):
+    # No extension, and a misleading one: the content decides how the file is read.
+    for filename in ["export", "export.json"]:
         path = tmp_path / filename
         path.write_bytes(content(tmp_path))
         dataset = client.post("/v1/datasets", data={"source": str(path)}).json()
-        assert dataset["format"] == fmt
-        assert dataset["name"] == f"export{extension}"
+        assert dataset["name"] == "export"
         assert dataset["row_count"] == 1
         assert query(client, dataset["id"])["rows"][0]["name"] == "Ada"
 
 
 @pytest.mark.parametrize(
-    ("filename", "content", "name"),
+    ("filename", "name"),
     [
-        ("people.tsv", b"name\tage\nAda\t36\n", "people.tsv"),
-        ("People.CSV", b"name,age\nAda,36\n", "People.CSV"),
-        ("events.ndjson", b'{"name": "Ada"}\n', "events.ndjson"),
-        ("events.json", b'{"name": "Ada"}\n', "events.jsonl"),
-        ("not-gzipped.csv.gz", b"name,age\nAda,36\n", "not-gzipped.csv"),
+        ("people.tsv", "people"),
+        ("People.CSV", "People"),
+        ("events.ndjson", "events"),
+        ("events.jsonl.gz", "events"),
+        ("notes.txt", "notes.txt"),
+        ("v1.2 export.csv", "v1.2 export"),
     ],
 )
-def test_name_extension_matches_content(client, tmp_path, filename, content, name):
+def test_names_drop_the_data_file_extension(client, tmp_path, filename, name):
     path = tmp_path / filename
-    path.write_bytes(content)
+    path.write_bytes(_gzip("name\nAda\n") if filename.endswith(".gz") else b"name\nAda\n")
     dataset = client.post("/v1/datasets", data={"source": str(path)}).json()
     assert dataset["name"] == name
     assert dataset["source"] == str(path)

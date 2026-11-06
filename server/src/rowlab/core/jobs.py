@@ -76,7 +76,7 @@ def update_job(job_id: str, config: JobConfig) -> Job:
     return get_job(job_id)
 
 
-def check(job: JobConfig) -> None:
+def check(job: Job) -> None:
     """Raise InvalidRequest, naming the task, if the job can't run as configured."""
     if not job.tasks:
         raise InvalidRequest("Add a task.")
@@ -91,6 +91,12 @@ def check(job: JobConfig) -> None:
     duplicates = sorted({c for c in columns if columns.count(c) > 1})
     if duplicates:
         raise InvalidRequest(f"Two tasks write the same column: {', '.join(duplicates)}.")
+    # E.g. running the same task again on a dataset an earlier run made.
+    existing = sorted(set(columns) & {c.name for c in datasets.get_dataset(job.dataset_id).columns})
+    if existing:
+        raise InvalidRequest(
+            f"The dataset already has a column {', '.join(existing)}. Rename the task's result column."
+        )
 
 
 def _from_row(row) -> Job:

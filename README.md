@@ -6,7 +6,7 @@ Load a CSV, JSON, JSONL or Parquet file from disk or a URL, explore it, compose 
 columns, and run it through a decision model (yes/no, choice, score — e.g. TypeSafe Jev) or a classic LLM.
 Get the original data back with new columns added, as a new dataset you can filter and label again.
 
-**Status:** pre-alpha. Datasets can be loaded and explored; labeling runs are next.
+**Status:** pre-alpha. Datasets can be loaded, explored and labeled; every run makes a new dataset.
 Domain: [rowlab.dev](https://rowlab.dev)
 
 ## Principles
@@ -50,8 +50,8 @@ rowlab keeps its state (SQLite database, ingested datasets as Parquet) in `~/.ro
 
 ## Non-goals
 
-- Dataset versioning, lineage or branching — use git, DVC or your data lake. A dataset produced by a run
-  only records which dataset and run it came from.
+- Dataset versioning or branching — use git, DVC or your data lake. A dataset made by a run only records
+  which dataset it came from and how; the Lineage tab follows those links.
 - Being a system of record or long-term storage
 - Multi-tenant cloud hosting (for now)
 - A general-purpose BI or spreadsheet tool
