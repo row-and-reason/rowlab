@@ -22,8 +22,8 @@ from typing import Any, Literal
 import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets, db, jobs, prompts, settings, tasks
-from rowlab.core.datasets import ROW_ID
+from rowlab.core import datasets, db, prompts, settings, tasks
+from rowlab.core.datasets import ROW_ID, Query, Scope
 from rowlab.core.errors import InvalidRequest, NotFound
 from rowlab.core.jobs import JobConfig
 from rowlab.core.providers import openrouter
@@ -70,6 +70,25 @@ class Run(BaseModel):
     updated_at: datetime | None
 
 
+class RunRequest(BaseModel):
+    """What to run: the tasks, on the rows in a scope."""
+
+    scope: Scope = Field(
+        default_factory=Scope, description="Which rows to ask about; all by default."
+    )
+    tasks: list[Task]
+
+
+class Estimate(BaseModel):
+    rows: int = Field(description="Rows the run would ask about.")
+    calls: int = Field(description="Model calls it would make.")
+    cost: float = Field(
+        description="Roughly what it would cost in USD, from sample rows' token counts and the models' "
+        "prices; answers already in the response cache would be free."
+    )
+    problem: str | None = Field(description="Why it can't run as it is, and what to change.")
+
+
 class _Answer(BaseModel):
     values: dict[str, Any] = {}
     error: str | None = None
@@ -80,21 +99,21 @@ class _Answer(BaseModel):
 _wake = threading.Event()
 
 
-def create_run(job_id: str) -> Run:
-    """Queue a run of every task with every model on the rows in the job's scope. Its dataset, with
-    every row of the job's dataset and empty answer columns, is created right away."""
-    job = jobs.get_job(job_id)
-    jobs.check(job)
+def create_run(dataset_id: str, request: RunRequest) -> Run:
+    """Queue a run of every task with every model on the rows in the scope. Its dataset, with every
+    row of the dataset and empty answer columns, is created right away."""
+    check(dataset_id, request)
     if settings.openrouter_key() is None:
         raise InvalidRequest("Set your OpenRouter API key first.")
+    job = JobConfig(scope=request.scope, tasks=request.tasks)
 
-    dataset_id, asked = datasets.write_run_rows(job.dataset_id, job.scope)
+    made_id, asked = datasets.write_run_rows(dataset_id, job.scope)
     try:
         if asked == 0:
             raise InvalidRequest("The scope has no rows.")
         # An empty part gives the answer columns their types before any chunk is written.
-        _write_part(dataset_id, job.tasks, "part-schema", {})
-        datasets.register_run_dataset(dataset_id, job.dataset_id)
+        _write_part(made_id, job.tasks, "part-schema", {})
+        datasets.register_run_dataset(made_id, dataset_id)
         run_id = uuid.uuid4().hex
         with db.connect() as conn:
             conn.execute(
@@ -102,7 +121,7 @@ def create_run(job_id: str) -> Run:
                 " row_count, total, created_at) VALUES (?, ?, 'queued', ?, ?, '[]', ?, ?, ?)",
                 (
                     run_id,
-                    dataset_id,
+                    made_id,
                     JobConfig(scope=job.scope, tasks=job.tasks).model_dump_json(),
                     json.dumps([c for task in job.tasks for c in tasks.result_columns(task)]),
                     asked,
@@ -112,11 +131,94 @@ def create_run(job_id: str) -> Run:
             )
     except BaseException:
         with db.connect() as conn:
-            conn.execute("DELETE FROM datasets WHERE id = ?", (dataset_id,))
-        datasets.delete_files(dataset_id)
+            conn.execute("DELETE FROM datasets WHERE id = ?", (made_id,))
+        datasets.delete_files(made_id)
         raise
     _wake.set()
     return get_run(run_id)
+
+
+def check(dataset_id: str, request: RunRequest) -> None:
+    """Raise InvalidRequest, naming the task, if the run can't go as configured."""
+    if not request.tasks:
+        raise InvalidRequest("Add a task.")
+    for task in request.tasks:
+        try:
+            tasks.check(task)
+            for model in task.models:
+                kind = openrouter.model_kind(model)
+                if kind == "decision" and task.type in tasks.LLM_ONLY:
+                    raise InvalidRequest(
+                        f"{task.type.title()} needs an LLM: {tasks.model_slug(model)} is a "
+                        "decision model."
+                    )
+                if kind == "decision" and task.reason:
+                    raise InvalidRequest(
+                        f"Only LLMs give a reason: {tasks.model_slug(model)} is a decision model."
+                    )
+        except InvalidRequest as e:
+            raise InvalidRequest(f"Task {task.column or 'without a column name'}: {e}") from e
+    columns = [c for task in request.tasks for c in tasks.result_columns(task)]
+    duplicates = sorted({c for c in columns if columns.count(c) > 1})
+    if duplicates:
+        raise InvalidRequest(f"Two tasks write the same column: {', '.join(duplicates)}.")
+    # E.g. running the same task again on a dataset an earlier run made.
+    existing = sorted(set(columns) & {c.name for c in datasets.get_dataset(dataset_id).columns})
+    if existing:
+        raise InvalidRequest(
+            f"The dataset already has a column {', '.join(existing)}. Rename the task's result column."
+        )
+
+
+# Rows sampled to estimate prompt sizes, and roughly how many tokens answers take.
+ESTIMATE_SAMPLE_ROWS = 20
+_ANSWER_TOKENS = {"classify": 20, "field": 15, "reason": 60}
+
+
+def estimate(dataset_id: str, request: RunRequest) -> Estimate:
+    """How many rows and model calls a run would take, and roughly what it would cost."""
+    rows = datasets.query_dataset(
+        dataset_id, Query(**request.scope.model_dump(), page_size=ESTIMATE_SAMPLE_ROWS)
+    )
+    calls = rows.total * sum(len(task.models) for task in request.tasks)
+    problem = None
+    try:
+        check(dataset_id, request)
+        if settings.openrouter_key() is None:
+            raise InvalidRequest("Set your OpenRouter API key first.")
+        if rows.total == 0:
+            raise InvalidRequest("The scope has no rows.")
+    except InvalidRequest as e:
+        problem = str(e)
+    if problem or not rows.rows:
+        return Estimate(rows=rows.total, calls=calls, cost=0, problem=problem)
+
+    keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
+    prices = {m.id: m for m in openrouter.models()}
+    cost = 0.0
+    for task in request.tasks:
+        prompt_tokens = sum(
+            prompts.count_tokens(prompts.render(task.template, row, keys)) for row in rows.rows
+        ) / len(rows.rows)
+        if task.type == "write":
+            # Rewrites and translations are about as long as what they're given; summaries shorter.
+            answer_tokens = prompt_tokens
+        elif task.type == "extract":
+            answer_tokens = _ANSWER_TOKENS["field"] * len(task.fields)
+        else:
+            answer_tokens = _ANSWER_TOKENS["classify"] * max(1, len(task.options))
+        answer_tokens += _ANSWER_TOKENS["reason"] if task.reason else 0
+        for model in task.models:
+            instructions = (
+                prompts.count_tokens(tasks.llm_instructions(task))
+                if prices[model].kind == "llm"
+                else 0
+            )
+            cost += rows.total * (
+                (prompt_tokens + instructions) * prices[model].prompt_price
+                + answer_tokens * prices[model].completion_price
+            )
+    return Estimate(rows=rows.total, calls=calls, cost=cost, problem=None)
 
 
 def get_run(run_id: str) -> Run:
@@ -267,8 +369,13 @@ def _process_chunk(
     }
     for (row, task, model), answer in zip(units, answers):
         assert answer is not None
+        out = by_row[row[ROW_ID]]
+        failed = [f for f in out.get(datasets.FAILED) or [] if f != f"{task.id} {model}"]
         if answer.error is None:
-            by_row[row[ROW_ID]] |= tasks.with_model(task, model, answer.values)
+            out |= tasks.with_model(task, model, answer.values)
+        else:
+            failed.append(f"{task.id} {model}")
+        out[datasets.FAILED] = failed
     _write_part(run.dataset_id, run.config.tasks, name, by_row)
     costs = {(c.task_id, c.model): c for c in run.costs}
     for (_, task, model), answer in zip(units, answers):
@@ -292,27 +399,23 @@ def _process_chunk(
 
 
 def _failed(written: dict[str, Any], task: Task, model: str) -> bool:
-    """Whether a model's answer to a task is missing from a written row: it failed."""
-    column = f"{tasks.base_columns(task)[0]}__{tasks.model_slug(model)}"
-    return written.get(column) is None
+    """Whether a model failed a task in a written row."""
+    return f"{task.id} {model}" in (written.get(datasets.FAILED) or [])
 
 
 def _write_part(
     dataset_id: str, run_tasks: list[Task], name: str, by_row: dict[int, dict[str, Any]]
 ) -> None:
-    """Write answers as one Parquet file: `__row_id`, and every answer column with its `_proba`
-    (empty where the model failed). Written to a temporary name first, so a part is complete or
-    absent."""
-    types = {
-        column: "BOOLEAN" if task.type in ("yes_no", "pick_any") else "VARCHAR"
-        for task in run_tasks
-        for column in tasks.result_columns(task)
-    }
+    """Write answers as one Parquet file: `__row_id`, every answer column (empty where the model
+    failed), and `__failed`, which models failed which tasks, as `<task id> <model>`. Written to a
+    temporary name first, so a part is complete or absent."""
     columns = [
-        (name_, type_)
-        for column, value_type in types.items()
-        for name_, type_ in [(column, value_type), (f"{column}_proba", "DOUBLE")]
+        (column, sql_type)
+        for task in run_tasks
+        for model in task.models
+        for column, sql_type in tasks.columns(task, model)
     ]
+    columns.append((datasets.FAILED, "VARCHAR[]"))
     path = datasets.run_parts_dir(dataset_id) / f"{name}.parquet"
     temporary = path.with_suffix(".tmp")
     with duckdb.connect() as con:

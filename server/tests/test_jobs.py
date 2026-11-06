@@ -48,12 +48,14 @@ class FakeOpenRouter:
             return {
                 "data": [
                     chat_model("x/llm", "0.000002"),
+                    chat_model("anthropic/claude-haiku-5.5", "0.0000001"),
                     chat_model("y/no-schema", "0.000001", structured=False),
                 ]
             }
         if path == "/v1/chat/completions":
             prompt = body["messages"][1]["content"]
-            content = json.dumps({"answer": _bad(prompt), "proba": 0.8})
+            schema = body["response_format"]["json_schema"]["schema"]
+            content = json.dumps(_llm_reply(schema, prompt))
             return {"choices": [{"message": {"content": content}}], "usage": {"cost": 0.01}}
         if self.busy:
             self.busy -= 1
@@ -70,6 +72,35 @@ class FakeOpenRouter:
             "answers": {"answer": {"type": "noul", "noul": 0.9 if _bad(body["state"]) else 0.1}},
             "usage": {"input_tokens": 100, "output_tokens": 1, "cost": 0.001},
         }
+
+
+def _llm_reply(schema, prompt):
+    """A reply with the shape the schema asks for. Yes/no answers say whether the prompt is bad."""
+    reply = {}
+    for name, prop in schema["properties"].items():
+        if name == "answer":
+            reply[name] = _bad(prompt)
+        elif name == "proba":
+            reply[name] = 0.8
+        elif name == "reason":
+            reply[name] = "Because it says so."
+        elif name == "text":
+            reply[name] = f"In short: {prompt}"
+        else:
+            reply[name] = _fake_value(prop)
+    return reply
+
+
+def _fake_value(prop):
+    types = prop["type"] if isinstance(prop["type"], list) else [prop["type"]]
+    if "array" in types:
+        item = prop["items"]
+        return [_llm_reply(item, "")] if item["type"] == "object" else ["red", "blue"]
+    if "number" in types:
+        return 4
+    if "boolean" in types:
+        return True
+    return "2024-05-01" if prop.get("description") == "YYYY-MM-DD" else "Widget"
 
 
 def _bad(text):
@@ -117,7 +148,8 @@ def update(client, job, **config):
 
 def start(client, job):
     """Queue a run of the job, as the Run button does."""
-    return client.post(f"/v1/jobs/{job['id']}/runs").json()
+    body = {"scope": job["scope"], "tasks": job["tasks"]}
+    return client.post(f"/v1/datasets/{job['dataset_id']}/runs", json=body).json()
 
 
 def run(client, job):
@@ -418,6 +450,97 @@ def test_a_dataset_still_being_made_cannot_be_exported_yet(client, job, api_key)
     assert lines[1] == "true,0.9,Terrible product,1"
 
 
+def test_extract_writes_a_typed_column_per_field(client, dataset, api_key):
+    extract = {
+        "type": "extract",
+        "template": "From this review: {{review}}",
+        "column": "info",
+        "fields": [
+            "product",
+            "stars:number",
+            "bought:date",
+            "colors:list",
+            "recommends:boolean",
+            {"name": "parts", "type": "items", "fields": ["name", "count:number"]},
+        ],
+        "reason": True,
+    }
+    created = client.post(f"/v1/datasets/{dataset['id']}/runs", json={"tasks": [extract]}).json()
+    # Unless told otherwise, extract is asked of an LLM.
+    assert created["config"]["tasks"][0]["models"] == ["anthropic/claude-haiku-5.5"]
+    while runs.process_next():
+        pass
+    made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
+    types = {c["name"]: c["type"] for c in made["columns"]}
+    assert {k: v for k, v in types.items() if k.startswith("info")} == {
+        "info_product__claude-haiku-5.5": "VARCHAR",
+        "info_stars__claude-haiku-5.5": "DOUBLE",
+        "info_bought__claude-haiku-5.5": "DATE",
+        "info_colors__claude-haiku-5.5": "VARCHAR[]",
+        "info_recommends__claude-haiku-5.5": "BOOLEAN",
+        "info_parts__claude-haiku-5.5": 'STRUCT("name" VARCHAR, count DOUBLE)[]',
+        "info__claude-haiku-5.5_reason": "VARCHAR",
+    }
+    first = rows(client, created)[0]
+    assert first["info_bought__claude-haiku-5.5"] == "2024-05-01"
+    assert first["info_parts__claude-haiku-5.5"] == [{"name": "Widget", "count": 4.0}]
+    assert first["info__claude-haiku-5.5_reason"] == "Because it says so."
+
+
+def test_write_needs_only_a_prompt(client, dataset, api_key):
+    task = {"type": "write", "template": "Summarize: {{review}}"}
+    created = client.post(f"/v1/datasets/{dataset['id']}/runs", json={"tasks": [task]}).json()
+    while runs.process_next():
+        pass
+    finished = client.get(f"/v1/runs/{created['id']}").json()
+    assert finished["columns"] == ["text__claude-haiku-5.5"]
+    # No scope means every row.
+    assert finished["row_count"] == 3
+    assert rows(client, finished)[1]["text__claude-haiku-5.5"] == "In short: Summarize: Love it"
+
+
+def test_extract_write_and_reasons_need_an_llm(client, dataset, api_key):
+    def problem(task):
+        body = {"tasks": [{"template": "{{review}}", **task}]}
+        return client.post(f"/v1/datasets/{dataset['id']}/estimate", json=body).json()["problem"]
+
+    jev = ["typesafe/jev-1.14"]
+    assert problem({"type": "write", "models": jev}) == (
+        "Task text: Write needs an LLM: jev-1.14 is a decision model."
+    )
+    assert problem({"type": "extract", "fields": ["a"], "models": jev}).endswith(
+        "Extract needs an LLM: jev-1.14 is a decision model."
+    )
+    assert problem({"reason": True}) == (
+        "Task answer: Only LLMs give a reason: jev-1.14 is a decision model."
+    )
+    assert problem({"type": "extract"}) == "Task extracted: Add at least one of the fields."
+
+
+def test_estimate_counts_rows_calls_and_cost(client, dataset, api_key):
+    body = {
+        "scope": {"limit": 2},
+        "tasks": [{"template": "Bad? {{review}}", "models": ["typesafe/jev-1.14", "x/llm"]}],
+    }
+    estimate = client.post(f"/v1/datasets/{dataset['id']}/estimate", json=body).json()
+    assert (estimate["rows"], estimate["calls"], estimate["problem"]) == (2, 4, None)
+    assert 0 < estimate["cost"] < 0.01
+
+
+def test_task_types_list_the_families_presets_and_field_types(client):
+    types = client.get("/v1/task-types").json()
+    assert [(t["id"], t["family"], t["llm_only"]) for t in types["types"]] == [
+        ("yes_no", "classify", False),
+        ("pick_one", "classify", False),
+        ("pick_any", "classify", False),
+        ("scale", "classify", False),
+        ("extract", "extract", True),
+        ("write", "write", True),
+    ]
+    assert "summarize" in [p["id"] for p in types["presets"]]
+    assert "items" in [f["id"] for f in types["field_types"]]
+
+
 def test_an_empty_scope_makes_nothing(client, job, api_key):
     empty = update(client, job, scope={"search": "no such review"})
     assert start(client, empty)["detail"] == "The scope has no rows."
@@ -470,7 +593,8 @@ def test_lists_decision_models_then_llms_with_structured_outputs(client):
     assert [(m["id"], m["kind"]) for m in models] == [
         ("a/cheap", "decision"),
         ("typesafe/jev-1.14", "decision"),
+        ("anthropic/claude-haiku-5.5", "llm"),
         ("x/llm", "llm"),
     ]
-    assert models[2]["prompt_price"] == 2e-06
-    assert models[2]["completion_price"] == 1e-06
+    assert models[3]["prompt_price"] == 2e-06
+    assert models[3]["completion_price"] == 1e-06

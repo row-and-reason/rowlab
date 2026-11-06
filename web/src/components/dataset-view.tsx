@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { withFittingModels, withPreset } from "@/components/answer-settings";
 import { ColumnProfiles } from "@/components/column-profiles";
 import { DatasetExplorer } from "@/components/dataset-explorer";
 import { JobEditor } from "@/components/job-editor";
@@ -28,8 +29,17 @@ import {
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api, type Dataset, type Scope, type Task } from "@/lib/api/client";
-import { errorMessage, formatBytes, formatNumber } from "@/lib/format";
+import {
+  api,
+  type Dataset,
+  type Estimate,
+  type Job,
+  type Preset,
+  type Scope,
+  type Task,
+} from "@/lib/api/client";
+import { useModels, useTaskTypes } from "@/lib/catalog";
+import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format";
 import { isActive } from "@/lib/runs";
 import { useJob } from "@/lib/use-job";
 
@@ -39,7 +49,8 @@ export type Tab = (typeof TABS)[number];
 /** What the command palette and shortcuts can do with the selected dataset's job. */
 export type JobActions = {
   run: () => void;
-  addTask: () => void;
+  /** Adds an empty task, or one started from a write preset. */
+  addTask: (preset?: Preset) => void;
   clearTasks: () => void;
 };
 
@@ -101,8 +112,9 @@ export function DatasetPanels({
     setStarting(true);
     setRunError(undefined);
     await flush();
-    const { data, error } = await api.POST("/v1/jobs/{job_id}/runs", {
-      params: { path: { job_id: job.id } },
+    const { data, error } = await api.POST("/v1/datasets/{dataset_id}/runs", {
+      params: { path: { dataset_id: dataset.id } },
+      body: { scope: job.scope, tasks: job.tasks },
     });
     setStarting(false);
     if (error) {
@@ -111,8 +123,10 @@ export function DatasetPanels({
     }
     onChanged();
     onOpenDataset(data.dataset_id);
-  }, [job, starting, making, flush, onChanged, onOpenDataset]);
+  }, [job, dataset.id, starting, making, flush, onChanged, onOpenDataset]);
 
+  const types = useTaskTypes();
+  const models = useModels();
   const addTask = useCallback(
     (from?: Task) => {
       if (!job) return;
@@ -122,6 +136,15 @@ export function DatasetPanels({
     },
     [job, update],
   );
+  const addPresetTask = useCallback(
+    (preset: Preset) => {
+      if (!job || !types) return;
+      const task = withPreset(emptyTask(job.tasks), preset);
+      addTask(withFittingModels(task, types, models).task);
+    },
+    [job, types, models, addTask],
+  );
+  const estimate = useEstimate(dataset.id, job);
 
   // Starts over with one empty task, on the rows you have picked.
   const clearTasks = useCallback(() => {
@@ -129,11 +152,15 @@ export function DatasetPanels({
   }, [update]);
 
   useEffect(() => {
-    actionsRef.current = { run: startRun, addTask: () => addTask(), clearTasks };
+    actionsRef.current = {
+      run: startRun,
+      addTask: (preset) => (preset ? addPresetTask(preset) : addTask()),
+      clearTasks,
+    };
     return () => {
       actionsRef.current = null;
     };
-  }, [actionsRef, startRun, addTask, clearTasks]);
+  }, [actionsRef, startRun, addTask, addPresetTask, clearTasks]);
 
   return (
     <>
@@ -229,7 +256,10 @@ export function DatasetPanels({
               label={
                 making
                   ? "This dataset is still being made"
-                  : "Run every task on the rows in the table, making a new dataset"
+                  : (estimate?.problem ??
+                    (estimate
+                      ? `About ${formatUsd(estimate.cost)} for ${formatNumber(estimate.rows)} rows, making a new dataset`
+                      : "Run every task on the rows in the table, making a new dataset"))
               }
               keys={["⌘", "↵"]}
               size="sm"
@@ -254,6 +284,7 @@ export function DatasetPanels({
                 onTasksChange={(tasks) => update({ tasks })}
                 onAddTask={addTask}
                 runError={runError}
+                problem={estimate?.problem ?? undefined}
               />
             ) : (
               <Spinner className="m-3" />
@@ -272,8 +303,37 @@ function emptyTask(existing: Task[]): Task {
     type: "yes_no",
     column: `answer_${existing.length + 1}`,
     options: [],
+    fields: [],
+    reason: false,
     models: existing.at(-1)?.models ?? ["typesafe/jev-1.14"],
   };
+}
+
+/** What running the job would take and cost, or why it can't run: fetched again as it changes. */
+function useEstimate(datasetId: string, job: Job | undefined): Estimate | undefined {
+  const [estimate, setEstimate] = useState<{ key: string; estimate: Estimate }>();
+  const key = job ? JSON.stringify([job.scope, job.tasks]) : "";
+  useEffect(() => {
+    if (!job) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      api
+        .POST("/v1/datasets/{dataset_id}/estimate", {
+          params: { path: { dataset_id: datasetId } },
+          body: { scope: job.scope, tasks: job.tasks },
+        })
+        .then(({ data }) => {
+          if (current && data) setEstimate({ key, estimate: data });
+        });
+    }, 500);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+    // The key stands for the job's scope and tasks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId, key]);
+  return estimate?.estimate;
 }
 
 function newId(): string {

@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from rowlab import __version__
-from rowlab.api import datasets, jobs, runs, settings
+from rowlab.api import datasets, jobs, runs, settings, tasks
 from rowlab.core import runs as runs_core
 from rowlab.core.errors import InvalidRequest, NotFound
 from rowlab.core.providers.openrouter import OpenRouterError
@@ -51,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(runs.router)
     app.include_router(settings.router)
+    app.include_router(tasks.router)
 
     # Core errors become the same `{"detail": ...}` body FastAPI uses for its own errors.
     @app.exception_handler(NotFound)

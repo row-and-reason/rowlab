@@ -4,7 +4,7 @@ import { RepeatIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { modelSlug, TYPES } from "@/components/answer-settings";
+import { modelSlug } from "@/components/answer-settings";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type Dataset, type Run, type Scope } from "@/lib/api/client";
+import { api, type Dataset, type Run, type Scope, type TaskTypes } from "@/lib/api/client";
 import {
   columnLabel,
   errorMessage,
@@ -29,6 +29,7 @@ import {
   formatUsd,
 } from "@/lib/format";
 import { isActive } from "@/lib/runs";
+import { useTaskTypes } from "@/lib/catalog";
 import { loadOrCreate } from "@/lib/use-job";
 
 /**
@@ -111,6 +112,7 @@ function RunDetails({
   onOpenDataset: (datasetId: string) => void;
 }) {
   const summary = dataset.run!;
+  const types = useTaskTypes();
   // Fetched again as the run moves on; the dataset list carries its progress.
   const [run, setRun] = useState<Run>();
   useEffect(() => {
@@ -171,7 +173,7 @@ function RunDetails({
           <FieldLabel>
             {task.column}
             <span className="font-normal text-muted-foreground">
-              {TYPES.find((t) => t.value === task.type)?.label} ·{" "}
+              {types?.types.find((t) => t.id === task.type)?.label} ·{" "}
               {task.models.map(modelSlug).join(", ")}
             </span>
           </FieldLabel>
@@ -184,6 +186,13 @@ function RunDetails({
               {task.options.map((o) => o.name).join(", ")}
             </p>
           )}
+          {task.fields.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Fields:{" "}
+              {task.fields.map((f) => `${f.name} (${fieldLabel(f.type, types)})`).join(", ")}
+            </p>
+          )}
+          {task.reason && <p className="text-xs text-muted-foreground">With why</p>}
         </Field>
       ))}
       <Table>
@@ -219,6 +228,10 @@ function RunDetails({
       )}
     </FieldSet>
   );
+}
+
+function fieldLabel(type: string, types: TaskTypes | undefined): string {
+  return types?.field_types.find((t) => t.id === type)?.label.toLowerCase() ?? type;
 }
 
 /** Where a run stands, e.g. "Running, 120 of 400 answers · $0.01". */

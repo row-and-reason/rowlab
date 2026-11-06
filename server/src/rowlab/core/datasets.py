@@ -32,6 +32,8 @@ from rowlab.core import db
 from rowlab.core.errors import InvalidRequest, NotFound
 
 ROW_ID = "__row_id"
+# In a run's part files: which answers failed, so they can be asked again. Not part of the dataset.
+FAILED = "__failed"
 
 Format = Literal["csv", "json", "jsonl", "parquet"]
 
@@ -567,7 +569,7 @@ def dataset_source(dataset_id: str) -> str:
     rows = sql_string(directory / "rows.parquet")
     parts = sql_string(run_parts_dir(dataset_id) / "*.parquet")
     return (
-        f"(SELECT {ROW_ID}, a.* EXCLUDE ({ROW_ID}), r.* EXCLUDE ({ROW_ID}) "
+        f"(SELECT {ROW_ID}, a.* EXCLUDE ({ROW_ID}, {FAILED}), r.* EXCLUDE ({ROW_ID}) "
         f"FROM read_parquet({rows}) AS r "
         f"LEFT JOIN read_parquet({parts}) AS a USING ({ROW_ID}))"
     )

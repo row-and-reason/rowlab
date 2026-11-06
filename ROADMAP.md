@@ -4,9 +4,9 @@
 by local path or public http(s) URL (pulled forward from milestone 7), and explored with server-side search,
 filters, sort and paging; 1M rows ingest in under a second and every page query returns in about 0.1 s.
 A prompt template can be composed from columns with a live per-row preview and token estimates.
-Milestone 3 is in progress: a job runs several tasks (yes/no, pick one, pick any, scale), each with one or
-more decision models or LLMs, on the rows its scope picks (search, filters, sort, limit), with costs per
-task and model; LLM-only answer types are next. Milestone 6 is done: any dataset exports as CSV,
+Milestone 3 is done: a job runs several tasks, each with one or more decision models or LLMs, on the rows
+its scope picks (search, filters, sort, limit), with costs per task and model. Tasks classify (yes/no,
+pick one, pick any, scale), extract typed fields, or write new text. Milestone 6 is done: any dataset exports as CSV,
 JSONL or Parquet. Milestones 4 and 5 are done: every run makes a new
 dataset that appears at once and fills in as the run works in the background in chunks of 500 rows; runs
 can be stopped and resumed, survive a server restart without paying twice, and show live progress.
@@ -98,11 +98,12 @@ later). Each milestone ships API, UI and tests together, and ends with `make lin
   per-row preview with the source values, and token stats. The template is kept in the browser until
   milestone 3 saves it as part of a job.
 
-### 3. Models and job configuration (in progress)
+### 3. Models and job configuration ✅
 
-The model never limits what a job can do: decision models and LLMs answer the same answer types and
-write the same columns. Choosing one is a matter of cost, speed and accuracy. Answer types come from the
-use-case archetypes; phase 1 covers everything decision models can answer, phase 2 adds what only LLMs can.
+Answer types come in three families, by what the answer is: **Classify** puts the row in a known box,
+**Extract** pulls typed facts out of it, **Write** produces new text from it. For Classify the model never
+limits what a job can do: decision models and LLMs answer the same answer types and write the same
+columns, so choosing one is a matter of cost, speed and accuracy. Extract and Write need an LLM.
 
 **Phase 1 — done.** Four answer types, each with any model:
 
@@ -135,14 +136,35 @@ use-case archetypes; phase 1 covers everything decision models can answer, phase
 - Running a job asks every task and model about the rows in scope: answers, probabilities and cost per
   task and model. The UI shows the answers as columns next to the rows. Runs are milestone 4.
 
-**Phase 2 — to do:** answer types only LLMs can produce: extract named fields, numbers, lists, free text,
-normalization. An optional reason column is a candidate too.
+**Phase 2 — done.** What only LLMs can give, and making every task effortless to set up:
 
-- **Done when** a user can configure each answer type and run it on a few rows.
+- **Extract:** named fields, each text, number, true/false, date, a list of text, or items (a list of
+  objects with fields of their own, one level deep, e.g. invoice line items). One field writes
+  `<column>__<model>`, several write `<column>_<field>__<model>`, typed (`DOUBLE`, `DATE`,
+  `STRUCT(...)[]`, …). Every field may be empty: the model is told to leave out what the text doesn't
+  give rather than guess. No `_proba`. In the API, `"amount:number"` is short for a field.
+- **Write:** one text column, `<column>__<model>`. Presets are starting prompts, not types: Summarize,
+  Translate (into a picked language), Rewrite, Redact, Clean up, Answer a question, Draft a reply.
+  Normalizing to a strict format is Extract with a typed field; open-ended tags are Extract with a list.
+- **Reason:** any Classify or Extract task answered by LLMs can also write why, in
+  `<column>__<model>_reason`; the model writes it before answering.
+- **Defaults:** a task needs only its prompt and type; the result column and models default to ones that
+  suit the type (a decision model for Classify, `anthropic/claude-haiku-5.5` for Extract and Write).
+  `GET /v1/task-types` lists the types by family, the presets, field types and languages: the UI builds
+  its menus from it, and API clients can discover everything there.
+- **One call to run:** `POST /v1/datasets/{id}/runs` with `{tasks, scope}` (all rows without a scope).
+  Jobs remain the UI's saved draft. `POST /v1/datasets/{id}/estimate` with the same body returns the rows,
+  model calls and rough cost (from sample rows' token counts and the models' prices), or why it can't
+  run and what to change.
+- **UI:** the task's type menu is grouped by family, with the Write presets (and a language submenu for
+  Translate) under it; picking a type that needs an LLM switches a decision model to the default one and
+  says so. Extract fields are a short list (name, type, description; Enter adds the next). The Run
+  button's tooltip shows the estimated cost, and what still needs doing shows under the tasks as you
+  type. ⌘K adds a task from any preset.
 
 ### 4. Runs: start, stop, resume ✅
 
-- `POST /v1/jobs/{id}/runs` queues a run and returns at once with the dataset it makes (`dataset_id`):
+- `POST /v1/datasets/{id}/runs` queues a run and returns at once with the dataset it makes (`dataset_id`):
   every row of the parent is copied into it (`rows.parquet`) and the rows in scope listed
   (`asked.parquet`); it is named after its place in the tree (`titanic__1.2`), with empty
   answer columns. The run keeps a frozen copy of its scope and tasks.
@@ -213,6 +235,18 @@ MCP server (`rowlab mcp`, `/mcp`) · human review and corrections · discover �
 categories) · one-click cascades (low-confidence rows escalated to an LLM; already possible by hand
 through the workflow loop) · decision model vs LLM agreement
 comparison · provider batch APIs.
+
+### Ideas
+
+Not planned yet; noted so they aren't lost. Add new ones here.
+
+- **Translation APIs for Translate.** Machine translation services (e.g. DeepL, Google Translate) as
+  models for the Translate preset, next to LLMs: cheaper and faster for plain translation. They'd be a
+  third kind of model that only answers Write tasks started from Translate, with the target language as
+  a setting rather than part of the prompt.
+- **Recommended models first.** In the model picker, show a short "Recommended for <type>" group at the
+  top, picked by the task's type (e.g. fast decision models for Classify, LLMs good at structured output
+  for Extract), then the rest sorted as now.
 
 ## Risks and open questions
 

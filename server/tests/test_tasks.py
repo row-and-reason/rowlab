@@ -178,3 +178,37 @@ def test_llm_replies_are_read_into_the_same_columns():
 def test_llm_replies_with_the_wrong_shape_are_errors(task, reply, error):
     with pytest.raises(AnswerFormatError, match=error):
         tasks.read_llm(task, reply)
+
+
+INVOICE = Task(
+    type="extract",
+    template="{{text}}",
+    column="invoice",
+    fields=["company", "total:number", {"name": "due", "type": "date"}],
+)
+
+
+def test_extract_fields_have_a_short_form_and_may_be_empty():
+    assert [(f.name, f.type) for f in INVOICE.fields] == [
+        ("company", "text"),
+        ("total", "number"),
+        ("due", "date"),
+    ]
+    schema = tasks.llm_schema(INVOICE)["properties"]
+    assert schema["total"] == {"type": ["number", "null"]}
+    values = tasks.read_llm(INVOICE, '{"company": "ACME", "total": 12, "due": null}')
+    assert values == {"company": "ACME", "total": 12.0, "due": None}
+
+
+def test_extract_replies_are_checked_against_the_field_types():
+    with pytest.raises(AnswerFormatError, match="total was not a number"):
+        tasks.read_llm(INVOICE, '{"company": "ACME", "total": "12", "due": null}')
+    with pytest.raises(AnswerFormatError, match="due was not a date"):
+        tasks.read_llm(INVOICE, '{"company": "ACME", "total": 1, "due": "May 1st"}')
+
+
+def test_a_task_gets_a_column_and_models_that_suit_its_type():
+    write = Task.model_validate({"type": "write", "template": "Summarize: {{text}}"})
+    assert (write.column, write.models) == ("text", [tasks.DEFAULT_LLM])
+    picked = Task.model_validate({"type": "pick_one"})
+    assert (picked.column, picked.models) == ("label", [tasks.DEFAULT_MODEL])

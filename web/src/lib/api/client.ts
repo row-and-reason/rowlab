@@ -18,6 +18,11 @@ export type Settings = components["schemas"]["Settings"];
 export type Task = Job["tasks"][number];
 export type AnswerType = Task["type"];
 export type Option = components["schemas"]["Option"];
+export type ExtractField = Task["fields"][number];
+export type FieldType = ExtractField["type"];
+export type TaskTypes = components["schemas"]["TaskTypes"];
+export type Preset = TaskTypes["presets"][number];
+export type Estimate = components["schemas"]["Estimate"];
 
 // Empty in production: the UI is served by the API server itself.
 // In development, `make dev` points this at the separately running API.

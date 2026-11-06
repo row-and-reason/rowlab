@@ -575,25 +575,35 @@
         }
       }
     },
-    "/v1/jobs/{job_id}/runs": {
+    "/v1/datasets/{dataset_id}/runs": {
       "post": {
         "tags": [
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Queue a run of every task with every model on the rows in the job's scope. It makes a new\ndataset (`dataset_id`), created right away with every row; the answer columns of the rows in\nscope fill in as the run works through them in the background: poll `GET /v1/runs/{id}` for its\nprogress. Answers already given are free: they come from the response cache.",
+        "description": "Queue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with every row; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/task-types`).",
         "operationId": "createRun",
         "parameters": [
           {
-            "name": "job_id",
+            "name": "dataset_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Job Id"
+              "title": "Dataset Id"
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Successful Response",
@@ -601,6 +611,59 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/datasets/{dataset_id}/estimate": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Estimate Run",
+        "description": "What `POST /v1/datasets/{id}/runs` with the same body would take and roughly cost, and why\nit can't run as it is, if so. Nothing is asked.",
+        "operationId": "estimateRun",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estimate"
                 }
               }
             }
@@ -709,7 +772,7 @@
           "runs"
         ],
         "summary": "Resume Run",
-        "description": "Continue a stopped or failed run from its first unwritten chunk.",
+        "description": "Continue a stopped or failed run, or a done one with failed answers: its failed answers are\nasked again first, then it continues from its first unwritten chunk.",
         "operationId": "resumeRun",
         "parameters": [
           {
@@ -828,6 +891,28 @@
                   },
                   "type": "array",
                   "title": "Response Listmodels"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/task-types": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Task Types",
+        "description": "The answer types a task can have (classify, extract, write), starting points for write tasks,\nand the types an extracted field can have.",
+        "operationId": "getTaskTypes",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTypes"
                 }
               }
             }
@@ -1095,6 +1180,45 @@
         "title": "DatasetRun",
         "description": "The run that makes a dataset."
       },
+      "Estimate": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows",
+            "description": "Rows the run would ask about."
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls",
+            "description": "Model calls it would make."
+          },
+          "cost": {
+            "type": "number",
+            "title": "Cost",
+            "description": "Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already in the response cache would be free."
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem",
+            "description": "Why it can't run as it is, and what to change."
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "calls",
+          "cost",
+          "problem"
+        ],
+        "title": "Estimate"
+      },
       "ExportRequest": {
         "properties": {
           "format": {
@@ -1142,6 +1266,117 @@
           "size_bytes"
         ],
         "title": "ExportResult"
+      },
+      "ExtractField-Input": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number",
+              "boolean",
+              "date",
+              "list",
+              "items"
+            ],
+            "title": "Type",
+            "default": "text"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "What to put in it, if the name doesn't say.",
+            "default": ""
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractField-Input"
+            },
+            "type": "array",
+            "title": "Fields",
+            "description": "For `items`: the fields of each item, which can't be items themselves.",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ExtractField"
+      },
+      "ExtractField-Output": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number",
+              "boolean",
+              "date",
+              "list",
+              "items"
+            ],
+            "title": "Type",
+            "default": "text"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "What to put in it, if the name doesn't say.",
+            "default": ""
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractField-Output"
+            },
+            "type": "array",
+            "title": "Fields",
+            "description": "For `items`: the fields of each item, which can't be items themselves.",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "description",
+          "fields"
+        ],
+        "title": "ExtractField"
+      },
+      "FieldTypeInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number",
+              "boolean",
+              "date",
+              "list",
+              "items"
+            ],
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "FieldTypeInfo"
       },
       "Filter": {
         "properties": {
@@ -1373,6 +1608,35 @@
           "name"
         ],
         "title": "Option"
+      },
+      "Preset": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
+          "template": {
+            "type": "string",
+            "title": "Template"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "column",
+          "template"
+        ],
+        "title": "Preset",
+        "description": "A starting point for a write task: its prompt, to finish by adding the row's columns."
       },
       "Query": {
         "properties": {
@@ -1684,6 +1948,27 @@
         ],
         "title": "Run"
       },
+      "RunRequest": {
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/Scope",
+            "description": "Which rows to ask about; all by default."
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/Task-Input"
+            },
+            "type": "array",
+            "title": "Tasks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tasks"
+        ],
+        "title": "RunRequest",
+        "description": "What to run: the tasks, on the rows in a scope."
+      },
       "Scope": {
         "properties": {
           "search": {
@@ -1788,7 +2073,9 @@
               "yes_no",
               "pick_one",
               "pick_any",
-              "scale"
+              "scale",
+              "extract",
+              "write"
             ],
             "title": "Type",
             "default": "yes_no"
@@ -1796,7 +2083,7 @@
           "column": {
             "type": "string",
             "title": "Column",
-            "description": "Base name of the result columns.",
+            "description": "Base name of the result columns. Defaults to one for the type.",
             "default": "answer"
           },
           "options": {
@@ -1808,13 +2095,28 @@
             "description": "The choices for pick one and pick any; the levels, lowest first, for scale.",
             "default": []
           },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractField-Input"
+            },
+            "type": "array",
+            "title": "Fields",
+            "description": "For extract: what to pull out. `\"amount:number\"` is short for `{\"name\": \"amount\", \"type\": \"number\"}`.",
+            "default": []
+          },
+          "reason": {
+            "type": "boolean",
+            "title": "Reason",
+            "description": "Also write why, from LLMs, for classify and extract.",
+            "default": false
+          },
           "models": {
             "items": {
               "type": "string"
             },
             "type": "array",
             "title": "Models",
-            "description": "Decision models or LLMs; see `GET /v1/models`.",
+            "description": "Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.",
             "default": [
               "typesafe/jev-1.14"
             ]
@@ -1841,7 +2143,9 @@
               "yes_no",
               "pick_one",
               "pick_any",
-              "scale"
+              "scale",
+              "extract",
+              "write"
             ],
             "title": "Type",
             "default": "yes_no"
@@ -1849,7 +2153,7 @@
           "column": {
             "type": "string",
             "title": "Column",
-            "description": "Base name of the result columns.",
+            "description": "Base name of the result columns. Defaults to one for the type.",
             "default": "answer"
           },
           "options": {
@@ -1861,13 +2165,28 @@
             "description": "The choices for pick one and pick any; the levels, lowest first, for scale.",
             "default": []
           },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractField-Output"
+            },
+            "type": "array",
+            "title": "Fields",
+            "description": "For extract: what to pull out. `\"amount:number\"` is short for `{\"name\": \"amount\", \"type\": \"number\"}`.",
+            "default": []
+          },
+          "reason": {
+            "type": "boolean",
+            "title": "Reason",
+            "description": "Also write why, from LLMs, for classify and extract.",
+            "default": false
+          },
           "models": {
             "items": {
               "type": "string"
             },
             "type": "array",
             "title": "Models",
-            "description": "Decision models or LLMs; see `GET /v1/models`.",
+            "description": "Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.",
             "default": [
               "typesafe/jev-1.14"
             ]
@@ -1880,6 +2199,8 @@
           "type",
           "column",
           "options",
+          "fields",
+          "reason",
           "models"
         ],
         "title": "Task"
@@ -1913,6 +2234,49 @@
           "failed"
         ],
         "title": "TaskModelCost"
+      },
+      "TaskTypes": {
+        "properties": {
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/TypeInfo"
+            },
+            "type": "array",
+            "title": "Types",
+            "description": "Classify, then extract, then write."
+          },
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/Preset"
+            },
+            "type": "array",
+            "title": "Presets",
+            "description": "Starting points for write tasks."
+          },
+          "field_types": {
+            "items": {
+              "$ref": "#/components/schemas/FieldTypeInfo"
+            },
+            "type": "array",
+            "title": "Field Types"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Languages",
+            "description": "Suggested target languages for translating."
+          }
+        },
+        "type": "object",
+        "required": [
+          "types",
+          "presets",
+          "field_types",
+          "languages"
+        ],
+        "title": "TaskTypes"
       },
       "TemplateField": {
         "properties": {
@@ -1965,6 +2329,64 @@
           "total_estimate"
         ],
         "title": "TokenStats"
+      },
+      "TypeInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "yes_no",
+              "pick_one",
+              "pick_any",
+              "scale",
+              "extract",
+              "write"
+            ],
+            "title": "Id"
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "classify",
+              "extract",
+              "write"
+            ],
+            "title": "Family"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "column": {
+            "type": "string",
+            "title": "Column",
+            "description": "The result column a new task of this type gets."
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "The model a new task of this type gets."
+          },
+          "llm_only": {
+            "type": "boolean",
+            "title": "Llm Only"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "family",
+          "label",
+          "description",
+          "column",
+          "model",
+          "llm_only"
+        ],
+        "title": "TypeInfo"
       },
       "ValidationError": {
         "properties": {

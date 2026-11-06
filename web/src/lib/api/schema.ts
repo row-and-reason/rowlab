@@ -175,7 +175,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/jobs/{job_id}/runs": {
+    "/v1/datasets/{dataset_id}/runs": {
         parameters: {
             query?: never;
             header?: never;
@@ -186,12 +186,37 @@ export interface paths {
         put?: never;
         /**
          * Create Run
-         * @description Queue a run of every task with every model on the rows in the job's scope. It makes a new
-         *     dataset (`dataset_id`), created right away with every row; the answer columns of the rows in
-         *     scope fill in as the run works through them in the background: poll `GET /v1/runs/{id}` for its
-         *     progress. Answers already given are free: they come from the response cache.
+         * @description Queue a run of every task with every model on the rows in the scope (all rows if none is
+         *     given). It makes a new dataset (`dataset_id`), created right away with every row; the answer
+         *     columns of the rows in scope fill in as the run works through them in the background: poll
+         *     `GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the
+         *     response cache.
+         *
+         *     A task needs only its `template` and `type`; the result column and models default to ones that
+         *     suit the type (see `GET /v1/task-types`).
          */
         post: operations["createRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/datasets/{dataset_id}/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Estimate Run
+         * @description What `POST /v1/datasets/{id}/runs` with the same body would take and roughly cost, and why
+         *     it can't run as it is, if so. Nothing is asked.
+         */
+        post: operations["estimateRun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -246,7 +271,8 @@ export interface paths {
         put?: never;
         /**
          * Resume Run
-         * @description Continue a stopped or failed run from its first unwritten chunk.
+         * @description Continue a stopped or failed run, or a done one with failed answers: its failed answers are
+         *     asked again first, then it continues from its first unwritten chunk.
          */
         post: operations["resumeRun"];
         delete?: never;
@@ -304,6 +330,27 @@ export interface paths {
          * @description Models a job can use: decision models, then LLMs with structured outputs, each cheapest first.
          */
         get: operations["listModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/task-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Task Types
+         * @description The answer types a task can have (classify, extract, write), starting points for write tasks,
+         *     and the types an extracted field can have.
+         */
+        get: operations["getTaskTypes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -413,6 +460,29 @@ export interface components {
              */
             total: number;
         };
+        /** Estimate */
+        Estimate: {
+            /**
+             * Rows
+             * @description Rows the run would ask about.
+             */
+            rows: number;
+            /**
+             * Calls
+             * @description Model calls it would make.
+             */
+            calls: number;
+            /**
+             * Cost
+             * @description Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already in the response cache would be free.
+             */
+            cost: number;
+            /**
+             * Problem
+             * @description Why it can't run as it is, and what to change.
+             */
+            problem: string | null;
+        };
         /** ExportRequest */
         ExportRequest: {
             /**
@@ -438,6 +508,62 @@ export interface components {
             path: string;
             /** Size Bytes */
             size_bytes: number;
+        };
+        /** ExtractField */
+        "ExtractField-Input": {
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default text
+             * @enum {string}
+             */
+            type: "text" | "number" | "boolean" | "date" | "list" | "items";
+            /**
+             * Description
+             * @description What to put in it, if the name doesn't say.
+             * @default
+             */
+            description: string;
+            /**
+             * Fields
+             * @description For `items`: the fields of each item, which can't be items themselves.
+             * @default []
+             */
+            fields: components["schemas"]["ExtractField-Input"][];
+        };
+        /** ExtractField */
+        "ExtractField-Output": {
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default text
+             * @enum {string}
+             */
+            type: "text" | "number" | "boolean" | "date" | "list" | "items";
+            /**
+             * Description
+             * @description What to put in it, if the name doesn't say.
+             * @default
+             */
+            description: string;
+            /**
+             * Fields
+             * @description For `items`: the fields of each item, which can't be items themselves.
+             * @default []
+             */
+            fields: components["schemas"]["ExtractField-Output"][];
+        };
+        /** FieldTypeInfo */
+        FieldTypeInfo: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "text" | "number" | "boolean" | "date" | "list" | "items";
+            /** Label */
+            label: string;
         };
         /** Filter */
         Filter: {
@@ -527,6 +653,20 @@ export interface components {
              * @default
              */
             description: string;
+        };
+        /**
+         * Preset
+         * @description A starting point for a write task: its prompt, to finish by adding the row's columns.
+         */
+        Preset: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Column */
+            column: string;
+            /** Template */
+            template: string;
         };
         /**
          * Query
@@ -706,6 +846,16 @@ export interface components {
             updated_at: string | null;
         };
         /**
+         * RunRequest
+         * @description What to run: the tasks, on the rows in a scope.
+         */
+        RunRequest: {
+            /** @description Which rows to ask about; all by default. */
+            scope?: components["schemas"]["Scope"];
+            /** Tasks */
+            tasks: components["schemas"]["Task-Input"][];
+        };
+        /**
          * Scope
          * @description Which rows, in which order: what the rows table shows and what a job runs on.
          */
@@ -766,10 +916,10 @@ export interface components {
              * @default yes_no
              * @enum {string}
              */
-            type: "yes_no" | "pick_one" | "pick_any" | "scale";
+            type: "yes_no" | "pick_one" | "pick_any" | "scale" | "extract" | "write";
             /**
              * Column
-             * @description Base name of the result columns.
+             * @description Base name of the result columns. Defaults to one for the type.
              * @default answer
              */
             column: string;
@@ -780,8 +930,20 @@ export interface components {
              */
             options: components["schemas"]["Option"][];
             /**
+             * Fields
+             * @description For extract: what to pull out. `"amount:number"` is short for `{"name": "amount", "type": "number"}`.
+             * @default []
+             */
+            fields: components["schemas"]["ExtractField-Input"][];
+            /**
+             * Reason
+             * @description Also write why, from LLMs, for classify and extract.
+             * @default false
+             */
+            reason: boolean;
+            /**
              * Models
-             * @description Decision models or LLMs; see `GET /v1/models`.
+             * @description Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.
              * @default [
              *       "typesafe/jev-1.14"
              *     ]
@@ -803,10 +965,10 @@ export interface components {
              * @default yes_no
              * @enum {string}
              */
-            type: "yes_no" | "pick_one" | "pick_any" | "scale";
+            type: "yes_no" | "pick_one" | "pick_any" | "scale" | "extract" | "write";
             /**
              * Column
-             * @description Base name of the result columns.
+             * @description Base name of the result columns. Defaults to one for the type.
              * @default answer
              */
             column: string;
@@ -817,8 +979,20 @@ export interface components {
              */
             options: components["schemas"]["Option"][];
             /**
+             * Fields
+             * @description For extract: what to pull out. `"amount:number"` is short for `{"name": "amount", "type": "number"}`.
+             * @default []
+             */
+            fields: components["schemas"]["ExtractField-Output"][];
+            /**
+             * Reason
+             * @description Also write why, from LLMs, for classify and extract.
+             * @default false
+             */
+            reason: boolean;
+            /**
              * Models
-             * @description Decision models or LLMs; see `GET /v1/models`.
+             * @description Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.
              * @default [
              *       "typesafe/jev-1.14"
              *     ]
@@ -842,6 +1016,26 @@ export interface components {
              */
             failed: number;
         };
+        /** TaskTypes */
+        TaskTypes: {
+            /**
+             * Types
+             * @description Classify, then extract, then write.
+             */
+            types: components["schemas"]["TypeInfo"][];
+            /**
+             * Presets
+             * @description Starting points for write tasks.
+             */
+            presets: components["schemas"]["Preset"][];
+            /** Field Types */
+            field_types: components["schemas"]["FieldTypeInfo"][];
+            /**
+             * Languages
+             * @description Suggested target languages for translating.
+             */
+            languages: string[];
+        };
         /** TemplateField */
         TemplateField: {
             /** Path */
@@ -864,6 +1058,35 @@ export interface components {
              * @description Estimated tokens for all selected rows.
              */
             total_estimate: number;
+        };
+        /** TypeInfo */
+        TypeInfo: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "yes_no" | "pick_one" | "pick_any" | "scale" | "extract" | "write";
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "classify" | "extract" | "write";
+            /** Label */
+            label: string;
+            /** Description */
+            description: string;
+            /**
+             * Column
+             * @description The result column a new task of this type gets.
+             */
+            column: string;
+            /**
+             * Model
+             * @description The model a new task of this type gets.
+             */
+            model: string;
+            /** Llm Only */
+            llm_only: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -1296,11 +1519,15 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                job_id: string;
+                dataset_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             201: {
@@ -1309,6 +1536,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    estimateRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Estimate"];
                 };
             };
             /** @description Validation Error */
@@ -1484,6 +1746,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Model"][];
+                };
+            };
+        };
+    };
+    getTaskTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskTypes"];
                 };
             };
         };

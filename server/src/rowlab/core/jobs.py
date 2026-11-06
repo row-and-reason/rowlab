@@ -6,10 +6,9 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from rowlab.core import datasets, db, tasks
+from rowlab.core import datasets, db
 from rowlab.core.datasets import Filter, Scope
-from rowlab.core.errors import InvalidRequest, NotFound
-from rowlab.core.providers import openrouter
+from rowlab.core.errors import NotFound
 from rowlab.core.tasks import Task
 
 # A new job runs on a few rows, so its first run is cheap.
@@ -78,29 +77,6 @@ def update_job(job_id: str, config: JobConfig) -> Job:
             (config.model_dump_json(), datetime.now(UTC).isoformat(), job_id),
         )
     return get_job(job_id)
-
-
-def check(job: Job) -> None:
-    """Raise InvalidRequest, naming the task, if the job can't run as configured."""
-    if not job.tasks:
-        raise InvalidRequest("Add a task.")
-    for task in job.tasks:
-        try:
-            tasks.check(task)
-            for model in task.models:
-                openrouter.model_kind(model)
-        except InvalidRequest as e:
-            raise InvalidRequest(f"Task {task.column or 'without a column name'}: {e}") from e
-    columns = [c for task in job.tasks for c in tasks.result_columns(task)]
-    duplicates = sorted({c for c in columns if columns.count(c) > 1})
-    if duplicates:
-        raise InvalidRequest(f"Two tasks write the same column: {', '.join(duplicates)}.")
-    # E.g. running the same task again on a dataset an earlier run made.
-    existing = sorted(set(columns) & {c.name for c in datasets.get_dataset(job.dataset_id).columns})
-    if existing:
-        raise InvalidRequest(
-            f"The dataset already has a column {', '.join(existing)}. Rename the task's result column."
-        )
 
 
 def _answered(run_id: str) -> Filter:

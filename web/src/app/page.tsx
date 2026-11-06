@@ -7,6 +7,7 @@ import {
   ListChecksIcon,
   ListRestartIcon,
   MoonIcon,
+  PenLineIcon,
   PlayIcon,
   PlusIcon,
   SearchIcon,
@@ -57,6 +58,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Dataset, type Settings } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
+import { useTaskTypes } from "@/lib/catalog";
 import { datasetTree } from "@/lib/dataset-tree";
 import { isActive } from "@/lib/runs";
 
@@ -86,6 +88,7 @@ function Workspace() {
   const [exporting, setExporting] = useState<Dataset>();
   const [palette, setPalette] = useState(false);
   const jobActionsRef = useRef<JobActions | null>(null);
+  const taskTypes = useTaskTypes();
   // Remembers the column widths you drag to, in localStorage.
   const layout = useDefaultLayout({ id: "rowlab.workspace" });
 
@@ -264,6 +267,16 @@ function Workspace() {
                     <ListChecksIcon />
                     Add task
                   </CommandItem>
+                  {taskTypes?.presets.map((preset) => (
+                    <CommandItem
+                      key={preset.id}
+                      value={`add ${preset.label} task`}
+                      onSelect={() => command(() => jobActionsRef.current?.addTask(preset))}
+                    >
+                      <PenLineIcon />
+                      {preset.label}…
+                    </CommandItem>
+                  ))}
                   <CommandItem
                     onSelect={() =>
                       command(() =>

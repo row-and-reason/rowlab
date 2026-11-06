@@ -1,18 +1,29 @@
 from fastapi import APIRouter
 
 from rowlab.core import runs
-from rowlab.core.runs import Run
+from rowlab.core.runs import Estimate, Run, RunRequest
 
 router = APIRouter(tags=["runs"])
 
 
-@router.post("/v1/jobs/{job_id}/runs", operation_id="createRun", status_code=201)
-def create_run(job_id: str) -> Run:
-    """Queue a run of every task with every model on the rows in the job's scope. It makes a new
-    dataset (`dataset_id`), created right away with every row; the answer columns of the rows in
-    scope fill in as the run works through them in the background: poll `GET /v1/runs/{id}` for its
-    progress. Answers already given are free: they come from the response cache."""
-    return runs.create_run(job_id)
+@router.post("/v1/datasets/{dataset_id}/runs", operation_id="createRun", status_code=201)
+def create_run(dataset_id: str, request: RunRequest) -> Run:
+    """Queue a run of every task with every model on the rows in the scope (all rows if none is
+    given). It makes a new dataset (`dataset_id`), created right away with every row; the answer
+    columns of the rows in scope fill in as the run works through them in the background: poll
+    `GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the
+    response cache.
+
+    A task needs only its `template` and `type`; the result column and models default to ones that
+    suit the type (see `GET /v1/task-types`)."""
+    return runs.create_run(dataset_id, request)
+
+
+@router.post("/v1/datasets/{dataset_id}/estimate", operation_id="estimateRun")
+def estimate_run(dataset_id: str, request: RunRequest) -> Estimate:
+    """What `POST /v1/datasets/{id}/runs` with the same body would take and roughly cost, and why
+    it can't run as it is, if so. Nothing is asked."""
+    return runs.estimate(dataset_id, request)
 
 
 @router.get("/v1/runs/{run_id}", operation_id="getRun")
@@ -28,5 +39,6 @@ def stop_run(run_id: str) -> Run:
 
 @router.post("/v1/runs/{run_id}/resume", operation_id="resumeRun")
 def resume_run(run_id: str) -> Run:
-    """Continue a stopped or failed run from its first unwritten chunk."""
+    """Continue a stopped or failed run, or a done one with failed answers: its failed answers are
+    asked again first, then it continues from its first unwritten chunk."""
     return runs.resume_run(run_id)
