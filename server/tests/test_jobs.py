@@ -186,11 +186,11 @@ def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
     job = update(client, job, scope={"filters": [{"column": "stars", "op": "eq", "value": "1"}]})
     created = start(client, job)
     made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
-    assert (made["name"], made["source"]) == ("reviews-run1", "Run #1 of reviews")
+    assert (made["name"], made["source"]) == ("reviews__1", "Made from reviews")
+    assert made["branch"] == "1"
     assert made["parent_id"] == dataset["id"]
     assert made["run"] == {
         "id": created["id"],
-        "number": 1,
         "status": "queued",
         "done": 0,
         "total": 2,
@@ -335,12 +335,20 @@ def test_a_run_killed_mid_way_completes_after_a_restart_without_paying_twice(
     assert finished["cost"] == pytest.approx(0.003)
 
 
-def test_runs_are_numbered_per_parent_and_frozen(client, dataset, job, api_key):
+def test_made_datasets_are_named_after_their_place_in_the_tree(client, dataset, job, api_key):
     first = run(client, job)
     second = run(client, update(client, job, scope={**job["scope"], "limit": 1}))
-    assert (first["number"], second["number"]) == (1, 2)
-    made = [client.get(f"/v1/datasets/{r['dataset_id']}").json() for r in (first, second)]
-    assert [d["name"] for d in made] == ["reviews-run1", "reviews-run2"]
+    # Made from the first made dataset, it is numbered under it.
+    made = client.post(f"/v1/datasets/{first['dataset_id']}/jobs", json={}).json()
+    third = run(client, update(client, made, tasks=[{**NEGATIVE, "column": "again"}]))
+    names = [
+        client.get(f"/v1/datasets/{r['dataset_id']}").json()["name"] for r in (first, second, third)
+    ]
+    assert names == ["reviews__1", "reviews__2", "reviews__1.1"]
+    # A deleted dataset's number isn't given out again.
+    client.delete(f"/v1/datasets/{second['dataset_id']}")
+    fourth = run(client, update(client, job, scope={**job["scope"], "limit": 2}))
+    assert client.get(f"/v1/datasets/{fourth['dataset_id']}").json()["name"] == "reviews__3"
     assert (first["row_count"], second["row_count"]) == (3, 1)
     assert client.get(f"/v1/runs/{first['id']}").json()["config"]["scope"]["limit"] == 20
 
@@ -356,6 +364,19 @@ def test_a_run_goes_with_the_dataset_it_makes(client, dataset, job, api_key, dat
     client.delete(f"/v1/datasets/{made['id']}")
     assert client.get(f"/v1/runs/{finished['id']}").status_code == 404
     assert not (data_dir / "datasets" / made["id"]).exists()
+
+
+def test_a_dataset_still_being_made_cannot_be_exported_yet(client, job, api_key):
+    created = start(client, job)
+    export = f"/v1/datasets/{created['dataset_id']}/export"
+    waiting = client.get(export, params={"format": "csv"})
+    assert waiting.status_code == 400
+    assert "still being made" in waiting.json()["detail"]
+    while runs.process_next():
+        pass
+    lines = client.get(export, params={"format": "csv"}).text.splitlines()
+    assert lines[0] == "negative__jev-1.14,negative__jev-1.14_proba,review,stars"
+    assert lines[1] == "true,0.9,Terrible product,1"
 
 
 def test_an_empty_scope_makes_nothing(client, job, api_key):

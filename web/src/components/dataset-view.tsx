@@ -1,6 +1,6 @@
 "use client";
 
-import { EllipsisIcon, PlayIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import { DownloadIcon, EllipsisIcon, PlayIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -15,6 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
@@ -47,6 +48,7 @@ export function DatasetPanels({
   datasets,
   tab,
   onTabChange,
+  onExport,
   onDelete,
   onChanged,
   onOpenDataset,
@@ -56,6 +58,7 @@ export function DatasetPanels({
   datasets: Dataset[];
   tab: Tab;
   onTabChange: (tab: Tab) => void;
+  onExport: () => void;
   onDelete: () => void;
   onChanged: () => void;
   onOpenDataset: (datasetId: string) => void;
@@ -166,6 +169,11 @@ export function DatasetPanels({
                   <EllipsisIcon />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={making} onClick={onExport}>
+                    <DownloadIcon />
+                    Export…
+                    <DropdownMenuShortcut>E</DropdownMenuShortcut>
+                  </DropdownMenuItem>
                   <DropdownMenuItem variant="destructive" onClick={onDelete}>
                     <Trash2Icon />
                     Delete dataset

@@ -25,6 +25,14 @@ const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export const api = createClient<paths>({ baseUrl });
 
+export type ExportFormat = components["schemas"]["ExportRequest"]["format"];
+
+/** `GET /v1/datasets/{id}/export` is a file download, so the browser fetches it, not the client. */
+export function downloadUrl(datasetId: string, format: ExportFormat, includeRowId: boolean) {
+  const query = new URLSearchParams({ format, include_row_id: String(includeRowId) });
+  return `${baseUrl}/v1/datasets/${datasetId}/export?${query}`;
+}
+
 /** `POST /v1/datasets` takes multipart form data, which the generated types can't express. */
 export function createDataset(input: { file: File } | { source: string }) {
   const form = new FormData();

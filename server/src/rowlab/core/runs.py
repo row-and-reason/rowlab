@@ -42,6 +42,9 @@ log = logging.getLogger(__name__)
 
 Status = Literal["queued", "running", "stopping", "stopped", "done", "failed"]
 
+# Statuses of a run that still has work to do.
+ACTIVE = ("queued", "running", "stopping")
+
 
 class TaskModelCost(BaseModel):
     task_id: str
@@ -53,7 +56,6 @@ class TaskModelCost(BaseModel):
 class Run(BaseModel):
     id: str
     dataset_id: str = Field(description="The dataset it makes.")
-    number: int = Field(description="1, 2, … per parent dataset.")
     status: Status
     config: JobConfig = Field(description="The job's scope and tasks when the run started.")
     columns: list[str] = Field(description="The answer columns, each with a `_proba` column.")
@@ -86,28 +88,21 @@ def create_run(job_id: str) -> Run:
     if settings.openrouter_key() is None:
         raise InvalidRequest("Set your OpenRouter API key first.")
 
-    with db.connect() as conn:
-        number = conn.execute(
-            "SELECT coalesce(max(r.number), 0) + 1 FROM runs r"
-            " JOIN datasets d ON d.id = r.dataset_id WHERE d.parent_id = ?",
-            (job.dataset_id,),
-        ).fetchone()[0]
     dataset_id, asked = datasets.write_run_rows(job.dataset_id, job.scope)
     try:
         if asked == 0:
             raise InvalidRequest("The scope has no rows.")
         # An empty part gives the answer columns their types before any chunk is written.
         _write_part(dataset_id, job.tasks, "part-schema", {})
-        datasets.register_run_dataset(dataset_id, job.dataset_id, number)
+        datasets.register_run_dataset(dataset_id, job.dataset_id)
         run_id = uuid.uuid4().hex
         with db.connect() as conn:
             conn.execute(
-                "INSERT INTO runs (id, dataset_id, number, status, config, columns, costs,"
-                " row_count, total, created_at) VALUES (?, ?, ?, 'queued', ?, ?, '[]', ?, ?, ?)",
+                "INSERT INTO runs (id, dataset_id, status, config, columns, costs,"
+                " row_count, total, created_at) VALUES (?, ?, 'queued', ?, ?, '[]', ?, ?, ?)",
                 (
                     run_id,
                     dataset_id,
-                    number,
                     JobConfig(scope=job.scope, tasks=job.tasks).model_dump_json(),
                     json.dumps([c for task in job.tasks for c in tasks.result_columns(task)]),
                     asked,
@@ -137,7 +132,7 @@ def stop_run(run_id: str) -> Run:
     run = get_run(run_id)
     status = {"queued": "stopped", "running": "stopping"}.get(run.status)
     if status is None:
-        raise InvalidRequest(f"Run #{run.number} is {run.status}, not running.")
+        raise InvalidRequest(f"The run is {run.status}, not running.")
     _set(run_id, status=status)
     return get_run(run_id)
 
@@ -146,7 +141,7 @@ def resume_run(run_id: str) -> Run:
     """Queue a stopped or failed run again; it continues from its first unwritten chunk."""
     run = get_run(run_id)
     if run.status not in ("stopped", "failed"):
-        raise InvalidRequest(f"Run #{run.number} is {run.status}, not stopped.")
+        raise InvalidRequest(f"The run is {run.status}, not stopped.")
     _set(run_id, status="queued", error=None)
     _wake.set()
     return get_run(run_id)
@@ -349,7 +344,6 @@ def _from_row(row) -> Run:
     return Run(
         id=row["id"],
         dataset_id=row["dataset_id"],
-        number=row["number"],
         status=row["status"],
         config=json.loads(row["config"]),
         columns=json.loads(row["columns"]),

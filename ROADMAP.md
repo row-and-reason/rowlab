@@ -6,7 +6,8 @@ filters, sort and paging; 1M rows ingest in under a second and every page query 
 A prompt template can be composed from columns with a live per-row preview and token estimates.
 Milestone 3 is in progress: a job runs several tasks (yes/no, pick one, pick any, scale), each with one or
 more decision models or LLMs, on the rows its scope picks (search, filters, sort, limit), with costs per
-task and model; LLM-only answer types are next. Milestones 4 and 5 are done: every run makes a new
+task and model; LLM-only answer types are next. Milestone 6 is done: any dataset exports as CSV,
+JSONL or Parquet. Milestones 4 and 5 are done: every run makes a new
 dataset that appears at once and fills in as the run works in the background in chunks of 500 rows; runs
 can be stopped and resumed, survive a server restart without paying twice, and show live progress.
 `rowlab serve` serves the API and UI on one port, and `make build` produces a wheel with the UI bundled.
@@ -18,8 +19,12 @@ resumed without paying twice, shows all work and its live progress, and writes t
 ## Terms
 
 - **Dataset** — an ingested file, or what a run made from another dataset. Stored as Parquet with a stable
-  `__row_id`, whatever the original format, and named without a file extension; never modified once
-  complete. The format to export to is picked at export time.
+  `__row_id`, whatever the original format; never modified once complete. Named after the file without
+  its extension (`titanic`), and a made dataset after its branch, numbered like an outline:
+  `titanic__1`, `titanic__2`, … for those made from `titanic`, `titanic__1.1` for the first made from
+  `titanic__1`. They are branches, not versions: siblings are alternatives side by side, children
+  refine their parent. Numbers count per parent and aren't reused. The UI never names runs; it shows
+  datasets. The format to export to is picked at export time.
 - **Job** — a saved configuration: the dataset rows to process and the tasks to run on each.
 - **Task** — one thing to produce per row: a prompt (the question, with the row's columns in it), an answer
   type with its options, a result column name, and the models that answer it.
@@ -59,7 +64,7 @@ One page with three resizable columns (widths are remembered):
   models) and **Run**, which opens the dataset the run makes. Later also exporting to a file or S3.
 
 It works like a desktop app: thin column toolbars, Filter and Display popovers instead of forms, menus
-for actions, a ⌘K command palette and shortcuts (⌘↵ run, J/K switch dataset, / search), dark mode
+for actions, a ⌘K command palette and shortcuts (⌘↵ run, J/K switch dataset, / search, E export), dark mode
 following the system. `AGENTS.md` lists the conventions.
 
 What is selected lives in the query string, e.g. `/?dataset=<id>&tab=columns`: the UI is a static export,
@@ -138,7 +143,8 @@ normalization. An optional reason column is a candidate too.
 
 - `POST /v1/jobs/{id}/runs` queues a run and returns at once with the dataset it makes (`dataset_id`):
   every row of the parent is copied into it (`rows.parquet`) and the rows in scope listed
-  (`asked.parquet`); it is named `<parent>-run<n>`, with empty answer columns. The run keeps a frozen copy of its scope and tasks and is numbered per parent (#1, #2, …).
+  (`asked.parquet`); it is named after its place in the tree (`titanic__1.2`), with empty
+  answer columns. The run keeps a frozen copy of its scope and tasks.
   `GET /v1/runs/{id}` returns its status (`queued`, `running`, `stopping`, `stopped`, `done`, `failed`),
   progress and cost per task and model; each dataset carries its run's status and progress too.
 - One runner thread in the server works through queued runs one at a time, oldest first, with 16 model
@@ -158,7 +164,7 @@ normalization. An optional reason column is a candidate too.
   Deleting a dataset deletes the run that makes it; datasets made from it stay.
 - UI: Run opens the new dataset. Its rows fill in as chunks finish; its toolbar has Stop or Resume; its
   Lineage tab shows what it was made from, the run's status, progress bar, answers per second and time
-  left, its settings and costs, and "Edit and run again" (puts its scope and tasks back on the parent).
+  left, its settings and costs, and "Use these settings again" (puts its scope and tasks back on the parent).
 
 ### 5. Live progress in the dataset feed ✅
 
@@ -168,12 +174,16 @@ normalization. An optional reason column is a candidate too.
 - A dataset being made shows its rows filling in, and its Lineage tab the progress, answers per second,
   time left, cost so far and failed answers per task and model.
 
-### 6. Export to local
+### 6. Export to local ✅
 
-- Export any dataset (added or made by a run) as CSV, JSONL or Parquet, picked at export time. A dataset
-  made by a run already holds the original columns plus the result columns.
-- API: `POST /v1/datasets/{id}/export` → download, or write to a local path.
-- UI: export in the job column for the selected dataset.
+- Export any dataset (added or made by a run) as CSV, JSONL or Parquet, picked at export time: every row
+  and column, by `__row_id`, which is left out unless asked for. In CSV, nested values are written as
+  JSON text. A dataset still being made can't be exported until its run is done.
+- API: `GET /v1/datasets/{id}/export?format=…` downloads it as `<name>.<format>`;
+  `POST /v1/datasets/{id}/export` writes it to a path on the server (a folder or a file name),
+  replacing the file atomically.
+- UI: "Export…" in a dataset's menus and the ⌘K palette (shortcut E): a dialog with the format, whether
+  to include the `#` column, and Download or Save to a path.
 
 ### 7. Remote storage: read and write
 

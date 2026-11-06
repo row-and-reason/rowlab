@@ -115,6 +115,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/datasets/{dataset_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Dataset
+         * @description Download the dataset as a CSV, JSONL or Parquet file, named after it. Nested values are JSON
+         *     text in CSV. A dataset still being made can't be exported until its run is done.
+         */
+        get: operations["downloadDataset"];
+        put?: never;
+        /**
+         * Export Dataset
+         * @description Write the dataset to a file on the server, as CSV, JSONL or Parquet.
+         */
+        post: operations["exportDataset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/datasets/{dataset_id}/jobs": {
         parameters: {
             query?: never;
@@ -352,6 +377,11 @@ export interface components {
              * @description The dataset it was made from by a run.
              */
             parent_id: string | null;
+            /**
+             * Branch
+             * @description Its place in the tree, e.g. `1.2`: the 2nd made from the 1st made from a file. Empty for a dataset added from a file.
+             */
+            branch: string | null;
             /** @description The run that makes it; its rows fill in as it goes. */
             run: components["schemas"]["DatasetRun"] | null;
         };
@@ -362,11 +392,6 @@ export interface components {
         DatasetRun: {
             /** Id */
             id: string;
-            /**
-             * Number
-             * @description 1, 2, … per parent dataset.
-             */
-            number: number;
             /**
              * Status
              * @enum {string}
@@ -382,6 +407,32 @@ export interface components {
              * @description Model calls the run makes.
              */
             total: number;
+        };
+        /** ExportRequest */
+        ExportRequest: {
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "csv" | "jsonl" | "parquet";
+            /**
+             * Path
+             * @description Where to write it on the server: a file, or a folder to put `<name>.<format>` in.
+             */
+            path: string;
+            /**
+             * Include Row Id
+             * @description Keep `__row_id`, rowlab's row number.
+             * @default false
+             */
+            include_row_id: boolean;
+        };
+        /** ExportResult */
+        ExportResult: {
+            /** Path */
+            path: string;
+            /** Size Bytes */
+            size_bytes: number;
         };
         /** Filter */
         Filter: {
@@ -594,11 +645,6 @@ export interface components {
              * @description The dataset it makes.
              */
             dataset_id: string;
-            /**
-             * Number
-             * @description 1, 2, … per parent dataset.
-             */
-            number: number;
             /**
              * Status
              * @enum {string}
@@ -1057,6 +1103,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RenderResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    downloadDataset: {
+        parameters: {
+            query: {
+                format: "csv" | "jsonl" | "parquet";
+                include_row_id?: boolean;
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    exportDataset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportResult"];
                 };
             };
             /** @description Validation Error */

@@ -6,7 +6,8 @@ Load a CSV, JSON, JSONL or Parquet file from disk or a URL, explore it, compose 
 columns, and run it through a decision model (yes/no, choice, score — e.g. TypeSafe Jev) or a classic LLM.
 Get the original data back with new columns added, as a new dataset you can filter and label again.
 
-**Status:** pre-alpha. Datasets can be loaded, explored and labeled; every run makes a new dataset.
+**Status:** pre-alpha. Datasets can be loaded, explored, labeled and exported; every run makes a new
+dataset.
 Domain: [rowlab.dev](https://rowlab.dev)
 
 ## Principles

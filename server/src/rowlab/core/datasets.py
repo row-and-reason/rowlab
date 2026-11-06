@@ -58,7 +58,6 @@ class DatasetRun(BaseModel):
     """The run that makes a dataset."""
 
     id: str
-    number: int = Field(description="1, 2, … per parent dataset.")
     status: Literal["queued", "running", "stopping", "stopped", "done", "failed"]
     done: int = Field(description="Model calls answered so far.")
     total: int = Field(description="Model calls the run makes.")
@@ -73,6 +72,10 @@ class Dataset(BaseModel):
     columns: list[Column]
     created_at: datetime
     parent_id: str | None = Field(description="The dataset it was made from by a run.")
+    branch: str | None = Field(
+        description="Its place in the tree, e.g. `1.2`: the 2nd made from the 1st made from a file. "
+        "Empty for a dataset added from a file."
+    )
     run: DatasetRun | None = Field(
         description="The run that makes it; its rows fill in as it goes."
     )
@@ -254,14 +257,24 @@ def write_run_rows(parent_id: str, scope: Scope) -> tuple[str, int]:
     return dataset_id, asked
 
 
-def register_run_dataset(dataset_id: str, parent_id: str, number: int) -> Dataset:
-    """Record the dataset a run makes, once its rows and first (empty) part are written."""
+def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
+    """Record the dataset a run makes, once its rows and first (empty) part are written. It is named
+    after its branch, numbered like an outline: `titanic__1` for the first made from `titanic`,
+    `titanic__1.2` for the second made from `titanic__1`. Numbers aren't reused, so a name always
+    means one dataset."""
     parent = get_dataset(parent_id)
+    with db.connect() as conn:
+        made = conn.execute(
+            "UPDATE datasets SET made = made + 1 WHERE id = ? RETURNING made", (parent_id,)
+        ).fetchone()[0]
+    branch = f"{parent.branch}.{made}" if parent.branch else str(made)
+    base = parent.name.removesuffix(f"__{parent.branch}") if parent.branch else parent.name
     return _register(
         dataset_id,
-        name=f"{parent.name}-run{number}",
-        source=f"Run #{number} of {parent.name}",
+        name=f"{base}__{branch}",
+        source=f"Made from {parent.name}",
         parent_id=parent_id,
+        branch=branch,
     )
 
 
@@ -305,7 +318,14 @@ def run_parts_dir(dataset_id: str) -> Path:
     return _dataset_dir(dataset_id) / "parts"
 
 
-def _register(dataset_id: str, *, name: str, source: str, parent_id: str | None = None) -> Dataset:
+def _register(
+    dataset_id: str,
+    *,
+    name: str,
+    source: str,
+    parent_id: str | None = None,
+    branch: str | None = None,
+) -> Dataset:
     """Record a dataset whose files have been written."""
     directory = _dataset_dir(dataset_id)
     file = directory / "data.parquet"
@@ -321,7 +341,7 @@ def _register(dataset_id: str, *, name: str, source: str, parent_id: str | None 
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO datasets (id, name, source, row_count, size_bytes, columns, created_at,"
-            " parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " parent_id, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 dataset_id,
                 name,
@@ -331,6 +351,7 @@ def _register(dataset_id: str, *, name: str, source: str, parent_id: str | None 
                 json.dumps([c.model_dump() for c in columns]),
                 datetime.now(UTC).isoformat(),
                 parent_id,
+                branch,
             ),
         )
     return get_dataset(dataset_id)
@@ -339,7 +360,7 @@ def _register(dataset_id: str, *, name: str, source: str, parent_id: str | None 
 # Datasets with the run that makes them, if any.
 _SELECT = """
 SELECT d.*,
-    (SELECT json_object('id', r.id, 'number', r.number, 'status', r.status, 'done', r.done,
+    (SELECT json_object('id', r.id, 'status', r.status, 'done', r.done,
         'total', r.total) FROM runs r WHERE r.dataset_id = d.id) AS run
 FROM datasets d
 """

@@ -61,3 +61,8 @@ export function formatDuration(seconds: number): string {
   if (seconds < 90 * 60) return `${Math.round(seconds / 60)} minutes`;
   return `${Math.round(seconds / 3600)} hours`;
 }
+
+/** How a column is named in the interface: the row id, `__row_id`, is just "#". */
+export function columnLabel(name: string): string {
+  return name === "__row_id" ? "#" : name;
+}

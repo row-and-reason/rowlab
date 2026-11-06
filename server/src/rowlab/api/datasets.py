@@ -1,10 +1,13 @@
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, UploadFile
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
-from rowlab.core import datasets, prompts
+from rowlab.core import datasets, exports, prompts
 from rowlab.core.datasets import ColumnProfile, Dataset, Query, QueryResult
 from rowlab.core.errors import InvalidRequest
+from rowlab.core.exports import ExportFormat, ExportRequest, ExportResult
 from rowlab.core.prompts import RenderRequest, RenderResult
 
 router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
@@ -55,3 +58,28 @@ def query_dataset(dataset_id: str, query: Query) -> QueryResult:
 def render_prompt(dataset_id: str, request: RenderRequest) -> RenderResult:
     """Render a prompt template for a page of rows, with warnings and token estimates."""
     return prompts.render_dataset(dataset_id, request)
+
+
+@router.get(
+    "/{dataset_id}/export",
+    operation_id="downloadDataset",
+    response_class=FileResponse,
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
+def download_dataset(
+    dataset_id: str, format: ExportFormat, include_row_id: bool = False
+) -> FileResponse:
+    """Download the dataset as a CSV, JSONL or Parquet file, named after it. Nested values are JSON
+    text in CSV. A dataset still being made can't be exported until its run is done."""
+    path = exports.export_to_temp(dataset_id, format, include_row_id=include_row_id)
+    return FileResponse(
+        path,
+        filename=exports.file_name(dataset_id, format),
+        background=BackgroundTask(path.unlink),
+    )
+
+
+@router.post("/{dataset_id}/export", operation_id="exportDataset")
+def export_dataset(dataset_id: str, request: ExportRequest) -> ExportResult:
+    """Write the dataset to a file on the server, as CSV, JSONL or Parquet."""
+    return exports.export_to_path(dataset_id, request)

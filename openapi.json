@@ -313,6 +313,120 @@
         }
       }
     },
+    "/v1/datasets/{dataset_id}/export": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Download Dataset",
+        "description": "Download the dataset as a CSV, JSONL or Parquet file, named after it. Nested values are JSON\ntext in CSV. A dataset still being made can't be exported until its run is done.",
+        "operationId": "downloadDataset",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "csv",
+                "jsonl",
+                "parquet"
+              ],
+              "type": "string",
+              "title": "Format"
+            }
+          },
+          {
+            "name": "include_row_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Row Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Export Dataset",
+        "description": "Write the dataset to a file on the server, as CSV, JSONL or Parquet.",
+        "operationId": "exportDataset",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/datasets/{dataset_id}/jobs": {
       "get": {
         "tags": [
@@ -897,6 +1011,18 @@
             "title": "Parent Id",
             "description": "The dataset it was made from by a run."
           },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch",
+            "description": "Its place in the tree, e.g. `1.2`: the 2nd made from the 1st made from a file. Empty for a dataset added from a file."
+          },
           "run": {
             "anyOf": [
               {
@@ -919,6 +1045,7 @@
           "columns",
           "created_at",
           "parent_id",
+          "branch",
           "run"
         ],
         "title": "Dataset"
@@ -928,11 +1055,6 @@
           "id": {
             "type": "string",
             "title": "Id"
-          },
-          "number": {
-            "type": "integer",
-            "title": "Number",
-            "description": "1, 2, \u2026 per parent dataset."
           },
           "status": {
             "type": "string",
@@ -960,13 +1082,60 @@
         "type": "object",
         "required": [
           "id",
-          "number",
           "status",
           "done",
           "total"
         ],
         "title": "DatasetRun",
         "description": "The run that makes a dataset."
+      },
+      "ExportRequest": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "jsonl",
+              "parquet"
+            ],
+            "title": "Format"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Where to write it on the server: a file, or a folder to put `<name>.<format>` in."
+          },
+          "include_row_id": {
+            "type": "boolean",
+            "title": "Include Row Id",
+            "description": "Keep `__row_id`, rowlab's row number.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "format",
+          "path"
+        ],
+        "title": "ExportRequest"
+      },
+      "ExportResult": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "size_bytes"
+        ],
+        "title": "ExportResult"
       },
       "Filter": {
         "properties": {
@@ -1403,11 +1572,6 @@
             "title": "Dataset Id",
             "description": "The dataset it makes."
           },
-          "number": {
-            "type": "integer",
-            "title": "Number",
-            "description": "1, 2, \u2026 per parent dataset."
-          },
           "status": {
             "type": "string",
             "enum": [
@@ -1499,7 +1663,6 @@
         "required": [
           "id",
           "dataset_id",
-          "number",
           "status",
           "config",
           "columns",

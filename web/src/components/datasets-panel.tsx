@@ -3,6 +3,7 @@
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
 import {
   ChevronRightIcon,
+  DownloadIcon,
   KeyRoundIcon,
   MoonIcon,
   PlusIcon,
@@ -41,6 +42,7 @@ export function DatasetsPanel({
   selectedId,
   settings,
   onAdd,
+  onExport,
   onDelete,
   onKey,
 }: {
@@ -48,6 +50,7 @@ export function DatasetsPanel({
   selectedId: string | null;
   settings: Settings | undefined;
   onAdd: () => void;
+  onExport: (dataset: Dataset) => void;
   onDelete: (dataset: Dataset) => void;
   onKey: () => void;
 }) {
@@ -130,6 +133,13 @@ export function DatasetsPanel({
                     </ItemContent>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
+                    <ContextMenuItem
+                      disabled={!!dataset.run && isActive(dataset.run)}
+                      onClick={() => onExport(dataset)}
+                    >
+                      <DownloadIcon />
+                      Export…
+                    </ContextMenuItem>
                     <ContextMenuItem variant="destructive" onClick={() => onDelete(dataset)}>
                       <Trash2Icon />
                       Delete
@@ -169,14 +179,10 @@ export function DatasetsPanel({
   );
 }
 
-/** E.g. "600 rows · 12 columns", or "Run #1 · stopped" for one a run made. */
+/** E.g. "600 rows · 12 columns", with how its run stands while that isn't done, e.g. "· stopped". */
 function describe(dataset: Dataset): string {
-  if (!dataset.run) {
-    return `${formatNumber(dataset.row_count)} rows · ${dataset.columns.length - 1} columns`;
-  }
-  const status =
-    dataset.run.status === "done" ? `${formatNumber(dataset.row_count)} rows` : dataset.run.status;
-  return `Run #${dataset.run.number} · ${status}`;
+  const size = `${formatNumber(dataset.row_count)} rows · ${dataset.columns.length - 1} columns`;
+  return dataset.run && dataset.run.status !== "done" ? `${size} · ${dataset.run.status}` : size;
 }
 
 /** A thin bar along the top edge of a dataset a run is making: how many model calls are done. */
@@ -185,8 +191,8 @@ function RunProgress({ run }: { run: DatasetRun }) {
   return (
     <ProgressPrimitive.Root
       value={percent}
-      aria-label={`Run #${run.number}`}
-      title={`Run #${run.number}: ${formatNumber(run.done)} of ${formatNumber(run.total)} answers`}
+      aria-label="Progress"
+      title={`${formatNumber(run.done)} of ${formatNumber(run.total)} answers`}
       className="absolute inset-x-0 top-0"
     >
       <ProgressTrack className="h-0.5 rounded-none bg-transparent">

@@ -2,6 +2,7 @@
 
 import {
   DatabaseIcon,
+  DownloadIcon,
   KeyRoundIcon,
   ListChecksIcon,
   ListRestartIcon,
@@ -21,6 +22,7 @@ import { toast } from "sonner";
 import { AddDataset } from "@/components/add-dataset";
 import { DatasetPanels, TABS, type JobActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
+import { ExportDataset } from "@/components/export-dataset";
 import { OpenRouterKeyDialog } from "@/components/openrouter-key";
 import { PaneHeader } from "@/components/pane";
 import { Keys } from "@/components/tooltip-button";
@@ -81,6 +83,7 @@ function Workspace() {
   const [adding, setAdding] = useState(false);
   const [settingKey, setSettingKey] = useState(false);
   const [deleting, setDeleting] = useState<Dataset>();
+  const [exporting, setExporting] = useState<Dataset>();
   const [palette, setPalette] = useState(false);
   const jobActionsRef = useRef<JobActions | null>(null);
   // Remembers the column widths you drag to, in localStorage.
@@ -107,6 +110,8 @@ function Workspace() {
   }, [anyRunning, load]);
 
   const selected = datasets?.find((d) => d.id === selectedId);
+  // A dataset a run is still making can't be exported yet.
+  const exportable = !!selected && !(selected.run && isActive(selected.run));
   const select = useCallback((id: string) => router.push(`/?dataset=${id}`), [router]);
 
   // Keyboard shortcuts. ⌘K and ⌘↵ work everywhere; single keys only when not typing.
@@ -129,12 +134,15 @@ function Workspace() {
         } else if (e.key === "/") {
           e.preventDefault();
           document.getElementById("rows-search")?.focus();
+        } else if (e.key === "e" && exportable) {
+          e.preventDefault();
+          setExporting(selected);
         }
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [datasets, selectedId, select]);
+  }, [datasets, selectedId, select, selected, exportable]);
 
   async function remove(dataset: Dataset) {
     const { error } = await api.DELETE("/v1/datasets/{dataset_id}", {
@@ -164,6 +172,7 @@ function Workspace() {
             selectedId={selectedId}
             settings={settings}
             onAdd={() => setAdding(true)}
+            onExport={setExporting}
             onDelete={setDeleting}
             onKey={() => setSettingKey(true)}
           />
@@ -175,6 +184,7 @@ function Workspace() {
             datasets={datasets ?? []}
             tab={tab}
             onTabChange={(t) => router.push(`/?dataset=${selected.id}&tab=${t}`)}
+            onExport={() => setExporting(selected)}
             onDelete={() => setDeleting(selected)}
             onChanged={load}
             onOpenDataset={select}
@@ -266,6 +276,13 @@ function Workspace() {
                     Search rows
                     <CommandShortcut>/</CommandShortcut>
                   </CommandItem>
+                  {exportable && (
+                    <CommandItem onSelect={() => command(() => setExporting(selected))}>
+                      <DownloadIcon />
+                      Export dataset…
+                      <CommandShortcut>E</CommandShortcut>
+                    </CommandItem>
+                  )}
                 </>
               )}
               <CommandItem onSelect={() => command(() => setAdding(true))}>
@@ -309,6 +326,14 @@ function Workspace() {
           select(dataset.id);
         }}
       />
+      {exporting && (
+        <ExportDataset
+          key={exporting.id}
+          dataset={exporting}
+          open
+          onOpenChange={(open) => !open && setExporting(undefined)}
+        />
+      )}
       <OpenRouterKeyDialog open={settingKey} onOpenChange={setSettingKey} onSaved={setSettings} />
       <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(undefined)}>
         <AlertDialogContent>

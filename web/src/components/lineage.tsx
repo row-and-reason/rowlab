@@ -20,7 +20,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { api, type Dataset, type Run, type Scope } from "@/lib/api/client";
-import { errorMessage, formatAgo, formatDuration, formatNumber, formatUsd } from "@/lib/format";
+import {
+  columnLabel,
+  errorMessage,
+  formatAgo,
+  formatDuration,
+  formatNumber,
+  formatUsd,
+} from "@/lib/format";
 import { isActive } from "@/lib/runs";
 import { loadOrCreate } from "@/lib/use-job";
 
@@ -137,7 +144,7 @@ function RunDetails({
   const parentExists = !!dataset.parent_id;
   return (
     <FieldSet>
-      <FieldLegend variant="label">By run #{run.number}</FieldLegend>
+      <FieldLegend variant="label">How it was made</FieldLegend>
       <p className="text-sm text-muted-foreground">
         {statusText(run)} · {formatAgo(run.created_at)}
         <br />
@@ -145,10 +152,7 @@ function RunDetails({
       </p>
       {isActive(run) && (
         <div className="flex flex-col gap-1.5">
-          <Progress
-            value={run.total ? (100 * run.done) / run.total : 0}
-            aria-label="Run progress"
-          />
+          <Progress value={run.total ? (100 * run.done) / run.total : 0} aria-label="Progress" />
           {speed && (
             <p className="text-xs text-muted-foreground">
               {formatNumber(Math.round(speed.perSecond))} answers a second · about{" "}
@@ -210,7 +214,7 @@ function RunDetails({
           onClick={() => runAgain(run.config)}
         >
           <RepeatIcon data-icon="inline-start" />
-          Edit and run again
+          Use these settings again
         </Button>
       )}
     </FieldSet>
@@ -257,9 +261,9 @@ function describeScope(scope: Scope): string {
   const parts = [
     scope.search && `“${scope.search}”`,
     ...scope.filters.map((f) =>
-      [f.column, f.op.replaceAll("_", " "), f.value ?? ""].join(" ").trim(),
+      [columnLabel(f.column), f.op.replaceAll("_", " "), f.value ?? ""].join(" ").trim(),
     ),
-    ...scope.sort.map((s) => `${s.column}, ${s.desc ? "high to low" : "low to high"}`),
+    ...scope.sort.map((s) => `${columnLabel(s.column)}, ${s.desc ? "high to low" : "low to high"}`),
     scope.limit && `first ${formatNumber(scope.limit)} rows`,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "All rows";

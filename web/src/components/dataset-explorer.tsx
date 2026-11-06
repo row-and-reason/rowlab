@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { api, type Dataset, type Filter, type QueryResult, type Scope } from "@/lib/api/client";
-import { errorMessage, formatCell, formatNumber } from "@/lib/format";
+import { columnLabel, errorMessage, formatCell, formatNumber } from "@/lib/format";
 
 type Row = Record<string, unknown>;
 
@@ -136,7 +136,7 @@ export function DatasetExplorer({
       dataset.columns.map((c) =>
         helper.accessor((row) => row[c.name], {
           id: c.name,
-          header: c.name,
+          header: columnLabel(c.name),
           cell: (info) => <CellValue value={info.getValue()} />,
         }),
       ),
@@ -183,7 +183,8 @@ export function DatasetExplorer({
         />
         {filters.map((f, i) => (
           <Badge key={i} variant="secondary" className="h-7 gap-1 pr-0.5">
-            {f.column} {opLabel(f.op)} {takesValue(f.op) && <code>{String(f.value)}</code>}
+            {columnLabel(f.column)} {opLabel(f.op)}{" "}
+            {takesValue(f.op) && <code>{String(f.value)}</code>}
             <Button
               variant="ghost"
               size="icon-xs"
@@ -275,7 +276,7 @@ export function DatasetExplorer({
                         title={column?.type}
                         onClick={() => toggleSort(header.id)}
                       >
-                        {header.id}
+                        {columnLabel(header.id)}
                         <SortIcon
                           data-icon="inline-end"
                           className={sort?.column !== header.id ? "opacity-30" : undefined}
@@ -317,7 +318,7 @@ function CellValue({ value }: { value: unknown }) {
 }
 
 function FilterButton({ dataset, onAdd }: { dataset: Dataset; onAdd: (filter: Filter) => void }) {
-  const columnItems = dataset.columns.map((c) => ({ value: c.name, label: c.name }));
+  const columnItems = dataset.columns.map((c) => ({ value: c.name, label: columnLabel(c.name) }));
   const [open, setOpen] = useState(false);
   const [column, setColumn] = useState<string | null>(null);
   const [op, setOp] = useState<Filter["op"]>("eq");
@@ -426,7 +427,7 @@ function DisplayButton({
               {sort ? (
                 <>
                   <span>
-                    {sort.column}, {sort.desc ? "high to low" : "low to high"}
+                    {columnLabel(sort.column)}, {sort.desc ? "high to low" : "low to high"}
                   </span>
                   <Button variant="ghost" size="xs" onClick={() => onScopeChange({ sort: [] })}>
                     Reset
