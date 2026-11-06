@@ -601,3 +601,11 @@ def test_runners_claiming_at_once_never_take_the_same_run(client, job, api_key, 
     for runner in runners:
         runner.join()
     assert sorted(claimed) == sorted(created)
+
+
+def test_an_estimate_gives_the_cost_before_a_key_is_set(client, dataset):
+    body = {"sql": "SELECT * FROM data LIMIT 2", "tasks": [NEGATIVE]}
+    estimate = client.post(f"/v1/datasets/{dataset['id']}/estimate", json=body).json()
+    assert estimate["problem"] == "Set your OpenRouter API key first."
+    assert (estimate["rows"], estimate["calls"]) == (2, 2)
+    assert estimate["cost"] > 0

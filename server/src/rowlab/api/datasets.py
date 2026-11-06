@@ -73,7 +73,7 @@ def compare_columns(dataset_id: str, request: CompareRequest) -> Comparison:
     """How often two or more columns give the same value in each row: several models' answers,
     a model against labels someone already has, or any columns at all. With a `reference`, also
     each column's accuracy against it. Every count comes with the filter for its rows, to use in a
-    scope's `filters`: to see them (`query`) or to ask about them again (`runs`)."""
+    query's WHERE clause: to see them (`query`) or to ask about them again (`runs`)."""
     return compare.compare(dataset_id, request)
 
 

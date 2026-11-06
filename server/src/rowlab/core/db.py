@@ -95,7 +95,8 @@ def _pool(url: str) -> Any:
     from psycopg.rows import dict_row  # Only needed for Postgres: `pip install rowlab[hosted]`.
     from psycopg_pool import ConnectionPool
 
-    return ConnectionPool(url, kwargs={"row_factory": dict_row}, min_size=1, open=True)
+    # Up to 10 at once: requests, the runner thread, and calls that use a connection inside another.
+    return ConnectionPool(url, kwargs={"row_factory": dict_row}, min_size=1, max_size=10, open=True)
 
 
 def _migrate(raw: Any, postgres: bool) -> None:

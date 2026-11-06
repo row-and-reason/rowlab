@@ -157,7 +157,7 @@ export interface paths {
          * @description How often two or more columns give the same value in each row: several models' answers,
          *     a model against labels someone already has, or any columns at all. With a `reference`, also
          *     each column's accuracy against it. Every count comes with the filter for its rows, to use in a
-         *     scope's `filters`: to see them (`query`) or to ask about them again (`runs`).
+         *     query's WHERE clause: to see them (`query`) or to ask about them again (`runs`).
          */
         post: operations["compareColumns"];
         delete?: never;
@@ -229,7 +229,7 @@ export interface paths {
          *     response cache.
          *
          *     A task needs only its `template` and `type`; the result column and models default to ones that
-         *     suit the type (see `GET /v1/task-types`).
+         *     suit the type (see `GET /v1/utils/task-types`).
          */
         post: operations["createRun"];
         delete?: never;

@@ -418,7 +418,7 @@
           "datasets"
         ],
         "summary": "Compare Columns",
-        "description": "How often two or more columns give the same value in each row: several models' answers,\na model against labels someone already has, or any columns at all. With a `reference`, also\neach column's accuracy against it. Every count comes with the filter for its rows, to use in a\nscope's `filters`: to see them (`query`) or to ask about them again (`runs`).",
+        "description": "How often two or more columns give the same value in each row: several models' answers,\na model against labels someone already has, or any columns at all. With a `reference`, also\neach column's accuracy against it. Every count comes with the filter for its rows, to use in a\nquery's WHERE clause: to see them (`query`) or to ask about them again (`runs`).",
         "operationId": "compareColumns",
         "parameters": [
           {
@@ -656,7 +656,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Queue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with every row; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/task-types`).",
+        "description": "Queue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with every row; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
         "operationId": "createRun",
         "parameters": [
           {

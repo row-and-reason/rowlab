@@ -64,7 +64,9 @@ import { api, type Dataset, type Settings } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
 import { useTaskTypes } from "@/lib/catalog";
 import { datasetTree } from "@/lib/dataset-tree";
+import { loadDraft } from "@/lib/draft";
 import { isActive } from "@/lib/runs";
+import { viewSql } from "@/lib/sql";
 import { type Section, settingsUrl } from "@/lib/settings";
 
 // The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
@@ -385,6 +387,7 @@ function Workspace() {
         <ExportDataset
           key={exporting.id}
           dataset={exporting}
+          tableSql={tableSql(exporting)}
           open
           onOpenChange={(open) => !open && setExporting(undefined)}
         />
@@ -414,6 +417,12 @@ function Workspace() {
       </AlertDialog>
     </main>
   );
+}
+
+/** The query behind the rows a dataset's table shows, if its draft has one. */
+function tableSql(dataset: Dataset): string | null {
+  const draft = loadDraft(dataset.id);
+  return draft ? viewSql(draft.view, dataset.columns) : null;
 }
 
 /** Whether a key press is going into a text field, where single-key shortcuts must not fire. */

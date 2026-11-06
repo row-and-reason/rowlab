@@ -1,6 +1,6 @@
 # Roadmap to MVP
 
-**Today:** milestones 1 to 7 are done; the launch plan (8 to 14) is next. CSV, TSV, JSON, JSONL and Parquet
+**Today:** milestones 1 to 8 are done; the rest of the launch plan (9 to 14) is next. CSV, TSV, JSON, JSONL and Parquet
 files are uploaded, or loaded by local path, public http(s) URL or from S3, and explored with SQL
 (which the UI's search, filters and sort write for you) and paging; 1M rows ingest in under a second and
 every page query returns in about 0.1 s. A run asks several tasks, each with one or more decision models
@@ -332,7 +332,7 @@ and labels by hand once human review exists; no exports). Connections are made b
 members, who never see their secrets. Roles live in rowlab's database whatever the sign-in provider,
 which only says who someone is and which organisation they are in. Locally, the one user is Admin.
 
-### 8. Deployment modes and Postgres (built; to try on Postgres)
+### 8. Deployment modes and Postgres ✅
 
 - `ROWLAB_MODE` and the config object; `GET /v1/settings` says what is on.
 - A thin `db` module over SQLite and Postgres (`connect()`, one placeholder style; no ORM), SQL both
@@ -346,7 +346,7 @@ which only says who someone is and which organisation they are in. Locally, the 
   folder or on S3: DuckDB reads and writes, boto3 checks and deletes), runners claiming runs atomically
   and taking back only runs silent for two minutes (`STALE_SECONDS`), `rowlab serve --no-runner` and
   `rowlab runner`, the `rowlab[hosted]` extra, `make test-hosted` and a CI job with Postgres. The suite
-  passes on SQLite with datasets on disk and on S3; it hasn't run on Postgres here yet.
+  passes on SQLite with datasets on disk, and in CI on Postgres with datasets on S3.
 
 ### 9. Organisations, sign-in and roles
 

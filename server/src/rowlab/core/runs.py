@@ -193,14 +193,15 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
     problem = None
     try:
         check(dataset_id, request)
-        if settings.openrouter_key() is None:
-            raise InvalidRequest("Set your OpenRouter API key first.")
         if total == 0:
             raise InvalidRequest("The query picks no rows.")
     except InvalidRequest as e:
         problem = str(e)
     if problem or not rows:
         return Estimate(rows=total, calls=calls, cost=0, problem=problem)
+    # The cost is worth knowing before a key is set, too.
+    if settings.openrouter_key() is None:
+        problem = "Set your OpenRouter API key first."
 
     keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
     prices = {m.id: m for m in openrouter.models()}
@@ -227,7 +228,7 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
                 (prompt_tokens + instructions) * prices[model].prompt_price
                 + answer_tokens * prices[model].completion_price
             )
-    return Estimate(rows=total, calls=calls, cost=cost, problem=None)
+    return Estimate(rows=total, calls=calls, cost=cost, problem=problem)
 
 
 def get_run(run_id: str) -> Run:

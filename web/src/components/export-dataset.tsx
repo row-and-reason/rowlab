@@ -59,19 +59,26 @@ const DESTINATIONS = [
 ] as const;
 type Destination = (typeof DESTINATIONS)[number]["kind"];
 
-/** Export a dataset in two steps: where to (a download or S3), then the format and where exactly. */
+/**
+ * Export a dataset in two steps: where to (a download or S3), then the format and where exactly. With
+ * `tableSql`, the query behind the rows the table shows, it can export only those rows.
+ */
 export function ExportDataset({
   dataset,
+  tableSql,
   open,
   onOpenChange,
 }: {
   dataset: Dataset;
+  tableSql: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const [destination, setDestination] = useState<Destination>();
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [includeRowId, setIncludeRowId] = useState(false);
+  const [onlyTable, setOnlyTable] = useState(false);
+  const sql = onlyTable ? tableSql : null;
   const [path, setPath] = useState("");
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -84,6 +91,7 @@ export function ExportDataset({
         format,
         path: path.trim(),
         include_row_id: includeRowId,
+        sql,
         connection_id: connectionId,
       },
     });
@@ -117,7 +125,8 @@ export function ExportDataset({
             {picked ? `${picked.title}: ${dataset.name}` : `Export ${dataset.name}`}
           </DialogTitle>
           <DialogDescription>
-            Every row and column. In CSV, nested values are written as JSON.
+            Every column; every row, or only those the table shows. In CSV, nested values are
+            written as JSON.
           </DialogDescription>
         </DialogHeader>
 
@@ -190,9 +199,21 @@ export function ExportDataset({
                   Include the # column, to trace rows back to the original file
                 </FieldLabel>
               </Field>
+              {tableSql && (
+                <Field orientation="horizontal">
+                  <Checkbox
+                    id="export-only-table"
+                    checked={onlyTable}
+                    onCheckedChange={(checked) => setOnlyTable(checked === true)}
+                  />
+                  <FieldLabel htmlFor="export-only-table" className="font-normal">
+                    Only the rows the table shows (its search, filters and limit)
+                  </FieldLabel>
+                </Field>
+              )}
               {destination === "download" ? (
                 <Button
-                  render={<a href={downloadUrl(dataset.id, format, includeRowId)} download />}
+                  render={<a href={downloadUrl(dataset.id, format, includeRowId, sql)} download />}
                   onClick={() => onOpenChange(false)}
                 >
                   <DownloadIcon data-icon="inline-start" />
