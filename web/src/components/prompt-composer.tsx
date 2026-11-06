@@ -79,10 +79,10 @@ export function PromptComposer({
           {shown &&
             ` ≈ ${formatNumber(Math.round(shown.tokens.avg))} tokens per row, ≈ ${formatNumber(shown.tokens.total_estimate)} for all ${formatNumber(shown.selected_rows)} rows picked.`}
         </FieldDescription>
-        {result?.request === request && result.error && (
-          <FieldDescription>
-            Preview unavailable. Fix the query in Rows to continue.
-          </FieldDescription>
+        {result?.error && (
+          <Alert variant="destructive">
+            <AlertDescription>{result.error}</AlertDescription>
+          </Alert>
         )}
         {shown?.warnings.map((warning) => (
           <Alert key={warning}>
@@ -94,7 +94,7 @@ export function PromptComposer({
         ))}
       </Field>
 
-      {row && !result?.error && (
+      {row && (
         <Field>
           <div className="flex items-center justify-between gap-2">
             <FieldLabel>

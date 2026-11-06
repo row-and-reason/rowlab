@@ -9,8 +9,6 @@ fields, or write new text. Any columns can be compared, e.g. several models' ans
 background in chunks of 500 rows; runs can be stopped and resumed, survive a server restart without
 paying twice, and show live progress. Any dataset exports as CSV, JSONL or Parquet, to disk or S3.
 `rowlab serve` serves the API and UI on one port, and `make build` produces a wheel with the UI bundled.
-Human review is implemented: full-row inspection, separate reviewed columns, comparison against those
-labels, explicit sampling and export scope, and descriptive result names.
 
 **MVP:** a local tool that takes a CSV/JSON/JSONL/Parquet file from disk, HTTP or S3, runs a configured
 labeling or extraction job over its rows with any OpenRouter decision model or LLM, can be stopped and
@@ -19,14 +17,12 @@ resumed without paying twice, shows all work and its live progress, and writes t
 ## Terms
 
 - **Dataset** — an ingested file, or what a run made from another dataset. Stored as Parquet with a stable
-  `__row_id`, whatever the original format; its source data is never modified once complete. Human
-  labels live in a separate Parquet sidecar. Named after the file without
+  `__row_id`, whatever the original format; never modified once complete. Named after the file without
   its extension (`titanic`), and a made dataset after its branch, numbered like an outline:
   `titanic__1`, `titanic__2`, … for those made from `titanic`, `titanic__1.1` for the first made from
   `titanic__1`. They are branches, not versions: siblings are alternatives side by side, children
-  refine their parent. Numbers count per parent and aren't reused. These are the API's default names;
-  the UI supplies a descriptive result name and datasets can be renamed. The format to export to is
-  picked at export time.
+  refine their parent. Numbers count per parent and aren't reused. The UI never names runs; it shows
+  datasets. The format to export to is picked at export time.
 - **Query** — one DuckDB `SELECT` over the table `data`, the dataset: which rows to look at, run on or
   export. The UI's search, filters, sort and limit write it; it can also be written by hand.
 - **Draft** — the next run of a dataset, as the UI holds it: its query and tasks. Kept in the browser;
@@ -59,8 +55,9 @@ One page with three resizable columns (widths are remembered):
 - **Datasets** — every dataset as a tree: added files at the root, and each run's dataset under the one
   it ran on, with a thin live progress bar while a run is making it, plus "Add data". Families go by their
   latest activity, so a run brings its family to the top; a dataset folds away what was made from it,
-  except while a run is still making one. Indentation stops after three levels. Settings is available
-  at the bottom; speculative account actions are not shown. Settings is its own page (`/settings/`, ⌘,): sections
+  except while a run is still making one. Indentation stops after three levels. At the bottom, "Your
+  account" (it will show who is signed in once there are accounts): Settings, API keys & MCP
+  connections and Log out (both still to come). Settings is its own page (`/settings/`, ⌘,): sections
   on the left (Providers, with the OpenRouter key; Storage, with S3 connections), Back or Esc returns to the dataset
   you came from.
 - **Rows** — the selected dataset's data: the rows table (search, filters, sort, limit, and the SQL they
@@ -69,11 +66,7 @@ One page with three resizable columns (widths are remembered):
   is the next run's: the table shows exactly the rows it asks about. A dataset still being made shows its answers as they come in,
   with Stop/Resume in its toolbar.
 - **New run** — the tasks (each a prompt with columns dragged in, an answer type, a result column and
-  models), a result name, and a Scope control beside **Run on N rows**. Scope chooses a repeatable
-  random sample, the first rows, or all matching rows; new drafts start on 20 sampled rows. This pane
-  becomes a row inspector during review, or a result summary after a run. Completed runs offer
-  Review a sample, Compare, Export and Edit prompt & run again. On narrow screens the data and task
-  panes are shown one at a time, with datasets in a dialog.
+  models) and **Run**, which opens the dataset the run makes. Later also exporting to a file or S3.
 
 It works like a desktop app: thin column toolbars, Filter and Display popovers instead of forms, menus
 for actions, a ⌘K command palette and shortcuts (⌘↵ run, J/K switch dataset, / search, E export), dark mode
@@ -91,14 +84,13 @@ return `__row_id` (as `SELECT *` does). `agree([a, b, …])`, `disagree([a, b, �
 | | | |
 |---|---|---|
 | `GET` `POST` | `/v1/datasets` | list; add (upload a `file`, or a `source`: path, URL or `s3://`, with a `connection_id`) |
-| `GET` `PATCH` `DELETE` | `/v1/datasets/{id}` | get, rename (`{name}`), delete |
-| `PUT` | `/v1/datasets/{id}/reviews` | `{row_id, column, value}`: save a separate typed human label; null clears it |
+| `GET` `DELETE` | `/v1/datasets/{id}` | |
 | `GET` | `/v1/datasets/{id}/profile` | column statistics |
 | `POST` | `/v1/datasets/{id}/query` | `{sql, offset, limit}` → `{columns, rows, total}` |
 | `POST` | `/v1/datasets/{id}/compare` | `{columns, reference, tolerance, sql}`: agreement, accuracy, and SQL for each count |
 | `POST` | `/v1/datasets/{id}/render` | `{template, sql, offset, limit}`: a prompt as sent, with token estimates |
 | `GET` `POST` | `/v1/datasets/{id}/export` | download, or write to a path or `s3://`; `sql` exports only the rows it picks |
-| `POST` | `/v1/datasets/{id}/runs` | `{sql, tasks, name?}` → the run, and the dataset it makes |
+| `POST` | `/v1/datasets/{id}/runs` | `{sql, tasks}` → the run, and the dataset it makes |
 | `POST` | `/v1/datasets/{id}/estimate` | `{sql, tasks}` → rows, model calls, rough cost, or what to change |
 | `GET` | `/v1/runs/{id}` | status, progress, costs |
 | `POST` | `/v1/runs/{id}/stop`, `/v1/runs/{id}/resume` | |
@@ -293,27 +285,7 @@ existing labels, or two columns of the original data.
 - Write answers compare exactly only, for good: to judge whether two texts say the same, label another
   column with a task that asks.
 - UI: a Compare tab picks the columns (to start with, the models' answers of the run that made the
-  dataset), a reference and a tolerance. It explicitly chooses current scope or whole dataset;
-  every count opens the rows from that same scope. A reviewed column is suggested as reference when
-  available, and accuracy includes the number of reviewed rows.
-
-### Human review and workflow clarity ✅ (pulled forward)
-
-- Review rows (R), row-number buttons and double-click open the full source and model answers in the
-  right pane. Reviewers can hide model answers in both panes, choose the answer to review, and save
-  and advance (⌘↵). Alt←/Alt→ navigates rows; Esc returns to the task or result summary. Unsaved entries
-  remain in this browser, keyed by dataset, row and reviewed column.
-- `PUT /v1/datasets/{id}/reviews` writes typed `reviewed_<answer>` columns to `reviews.parquet`, using
-  the configured local or S3 storage and database locks to serialize edits across server processes.
-  Query, profile, prompts,
-  Compare and export all see the labels. Source and model answer files stay unchanged. New runs copy
-  the sidecar so children keep independent labels. Reviewing active runs is blocked.
-- Run scope is next to Run, not under Display. Display controls wrapping, confidence visibility and
-  paging; confidence is identified as model-supplied, not verified accuracy. Export explicitly picks
-  whole dataset or current rows. Estimates still show cost before provider setup.
-- Provider setup has a direct action and returns to the saved draft. Invalid queries hide previous
-  results and offer edit, revert and retry with details collapsed. Names and completion summaries make
-  results recognizable and give the next steps.
+  dataset), a reference and a tolerance; every count opens its rows in the Rows tab.
 
 ## Launch plan
 
@@ -429,6 +401,10 @@ which only says who someone is and which organisation they are in. Locally, the 
 Discover → label (LLM proposes
 categories) · one-click cascades (low-confidence rows escalated to an LLM; already possible by hand
 through the workflow loop) · provider batch APIs.
+
+- **Human review.** A UI for people to label or correct rows, which writes a label column like any
+  task does. With comparisons in place it is just another way to make a column: marked as a
+  comparison's reference, it turns agreement into accuracy. Ideas to be written up.
 
 ### Ideas
 

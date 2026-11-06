@@ -15,7 +15,7 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
     response cache.
 
     A task needs only its `template` and `type`; the result column and models default to ones that
-    suit the type (see `GET /v1/utils/task-types`)."""
+    suit the type (see `GET /v1/task-types`)."""
     return runs.create_run(dataset_id, request)
 
 

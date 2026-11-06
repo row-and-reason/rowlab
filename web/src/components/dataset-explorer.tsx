@@ -11,7 +11,6 @@ import {
   ListFilterIcon,
   SearchIcon,
   SlidersHorizontalIcon,
-  ScanTextIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -19,15 +18,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
@@ -75,10 +65,7 @@ const OPS: { value: ColumnFilter["op"]; label: string }[] = [
 const opLabel = (op: ColumnFilter["op"]) => OPS.find((o) => o.value === op)?.label;
 const takesValue = (op: ColumnFilter["op"]) => op !== "is_null" && op !== "is_not_null";
 
-const PAGE_SIZES = [50, 100, 250, 500].map((n) => ({
-  value: String(n),
-  label: `${n} rows`,
-}));
+const PAGE_SIZES = [50, 100, 250, 500].map((n) => ({ value: String(n), label: `${n} rows` }));
 
 /**
  * A dataset's rows, as the view picks them: search, filters, sort and limit, which become `sql`, or SQL
@@ -92,18 +79,12 @@ export function DatasetExplorer({
   sql,
   onViewChange,
   version,
-  onReview,
-  selectedRow,
-  hideAnswers = false,
 }: {
   dataset: Dataset;
   view: View;
   sql: string;
   onViewChange: (changes: Partial<View>) => void;
-  version?: string;
-  onReview: (index: number) => void;
-  selectedRow?: number | null;
-  hideAnswers?: boolean;
+  version?: number;
 }) {
   const { search, filters } = view;
   const custom = view.sql !== null;
@@ -111,11 +92,6 @@ export function DatasetExplorer({
   const [searchInput, setSearchInput] = useState(search);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(100);
-  const [wrap, setWrap] = useState(false);
-  const [confidence, setConfidence] = useState(false);
-  const [editingSql, setEditingSql] = useState(false);
-  const [lastGoodSql, setLastGoodSql] = useState<string>();
-  const [retry, setRetry] = useState(0);
 
   function changeView(changes: Partial<View>) {
     onViewChange(changes);
@@ -124,8 +100,8 @@ export function DatasetExplorer({
 
   // Each result remembers the request it answers, so a stale response is never shown as current.
   const request = useMemo(
-    () => ({ sql, offset: page * pageSize, limit: pageSize, version, retry }),
-    [sql, page, pageSize, version, retry],
+    () => ({ sql, offset: page * pageSize, limit: pageSize }),
+    [sql, page, pageSize],
   );
   const [result, setResult] = useState<{
     request: typeof request;
@@ -151,56 +127,40 @@ export function DatasetExplorer({
         body: request,
       })
       .then(({ data, error }) => {
-        if (current) {
-          setResult(error ? { request, error: errorMessage(error) } : { request, data });
-          if (data) setLastGoodSql(sql);
-        }
-      })
-      .catch(() => {
-        if (current)
-          setResult({
-            request,
-            error: "Could not reach rowlab. Check that the server is running, then retry.",
-          });
+        if (current) setResult(error ? { request, error: errorMessage(error) } : { request, data });
       });
     return () => {
       current = false;
     };
-  }, [dataset.id, request, version, sql]);
+  }, [dataset.id, request, version]);
 
-  // Only show rows belonging to this request; failed queries never display old results.
-  const shown = result?.request === request ? result.data : undefined;
+  // The last good page stays on screen while the next one loads.
+  const [shown, setShown] = useState<QueryResult>();
+  if (result?.data && result.data !== shown) setShown(result.data);
 
   // The query's columns, which SQL can choose or compute.
   const shownColumns = shown?.columns ?? dataset.columns;
   const columns = useMemo(
     () =>
-      shownColumns
-        .filter(
-          (c) =>
-            (confidence || !c.name.endsWith("_proba")) &&
-            (!hideAnswers || c.name === ROW_ID || !c.name.includes("__")),
-        )
-        .map((c) =>
-          helper.accessor((row) => row[c.name], {
-            id: c.name,
-            header: columnLabel(c.name),
-            cell: (info) => <CellValue value={info.getValue()} />,
-          }),
-        ),
-    [shownColumns, confidence, hideAnswers],
+      shownColumns.map((c) =>
+        helper.accessor((row) => row[c.name], {
+          id: c.name,
+          header: columnLabel(c.name),
+          cell: (info) => <CellValue value={info.getValue()} />,
+        }),
+      ),
+    [shownColumns],
   );
   const table = useTable({ features, columns, data: shown?.rows ?? emptyRows });
 
   const loading = result?.request !== request;
   const total = shown?.total ?? 0;
   const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
-  const queryError = result?.request === request ? result.error : undefined;
 
   function toggleSort(column: string) {
-    if (sort?.column !== column) changeView({ sort: [{ column, desc: false }], sample: false });
-    else if (!sort.desc) changeView({ sort: [{ column, desc: true }], sample: false });
-    else changeView({ sort: [], sample: false });
+    if (sort?.column !== column) changeView({ sort: [{ column, desc: false }] });
+    else if (!sort.desc) changeView({ sort: [{ column, desc: true }] });
+    else changeView({ sort: [] });
   }
 
   return (
@@ -227,7 +187,6 @@ export function DatasetExplorer({
               </InputGroupAddon>
               <InputGroupInput
                 id="rows-search"
-                aria-label="Search rows"
                 placeholder="Search"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
@@ -240,10 +199,6 @@ export function DatasetExplorer({
             <DisplayButton
               view={view}
               pageSize={pageSize}
-              wrap={wrap}
-              onWrapChange={setWrap}
-              confidence={confidence}
-              onConfidenceChange={setConfidence}
               onViewChange={changeView}
               onPageSizeChange={(size) => {
                 setPageSize(size);
@@ -252,20 +207,7 @@ export function DatasetExplorer({
             />
           </>
         )}
-        <SqlButton
-          sql={sql}
-          open={editingSql}
-          onOpenChange={setEditingSql}
-          onApply={(written) => changeView({ sql: written })}
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!shown?.rows.length || !shown.columns.some((c) => c.name === ROW_ID)}
-          onClick={() => onReview(page * pageSize)}
-        >
-          <ScanTextIcon data-icon="inline-start" /> Review rows
-        </Button>
+        <SqlButton sql={sql} onApply={(written) => changeView({ sql: written })} />
         {!custom &&
           filters.map((f, i) => (
             <Badge key={i} variant="secondary" className="h-7 gap-1 pr-0.5">
@@ -289,12 +231,12 @@ export function DatasetExplorer({
           ))}
         {!custom && view.limit && (
           <Badge variant="secondary" className="h-7 gap-1 pr-0.5">
-            {view.sample ? "Sample" : "First"} {formatNumber(view.limit)} rows
+            First {formatNumber(view.limit)} rows
             <Button
               variant="ghost"
               size="icon-xs"
               aria-label="Remove limit"
-              onClick={() => changeView({ limit: null, sample: false })}
+              onClick={() => changeView({ limit: null })}
             >
               <XIcon />
             </Button>
@@ -303,13 +245,9 @@ export function DatasetExplorer({
         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
           {loading && <Spinner />}
           <span>
-            {queryError
-              ? "Query failed"
-              : loading
-                ? "Loading rows…"
-                : total === 0
-                  ? "No rows"
-                  : `${formatNumber(page * pageSize + 1)}–${formatNumber(Math.min(total, (page + 1) * pageSize))} of ${formatNumber(total)}`}
+            {total === 0
+              ? "No rows"
+              : `${formatNumber(page * pageSize + 1)}–${formatNumber(Math.min(total, (page + 1) * pageSize))} of ${formatNumber(total)}`}
           </span>
           <Button
             variant="ghost"
@@ -332,62 +270,10 @@ export function DatasetExplorer({
         </div>
       </div>
 
-      {queryError && (
+      {result?.error && !loading && (
         <Alert variant="destructive" className="m-3 w-auto">
-          <AlertDescription>
-            <p>Couldn&apos;t load these rows. No previous results are shown.</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => setEditingSql(true)}>
-                Edit SQL
-              </Button>
-              {lastGoodSql && lastGoodSql !== sql && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => changeView({ sql: lastGoodSql })}
-                >
-                  Revert to last working query
-                </Button>
-              )}
-              <Button size="sm" variant="outline" onClick={() => setRetry((value) => value + 1)}>
-                Retry
-              </Button>
-            </div>
-            <Collapsible>
-              <CollapsibleTrigger render={<Button size="xs" variant="ghost" />}>
-                Error details
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <pre className="text-xs whitespace-pre-wrap break-words select-text">
-                  {queryError}
-                </pre>
-              </CollapsibleContent>
-            </Collapsible>
-          </AlertDescription>
+          <AlertDescription>{result.error}</AlertDescription>
         </Alert>
-      )}
-
-      {!loading && !queryError && shown?.rows.length === 0 && (
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>No matching rows</EmptyTitle>
-            <EmptyDescription>
-              Change the search, filters or query to see more data.
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setSearchInput("");
-                changeView({ search: "", filters: [], sql: null });
-              }}
-            >
-              Clear search and filters
-            </Button>
-          </EmptyContent>
-        </Empty>
       )}
 
       {/* Data is text you may want to copy, unlike the interface around it. */}
@@ -434,32 +320,10 @@ export function DatasetExplorer({
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.map((row) => (
-              <TableRow
-                key={row.id}
-                data-state={
-                  selectedRow === page * pageSize + Number(row.id) ? "selected" : undefined
-                }
-                onDoubleClick={() => onReview(page * pageSize + Number(row.id))}
-              >
+              <TableRow key={row.id}>
                 {row.getAllCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    className={
-                      wrap ? "max-w-80 whitespace-pre-wrap break-words" : "max-w-80 truncate"
-                    }
-                  >
-                    {cell.column.id === ROW_ID ? (
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        aria-label={`Review row ${page * pageSize + Number(row.id) + 1}`}
-                        onClick={() => onReview(page * pageSize + Number(row.id))}
-                      >
-                        {String(cell.getValue())}
-                      </Button>
-                    ) : (
-                      <table.FlexRender cell={cell} />
-                    )}
+                  <TableCell key={cell.id} className="max-w-80 truncate">
+                    <table.FlexRender cell={cell} />
                   </TableCell>
                 ))}
               </TableRow>
@@ -490,10 +354,7 @@ function FilterButton({
   dataset: Dataset;
   onAdd: (filter: ColumnFilter) => void;
 }) {
-  const columnItems = dataset.columns.map((c) => ({
-    value: c.name,
-    label: columnLabel(c.name),
-  }));
+  const columnItems = dataset.columns.map((c) => ({ value: c.name, label: columnLabel(c.name) }));
   const [open, setOpen] = useState(false);
   const [column, setColumn] = useState<string | null>(null);
   const [op, setOp] = useState<ColumnFilter["op"]>("eq");
@@ -517,7 +378,7 @@ function FilterButton({
           }}
         >
           <Select items={columnItems} value={column} onValueChange={setColumn}>
-            <SelectTrigger className="w-full" aria-label="Filter column">
+            <SelectTrigger className="w-full">
               <SelectValue placeholder="Column" />
             </SelectTrigger>
             <SelectContent>
@@ -530,7 +391,7 @@ function FilterButton({
           </Select>
           <div className="flex gap-2">
             <Select items={OPS} value={op} onValueChange={(v) => v && setOp(v)}>
-              <SelectTrigger className="w-28" aria-label="Filter operator">
+              <SelectTrigger className="w-28">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -563,19 +424,11 @@ function FilterButton({
 function DisplayButton({
   view,
   pageSize,
-  wrap,
-  onWrapChange,
-  confidence,
-  onConfidenceChange,
   onViewChange,
   onPageSizeChange,
 }: {
   view: View;
   pageSize: number;
-  wrap: boolean;
-  onWrapChange: (value: boolean) => void;
-  confidence: boolean;
-  onConfidenceChange: (value: boolean) => void;
   onViewChange: (changes: Partial<View>) => void;
   onPageSizeChange: (size: number) => void;
 }) {
@@ -588,26 +441,22 @@ function DisplayButton({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72">
         <FieldGroup className="gap-4">
-          <Field orientation="horizontal">
-            <Checkbox
-              id="wrap-cells"
-              checked={wrap}
-              onCheckedChange={(value) => onWrapChange(value === true)}
+          <Field>
+            <FieldLabel htmlFor="rows-limit">Limit</FieldLabel>
+            <Input
+              id="rows-limit"
+              type="number"
+              min={1}
+              placeholder="No limit"
+              value={view.limit ?? ""}
+              onChange={(e) =>
+                onViewChange({ limit: Number(e.target.value) > 0 ? Number(e.target.value) : null })
+              }
             />
-            <FieldLabel htmlFor="wrap-cells">Wrap cell text</FieldLabel>
+            <FieldDescription>
+              Only the first rows, in this order. The next run asks about these.
+            </FieldDescription>
           </Field>
-          <Field orientation="horizontal">
-            <Checkbox
-              id="show-confidence"
-              checked={confidence}
-              onCheckedChange={(value) => onConfidenceChange(value === true)}
-            />
-            <FieldLabel htmlFor="show-confidence">Show model confidence columns</FieldLabel>
-          </Field>
-          <FieldDescription>
-            Confidence is supplied by the model; it is not verified accuracy. Set the run&apos;s
-            sample size beside Run.
-          </FieldDescription>
           <Field>
             <FieldLabel>Order</FieldLabel>
             <div className="flex items-center gap-2 text-sm">
@@ -653,23 +502,14 @@ function DisplayButton({
 }
 
 /** The SQL behind the rows shown: to read, or to edit, which replaces the search, filters and sort. */
-function SqlButton({
-  sql,
-  onApply,
-  open,
-  onOpenChange,
-}: {
-  sql: string;
-  onApply: (sql: string) => void;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+function SqlButton({ sql, onApply }: { sql: string; onApply: (sql: string) => void }) {
+  const [open, setOpen] = useState(false);
   const [text, setText] = useState(sql);
   return (
     <Popover
       open={open}
       onOpenChange={(next) => {
-        onOpenChange(next);
+        setOpen(next);
         if (next) setText(sql);
       }}
     >
@@ -683,7 +523,7 @@ function SqlButton({
           onSubmit={(e) => {
             e.preventDefault();
             onApply(text);
-            onOpenChange(false);
+            setOpen(false);
           }}
         >
           <Field>

@@ -311,109 +311,6 @@
             }
           }
         }
-      },
-      "patch": {
-        "tags": [
-          "datasets"
-        ],
-        "summary": "Rename Dataset",
-        "operationId": "renameDataset",
-        "parameters": [
-          {
-            "name": "dataset_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Dataset Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasetUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Dataset"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/datasets/{dataset_id}/reviews": {
-      "put": {
-        "tags": [
-          "datasets"
-        ],
-        "summary": "Save Review",
-        "description": "Save a human label in a separate reviewed_<answer> column, preserving model answers.\nReviewed columns work in queries, comparisons, prompts and exports. Null clears a label.",
-        "operationId": "saveReview",
-        "parameters": [
-          {
-            "name": "dataset_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Dataset Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReviewRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Column"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/v1/datasets/{dataset_id}/profile": {
@@ -521,7 +418,7 @@
           "datasets"
         ],
         "summary": "Compare Columns",
-        "description": "How often two or more columns give the same value in each row: several models' answers,\na model against labels someone already has, or any columns at all. With a `reference`, also\neach column's accuracy against it. Every count comes with the filter for its rows, to use in a\nquery's WHERE clause: to see them (`query`) or to ask about them again (`runs`).",
+        "description": "How often two or more columns give the same value in each row: several models' answers,\na model against labels someone already has, or any columns at all. With a `reference`, also\neach column's accuracy against it. Every count comes with the filter for its rows, to use in a\nscope's `filters`: to see them (`query`) or to ask about them again (`runs`).",
         "operationId": "compareColumns",
         "parameters": [
           {
@@ -759,7 +656,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Queue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with every row; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
+        "description": "Queue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with every row; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/task-types`).",
         "operationId": "createRun",
         "parameters": [
           {
@@ -1646,21 +1543,6 @@
         "title": "DatasetRun",
         "description": "The run that makes a dataset."
       },
-      "DatasetUpdate": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Name"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "DatasetUpdate"
-      },
       "Estimate": {
         "properties": {
           "rows": {
@@ -2284,31 +2166,6 @@
         ],
         "title": "RenderedRow"
       },
-      "ReviewRequest": {
-        "properties": {
-          "row_id": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Row Id"
-          },
-          "column": {
-            "type": "string",
-            "title": "Column",
-            "description": "The answer column being reviewed. Its type is preserved."
-          },
-          "value": {
-            "title": "Value",
-            "description": "The reviewed value, or null to clear it."
-          }
-        },
-        "type": "object",
-        "required": [
-          "row_id",
-          "column",
-          "value"
-        ],
-        "title": "ReviewRequest"
-      },
       "Rows": {
         "properties": {
           "rows": {
@@ -2466,19 +2323,6 @@
             },
             "type": "array",
             "title": "Tasks"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 120
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name",
-            "description": "A descriptive name for the result dataset."
           }
         },
         "type": "object",
@@ -2502,19 +2346,6 @@
             },
             "type": "array",
             "title": "Tasks"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 120
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name",
-            "description": "A descriptive name for the result dataset."
           }
         },
         "type": "object",
