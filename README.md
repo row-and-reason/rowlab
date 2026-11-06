@@ -2,11 +2,12 @@
 
 AI labeling, filtering, verification and analysis for tabular data.
 
-Load a CSV or Parquet file, explore it, compose a per-row prompt from its columns, and run it through a
-decision model (yes/no, choice, score — e.g. TypeSafe Jev) or a classic LLM. Get the original data back
-with new columns added.
+Load a CSV, JSON, JSONL or Parquet file from disk or a URL, explore it, compose a per-row prompt from its
+columns, and run it through a decision model (yes/no, choice, score — e.g. TypeSafe Jev) or a classic LLM.
+Get the original data back with new columns added.
 
-**Status:** pre-alpha, scoping. Domain: [rowlab.dev](https://rowlab.dev)
+**Status:** pre-alpha. Datasets can be loaded and explored; labeling runs are next.
+Domain: [rowlab.dev](https://rowlab.dev)
 
 ## Principles
 
@@ -40,6 +41,9 @@ make build        # web static export bundled into the Python wheel → server/d
 ```
 
 Run the built package as a user would: `uvx --from server/dist/rowlab-*.whl rowlab serve`.
+
+rowlab keeps its state (SQLite database, ingested datasets as Parquet) in `~/.rowlab`. Set
+`ROWLAB_DATA_DIR` to use another folder.
 
 ## Non-goals
 

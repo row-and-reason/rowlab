@@ -1,7 +1,9 @@
 # Roadmap to MVP
 
-**Today:** FastAPI + Next.js skeleton. `rowlab serve` serves the API and UI on one port, `/v1/health` works
-end to end through the generated client, and `make build` produces a wheel with the UI bundled.
+**Today:** milestone 1 is done. CSV, TSV, JSON, JSONL and Parquet files can be uploaded, or loaded by local
+path or public http(s) URL (pulled forward from milestone 7), and explored with server-side search, filters,
+sort and paging; 1M rows ingest in under a second and every page query returns in about 0.1 s.
+`rowlab serve` serves the API and UI on one port, and `make build` produces a wheel with the UI bundled.
 
 **MVP:** a local tool that takes a CSV/JSON/JSONL/Parquet file from disk, HTTP or S3, runs a configured
 labeling or extraction job over its rows with any OpenRouter decision model or LLM, can be stopped and
@@ -18,10 +20,10 @@ resumed without paying twice, shows all work and its live progress, and writes t
 Ordered so that the tool is usable end to end as early as possible (local files first, remote storage
 later). Each milestone ships API, UI and tests together, and ends with `make lint test build` green.
 
-### 1. Datasets: load and explore local files
+### 1. Datasets: load and explore local files ✅
 
-- Ingest CSV, JSON (array of objects), JSONL and Parquet with DuckDB → `datasets/{id}/data.parquet`
-  plus `__row_id`. Nested values stay as structs/lists and are shown as JSON.
+- Ingest CSV/TSV, JSON (array of objects), JSONL and Parquet, optionally gzipped, with DuckDB →
+  `datasets/{id}/data.parquet` plus `__row_id`. The format is detected from the content, not the name. Nested values stay as structs/lists and are shown as JSON.
 - SQLite app state (`datasets` table) with plain SQL migrations. Data dir `~/.rowlab`, overridable.
 - API: `POST /v1/datasets` (upload or local path), list, get, delete, `profile`, `query`.
 - UI: dataset list with upload, table explorer with server-side sort, filter, search and paging.
@@ -75,11 +77,13 @@ later). Each milestone ships API, UI and tests together, and ends with `make lin
 
 ### 7. Remote storage: read and write
 
-- Read from HTTP(S) URLs and S3-compatible storage (AWS, R2, MinIO, …) via DuckDB `httpfs`.
+- ~~Read from public HTTP(S) URLs~~ — done early: downloaded with the standard library, then ingested like
+  an upload. Still to do: read from S3-compatible storage (AWS, R2, MinIO, …).
 - Export to S3-compatible storage.
 - Connections: named S3 configs (endpoint, region, bucket, keys) stored locally; secrets are never
   returned by the API. Environment/AWS profile credentials work without configuring a connection.
-- API: connections CRUD; `source` and export `destination` accept `https://` and `s3://` URIs.
+- API: connections CRUD; `source` accepts `s3://` URIs (it already accepts `https://`), and so does the
+  export `destination`.
 - UI: "Load from URL / S3" on upload, destination picker on export.
 - **Done when** tested against MinIO in CI.
 
@@ -97,8 +101,8 @@ comparison · provider batch APIs.
 
 ## Risks and open questions
 
-- **"JSONLD":** assumed to mean JSONL (one JSON object per line). JSON-LD (linked data) would need its own
-  flattening step — confirm before milestone 1.
+- **"JSONLD":** implemented as JSONL (one JSON object per line). JSON-LD (linked data) would need its own
+  flattening step — still to be confirmed.
 - **OpenRouter Decisions API is alpha.** Keeping it behind one module limits the impact of changes.
   Confirm the exact request/response fields and whether the model catalog can be filtered via the API.
 - **Local secret storage** (OpenRouter key, S3 keys) is plaintext in the local data dir in MVP — acceptable

@@ -1,12 +1,15 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from rowlab import __version__
+from rowlab.api import datasets
+from rowlab.core.errors import InvalidRequest, NotFound
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -32,6 +35,17 @@ def create_app() -> FastAPI:
     @app.get("/v1/health", operation_id="getHealth")
     def health() -> Health:
         return Health(status="ok", version=__version__)
+
+    app.include_router(datasets.router)
+
+    # Core errors become the same `{"detail": ...}` body FastAPI uses for its own errors.
+    @app.exception_handler(NotFound)
+    def not_found(request: Request, exc: NotFound) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=404)
+
+    @app.exception_handler(InvalidRequest)
+    def invalid_request(request: Request, exc: InvalidRequest) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=400)
 
     # The built web UI, bundled into the package by `make build`. Mounted last so API routes win.
     if STATIC_DIR.is_dir():

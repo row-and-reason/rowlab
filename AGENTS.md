@@ -12,6 +12,15 @@ Guidance for AI agents (and humans) working in this repo. See `README.md` for wh
 - Keep logic in `server/src/rowlab/core/`. `api/` and `mcp/` stay thin adapters that call into `core/`.
 - If you are unsure whether something is over-engineered, it probably is. Pick the smaller version.
 
+## Use shadcn for UI, don't hand-craft components
+
+- Build the web UI from [shadcn](https://ui.shadcn.com) components (`pnpm dlx shadcn@latest add <name>`
+  in `web/`). Check the registry before writing any UI element: buttons, inputs, tables, dialogs,
+  empty states, spinners, toasts, pagination and so on all exist.
+- Don't hand-craft a component, or restyle a shadcn one beyond layout classes, unless explicitly asked.
+  If nothing in the registry fits, ask before building one.
+- Leave the generated files in `web/src/components/ui/` as shadcn wrote them.
+
 ## Clean up tech debt when you find it, not later
 
 "Later" never comes. When your work touches an area with debt, fix it as part of the same change.
