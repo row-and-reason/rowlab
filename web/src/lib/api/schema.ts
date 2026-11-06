@@ -95,6 +95,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/datasets/{dataset_id}/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Render Prompt
+         * @description Render a prompt template for a page of rows, with warnings and token estimates.
+         */
+        post: operations["renderPrompt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -227,6 +247,51 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
+        /** RenderRequest */
+        RenderRequest: {
+            /** Template */
+            template: string;
+            /**
+             * Offset
+             * @description First row to render, by `__row_id`.
+             * @default 0
+             */
+            offset: number;
+            /**
+             * Limit
+             * @default 1
+             */
+            limit: number;
+        };
+        /** RenderResult */
+        RenderResult: {
+            /**
+             * Fields
+             * @description Everything the template can use.
+             */
+            fields: components["schemas"]["TemplateField"][];
+            /** Warnings */
+            warnings: string[];
+            /** Rows */
+            rows: components["schemas"]["RenderedRow"][];
+            tokens: components["schemas"]["TokenStats"];
+        };
+        /** RenderedRow */
+        RenderedRow: {
+            /** Row Id */
+            row_id: number;
+            /** Prompt */
+            prompt: string;
+            /** Tokens */
+            tokens: number;
+            /**
+             * Values
+             * @description The row's value for each field the template uses.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
         /** Sort */
         Sort: {
             /** Column */
@@ -236,6 +301,29 @@ export interface components {
              * @default false
              */
             desc: boolean;
+        };
+        /** TemplateField */
+        TemplateField: {
+            /** Path */
+            path: string;
+            /** Type */
+            type: string;
+        };
+        /** TokenStats */
+        TokenStats: {
+            /** Sample Size */
+            sample_size: number;
+            /** Min */
+            min: number;
+            /** Avg */
+            avg: number;
+            /** Max */
+            max: number;
+            /**
+             * Total Estimate
+             * @description Estimated tokens for all rows of the dataset.
+             */
+            total_estimate: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -445,6 +533,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renderPrompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RenderResult"];
                 };
             };
             /** @description Validation Error */

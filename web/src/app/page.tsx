@@ -1,23 +1,13 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { DatabaseIcon, Trash2Icon } from "lucide-react";
+import { DatabaseIcon } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { AddDataset } from "@/components/add-dataset";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { DatasetsPanel } from "@/components/datasets-panel";
+import { DatasetView, TABS, type Tab } from "@/components/dataset-view";
+import { OutputPanel } from "@/components/output-panel";
 import {
   Empty,
   EmptyDescription,
@@ -26,18 +16,25 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { api, type Dataset } from "@/lib/api/client";
-import { errorMessage, formatBytes, formatDate, formatNumber } from "@/lib/format";
+import { errorMessage } from "@/lib/format";
 
-export default function DatasetsPage() {
+// The whole app is this one page: datasets | contents | output. What is selected lives in the query
+// string (`/?dataset=<id>&tab=prompt`), because a static export can't have routes for ids that only
+// exist at runtime. Changing it is a client-side navigation, so the columns stay mounted.
+export default function Home() {
+  return (
+    <Suspense fallback={<Spinner className="m-6" />}>
+      <Workspace />
+    </Suspense>
+  );
+}
+
+function Workspace() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const selectedId = params.get("dataset");
+  const tab: Tab = TABS.find((t) => t === params.get("tab")) ?? "rows";
   const [datasets, setDatasets] = useState<Dataset[] | null>(null);
 
   const load = useCallback(async () => {
@@ -51,98 +48,60 @@ export default function DatasetsPage() {
     load();
   }, [load]);
 
+  const selected = datasets?.find((d) => d.id === selectedId);
+
   async function remove(dataset: Dataset) {
     const { error } = await api.DELETE("/v1/datasets/{dataset_id}", {
       params: { path: { dataset_id: dataset.id } },
     });
     if (error) toast.error(errorMessage(error));
     else toast.success(`Deleted ${dataset.name}`);
+    router.push("/");
     load();
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 overflow-auto p-6">
-      <h1 className="text-xl font-semibold">Datasets</h1>
-      <AddDataset onAdded={load} />
-
-      {datasets === null ? (
-        <Spinner />
-      ) : datasets.length === 0 ? (
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <DatabaseIcon />
-            </EmptyMedia>
-            <EmptyTitle>No datasets yet</EmptyTitle>
-            <EmptyDescription>
-              Upload a CSV, TSV, JSON, JSONL or Parquet file, or load one from a path or a public
-              URL.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead className="text-right">Rows</TableHead>
-              <TableHead className="text-right">Columns</TableHead>
-              <TableHead className="text-right">Size</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Added</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {datasets.map((dataset) => (
-              <TableRow key={dataset.id}>
-                <TableCell>
-                  <Link
-                    href={`/dataset/?id=${dataset.id}`}
-                    className={buttonVariants({ variant: "link", className: "px-0" })}
-                  >
-                    {dataset.name}
-                  </Link>
-                </TableCell>
-                <TableCell className="text-right">{formatNumber(dataset.row_count)}</TableCell>
-                {/* Not counting the added __row_id column. */}
-                <TableCell className="text-right">{dataset.columns.length - 1}</TableCell>
-                <TableCell className="text-right">{formatBytes(dataset.size_bytes)}</TableCell>
-                <TableCell className="max-w-64 truncate text-muted-foreground" title={dataset.source}>
-                  {dataset.source}
-                </TableCell>
-                <TableCell className="text-muted-foreground">{formatDate(dataset.created_at)}</TableCell>
-                <TableCell className="text-right">
-                  <AlertDialog>
-                    <AlertDialogTrigger
-                      render={
-                        <Button variant="ghost" size="icon-sm" aria-label={`Delete ${dataset.name}`} />
-                      }
-                    >
-                      <Trash2Icon />
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete {dataset.name}?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This removes rowlab&apos;s copy of the data. The original file is not
-                          touched.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction variant="destructive" onClick={() => remove(dataset)}>
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+    <main className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[16rem_minmax(0,1fr)_18rem] lg:overflow-hidden">
+      <section className="overflow-auto border-b p-4 lg:border-r lg:border-b-0">
+        <DatasetsPanel
+          datasets={datasets}
+          selectedId={selectedId}
+          onAdded={(dataset) => {
+            load();
+            router.push(`/?dataset=${dataset.id}`);
+          }}
+        />
+      </section>
+      <section className="@container overflow-auto p-4">
+        {selected ? (
+          <DatasetView
+            key={selected.id}
+            dataset={selected}
+            tab={tab}
+            onTabChange={(t) => router.replace(`/?dataset=${selected.id}&tab=${t}`)}
+            onDelete={() => remove(selected)}
+          />
+        ) : datasets === null ? (
+          <Spinner />
+        ) : (
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <DatabaseIcon />
+              </EmptyMedia>
+              <EmptyTitle>{selectedId ? "Dataset not found" : "Pick a dataset"}</EmptyTitle>
+              <EmptyDescription>
+                {datasets.length
+                  ? "Choose one on the left to explore its rows and write a prompt."
+                  : "Add a CSV, TSV, JSON, JSONL or Parquet file to get started."}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </section>
+      <section className="overflow-auto border-t p-4 lg:border-t-0 lg:border-l">
+        <OutputPanel />
+      </section>
     </main>
   );
 }

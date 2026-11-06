@@ -2,9 +2,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, UploadFile
 
-from rowlab.core import datasets
+from rowlab.core import datasets, prompts
 from rowlab.core.datasets import ColumnProfile, Dataset, Query, QueryResult
 from rowlab.core.errors import InvalidRequest
+from rowlab.core.prompts import RenderRequest, RenderResult
 
 router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
 
@@ -48,3 +49,9 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
 @router.post("/{dataset_id}/query", operation_id="queryDataset")
 def query_dataset(dataset_id: str, query: Query) -> QueryResult:
     return datasets.query_dataset(dataset_id, query)
+
+
+@router.post("/{dataset_id}/render", operation_id="renderPrompt")
+def render_prompt(dataset_id: str, request: RenderRequest) -> RenderResult:
+    """Render a prompt template for a page of rows, with warnings and token estimates."""
+    return prompts.render_dataset(dataset_id, request)

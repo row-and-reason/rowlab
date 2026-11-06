@@ -259,6 +259,59 @@
           }
         }
       }
+    },
+    "/v1/datasets/{dataset_id}/render": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Render Prompt",
+        "description": "Render a prompt template for a page of rows, with warnings and token estimates.",
+        "operationId": "renderPrompt",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenderResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -593,6 +646,100 @@
         ],
         "title": "QueryResult"
       },
+      "RenderRequest": {
+        "properties": {
+          "template": {
+            "type": "string",
+            "title": "Template"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "description": "First row to render, by `__row_id`.",
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "template"
+        ],
+        "title": "RenderRequest"
+      },
+      "RenderResult": {
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateField"
+            },
+            "type": "array",
+            "title": "Fields",
+            "description": "Everything the template can use."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RenderedRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/TokenStats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fields",
+          "warnings",
+          "rows",
+          "tokens"
+        ],
+        "title": "RenderResult"
+      },
+      "RenderedRow": {
+        "properties": {
+          "row_id": {
+            "type": "integer",
+            "title": "Row Id"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "tokens": {
+            "type": "integer",
+            "title": "Tokens"
+          },
+          "values": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Values",
+            "description": "The row's value for each field the template uses."
+          }
+        },
+        "type": "object",
+        "required": [
+          "row_id",
+          "prompt",
+          "tokens",
+          "values"
+        ],
+        "title": "RenderedRow"
+      },
       "Sort": {
         "properties": {
           "column": {
@@ -610,6 +757,58 @@
           "column"
         ],
         "title": "Sort"
+      },
+      "TemplateField": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "type"
+        ],
+        "title": "TemplateField"
+      },
+      "TokenStats": {
+        "properties": {
+          "sample_size": {
+            "type": "integer",
+            "title": "Sample Size"
+          },
+          "min": {
+            "type": "integer",
+            "title": "Min"
+          },
+          "avg": {
+            "type": "number",
+            "title": "Avg"
+          },
+          "max": {
+            "type": "integer",
+            "title": "Max"
+          },
+          "total_estimate": {
+            "type": "integer",
+            "title": "Total Estimate",
+            "description": "Estimated tokens for all rows of the dataset."
+          }
+        },
+        "type": "object",
+        "required": [
+          "sample_size",
+          "min",
+          "avg",
+          "max",
+          "total_estimate"
+        ],
+        "title": "TokenStats"
       },
       "ValidationError": {
         "properties": {

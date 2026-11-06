@@ -128,3 +128,11 @@
     @apply font-sans;
   }
 }
+/* TipTap's placeholder text in an empty prompt editor. */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  @apply text-muted-foreground;
+}

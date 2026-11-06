@@ -252,7 +252,9 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
     """Per-column type, range, average, approximate distinct count and share of nulls."""
     get_dataset(dataset_id)
     with duckdb.connect() as con:
-        rows = con.execute(f"SUMMARIZE SELECT * EXCLUDE ({ROW_ID}) FROM {_parquet(dataset_id)}")
+        rows = con.execute(
+            f"SUMMARIZE SELECT * EXCLUDE ({ROW_ID}) FROM {parquet_source(dataset_id)}"
+        )
         summary = [dict(zip([d[0] for d in rows.description], r)) for r in rows.fetchall()]
     return [
         ColumnProfile(
@@ -300,7 +302,7 @@ def query_dataset(dataset_id: str, query: Query) -> QueryResult:
     ]
     order.append(ROW_ID)
 
-    sql_from = f"FROM {_parquet(dataset_id)} AS t WHERE {' AND '.join(where)}"
+    sql_from = f"FROM {parquet_source(dataset_id)} AS t WHERE {' AND '.join(where)}"
     try:
         with duckdb.connect() as con:
             total = con.execute(f"SELECT count(*) {sql_from}", params).fetchone()[0]
@@ -311,6 +313,16 @@ def query_dataset(dataset_id: str, query: Query) -> QueryResult:
     except duckdb.ConversionException as e:
         raise InvalidRequest(f"Invalid filter value: {e}") from e
     return QueryResult(total=total, rows=[json.loads(r[0]) for r in rows])
+
+
+def sample_rows(dataset_id: str, n: int) -> list[dict[str, Any]]:
+    """Up to `n` rows picked at random, the same ones on every call."""
+    with duckdb.connect() as con:
+        rows = con.execute(
+            f"SELECT to_json(t) FROM {parquet_source(dataset_id)} AS t "
+            f"USING SAMPLE reservoir({int(n)} ROWS) REPEATABLE (1)"
+        ).fetchall()
+    return [json.loads(r[0]) for r in rows]
 
 
 _OPERATORS = {
@@ -337,7 +349,8 @@ def _dataset_dir(dataset_id: str) -> Path:
     return db.data_dir() / "datasets" / dataset_id
 
 
-def _parquet(dataset_id: str) -> str:
+def parquet_source(dataset_id: str) -> str:
+    """A DuckDB table expression for a dataset's rows."""
     return f"read_parquet({_sql_string(_dataset_dir(dataset_id) / 'data.parquet')})"
 
 

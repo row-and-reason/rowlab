@@ -7,6 +7,7 @@ export type ColumnProfile = components["schemas"]["ColumnProfile"];
 export type Filter = components["schemas"]["Filter"];
 export type Sort = components["schemas"]["Sort"];
 export type QueryResult = components["schemas"]["QueryResult"];
+export type RenderResult = components["schemas"]["RenderResult"];
 
 // Empty in production: the UI is served by the API server itself.
 // In development, `make dev` points this at the separately running API.

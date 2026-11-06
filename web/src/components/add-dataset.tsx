@@ -1,18 +1,27 @@
 "use client";
 
+import { PlusIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { createDataset } from "@/lib/api/client";
+import { createDataset, type Dataset } from "@/lib/api/client";
 import { errorMessage, formatNumber } from "@/lib/format";
 
 /** Upload a file, or load one from a path on the server's machine or a public URL. */
-export function AddDataset({ onAdded }: { onAdded: () => void }) {
+export function AddDataset({ onAdded }: { onAdded: (dataset: Dataset) => void }) {
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [source, setSource] = useState("");
 
@@ -26,12 +35,24 @@ export function AddDataset({ onAdded }: { onAdded: () => void }) {
     }
     toast.success(`Loaded ${data.name}: ${formatNumber(data.row_count)} rows`);
     setSource("");
-    onAdded();
+    setOpen(false);
+    onAdded(data);
   }
 
   return (
-    <Card>
-      <CardContent>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button className="w-full" />}>
+        <PlusIcon data-icon="inline-start" />
+        Add data
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add data</DialogTitle>
+          <DialogDescription>
+            CSV, TSV, JSON, JSONL or Parquet, optionally gzipped. The format is detected
+            automatically.
+          </DialogDescription>
+        </DialogHeader>
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor="dataset-file">Upload a file</FieldLabel>
@@ -45,10 +66,6 @@ export function AddDataset({ onAdded }: { onAdded: () => void }) {
                 if (file) add({ file });
               }}
             />
-            <FieldDescription>
-              CSV, TSV, JSON, JSONL or Parquet, optionally gzipped. The format is detected
-              automatically.
-            </FieldDescription>
           </Field>
           <FieldSeparator>or</FieldSeparator>
           <form
@@ -62,7 +79,7 @@ export function AddDataset({ onAdded }: { onAdded: () => void }) {
               <div className="flex gap-2">
                 <Input
                   id="dataset-source"
-                  placeholder="~/data/customers.csv or https://example.com/data.parquet"
+                  placeholder="~/data/customers.csv or https://…"
                   value={source}
                   disabled={busy}
                   onChange={(e) => setSource(e.target.value)}
@@ -78,7 +95,7 @@ export function AddDataset({ onAdded }: { onAdded: () => void }) {
             </Field>
           </form>
         </FieldGroup>
-      </CardContent>
-    </Card>
+      </DialogContent>
+    </Dialog>
   );
 }
