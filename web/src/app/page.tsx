@@ -3,7 +3,6 @@
 import {
   DatabaseIcon,
   DownloadIcon,
-  KeyRoundIcon,
   ListChecksIcon,
   ListRestartIcon,
   MoonIcon,
@@ -11,6 +10,7 @@ import {
   PlayIcon,
   PlusIcon,
   SearchIcon,
+  SettingsIcon,
   TableIcon,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -24,7 +24,6 @@ import { AddDataset } from "@/components/add-dataset";
 import { DatasetPanels, TABS, type JobActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
 import { ExportDataset } from "@/components/export-dataset";
-import { OpenRouterKeyDialog } from "@/components/openrouter-key";
 import { PaneHeader } from "@/components/pane";
 import { Keys } from "@/components/tooltip-button";
 import {
@@ -61,6 +60,7 @@ import { errorMessage } from "@/lib/format";
 import { useTaskTypes } from "@/lib/catalog";
 import { datasetTree } from "@/lib/dataset-tree";
 import { isActive } from "@/lib/runs";
+import { type Section, settingsUrl } from "@/lib/settings";
 
 // The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
 // in the query string (`/?dataset=<id>&tab=rows`), because a static export can't have routes for
@@ -83,7 +83,10 @@ function Workspace() {
   const [datasets, setDatasets] = useState<Dataset[] | null>(null);
   const [settings, setSettings] = useState<Settings>();
   const [adding, setAdding] = useState(false);
-  const [settingKey, setSettingKey] = useState(false);
+  const openSettings = useCallback(
+    (section: Section) => router.push(settingsUrl(params, section)),
+    [router, params],
+  );
   const [deleting, setDeleting] = useState<Dataset>();
   const [exporting, setExporting] = useState<Dataset>();
   const [palette, setPalette] = useState(false);
@@ -121,7 +124,10 @@ function Workspace() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === "k") {
+      if (mod && e.key === ",") {
+        e.preventDefault();
+        openSettings("providers");
+      } else if (mod && e.key === "k") {
         e.preventDefault();
         setPalette((open) => !open);
       } else if (mod && e.key === "Enter") {
@@ -145,7 +151,7 @@ function Workspace() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [datasets, selectedId, select, selected, exportable]);
+  }, [datasets, selectedId, select, selected, exportable, openSettings]);
 
   async function remove(dataset: Dataset) {
     const { error } = await api.DELETE("/v1/datasets/{dataset_id}", {
@@ -177,7 +183,7 @@ function Workspace() {
             onAdd={() => setAdding(true)}
             onExport={setExporting}
             onDelete={setDeleting}
-            onKey={() => setSettingKey(true)}
+            onSettings={openSettings}
           />
         </ResizablePanel>
         {selected ? (
@@ -302,9 +308,13 @@ function Workspace() {
                 <PlusIcon />
                 Add data
               </CommandItem>
-              <CommandItem onSelect={() => command(() => setSettingKey(true))}>
-                <KeyRoundIcon />
-                Set OpenRouter key
+              <CommandItem
+                value="settings providers openrouter key storage s3 connections"
+                onSelect={() => command(() => openSettings("providers"))}
+              >
+                <SettingsIcon />
+                Settings
+                <CommandShortcut>⌘,</CommandShortcut>
               </CommandItem>
               <CommandItem
                 onSelect={() =>
@@ -347,7 +357,6 @@ function Workspace() {
           onOpenChange={(open) => !open && setExporting(undefined)}
         />
       )}
-      <OpenRouterKeyDialog open={settingKey} onOpenChange={setSettingKey} onSaved={setSettings} />
       <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(undefined)}>
         <AlertDialogContent>
           <AlertDialogHeader>

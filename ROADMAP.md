@@ -54,7 +54,11 @@ One page with three resizable columns (widths are remembered):
 - **Datasets** — every dataset as a tree: added files at the root, and each run's dataset under the one
   it ran on, with a thin live progress bar while a run is making it, plus "Add data". Families go by their
   latest activity, so a run brings its family to the top; a dataset folds away what was made from it,
-  except while a run is still making one. Indentation stops after three levels.
+  except while a run is still making one. Indentation stops after three levels. At the bottom, "Your
+  account" (it will show who is signed in once there are accounts): Settings, API keys & MCP
+  connections and Log out (both still to come). Settings is its own page (`/settings/`, ⌘,): sections
+  on the left (Providers, with the OpenRouter key; Storage, with S3 connections), Back or Esc returns to the dataset
+  you came from.
 - **Rows** — the selected dataset's data: the rows table (search, filters, sort, limit), a Columns tab
   with statistics for every column and nested field, and a Lineage tab. Columns are dragged from here
   into a task's prompt. The search, filters, sort and limit are the next run's **scope**: the table
@@ -127,7 +131,7 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
   outputs — cached for an hour; Decisions API and chat completion calls.
 - Response cache in SQLite, keyed on a hash of the full request, pulled forward from milestone 4: running
   the same task on the same row with the same model never pays twice.
-- OpenRouter key from `OPENROUTER_API_KEY` or saved from the UI after OpenRouter accepts it.
+- OpenRouter key from `OPENROUTER_API_KEY` or saved in Settings after OpenRouter accepts it.
 - Jobs (`GET`/`POST /v1/datasets/{id}/jobs`, `PUT /v1/jobs/{id}`) hold the scope (the Rows tab's search,
   filters, sort and limit) and the tasks; the UI creates one per dataset and saves as you edit. A new job
   is limited to 20 rows, so its first run is cheap; on a dataset a run made, it starts on the rows that
@@ -220,7 +224,8 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
   returned by the API. Environment/AWS profile credentials work without configuring a connection.
 - API: connections CRUD; `source` accepts `s3://` URIs (it already accepts `https://`), and so does the
   export `destination`.
-- UI: S3 sources in "Add data", S3 destination on export.
+- UI: connections in Settings → Storage (in place, empty for now), S3 sources in "Add
+  data", S3 destination on export.
 - **Done when** tested against MinIO in CI.
 
 ### 8. MVP release
@@ -244,6 +249,12 @@ Not planned yet; noted so they aren't lost. Add new ones here.
   models for the Translate preset, next to LLMs: cheaper and faster for plain translation. They'd be a
   third kind of model that only answers Write tasks started from Translate, with the target language as
   a setting rather than part of the prompt.
+- **More model providers.** OpenRouter is the only provider today; Settings → Providers is where others
+  would go: direct API keys for OpenAI, Anthropic, Google and the like, or a local OpenAI-compatible
+  server (Ollama, vLLM) for private data. Each adds its models to the picker next to OpenRouter's.
+- **More kinds of storage.** S3-compatible storage is the first (milestone 7); Settings → Storage is
+  where others would go: Google Cloud Storage, Azure Blob Storage, and maybe databases or warehouses
+  (Postgres, BigQuery) as sources and destinations.
 - **Recommended models first.** In the model picker, show a short "Recommended for <type>" group at the
   top, picked by the task's type (e.g. fast decision models for Classify, LLMs good at structured output
   for Extract), then the rest sorted as now.

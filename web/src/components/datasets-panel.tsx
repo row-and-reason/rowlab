@@ -3,10 +3,15 @@
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
 import {
   ChevronRightIcon,
+  ChevronUpIcon,
+  CircleUserIcon,
   DownloadIcon,
   KeyRoundIcon,
+  LogOutIcon,
   MoonIcon,
+  PlugIcon,
   PlusIcon,
+  SettingsIcon,
   SunIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -23,11 +28,20 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Spinner } from "@/components/ui/spinner";
 import { ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
 import type { Dataset, Settings } from "@/lib/api/client";
 import { datasetTree } from "@/lib/dataset-tree";
+import type { Section } from "@/lib/settings";
 import { formatNumber } from "@/lib/format";
 import { isActive } from "@/lib/runs";
 import { useSlideReorder } from "@/lib/use-slide-reorder";
@@ -44,7 +58,7 @@ export function DatasetsPanel({
   onAdd,
   onExport,
   onDelete,
-  onKey,
+  onSettings,
 }: {
   datasets: Dataset[] | null;
   selectedId: string | null;
@@ -52,7 +66,7 @@ export function DatasetsPanel({
   onAdd: () => void;
   onExport: (dataset: Dataset) => void;
   onDelete: (dataset: Dataset) => void;
-  onKey: () => void;
+  onSettings: (section: Section) => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(new Set<string>());
@@ -153,18 +167,38 @@ export function DatasetsPanel({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 border-t p-2">
-        {settings?.openrouter_key === "environment" ? (
-          <span className="px-2 text-xs text-muted-foreground">Key from environment</span>
-        ) : (
-          <Button
-            variant={settings?.openrouter_key ? "ghost" : "default"}
-            size="sm"
-            onClick={onKey}
-          >
-            <KeyRoundIcon data-icon="inline-start" />
-            {settings?.openrouter_key ? "OpenRouter key" : "Set OpenRouter key"}
-          </Button>
-        )}
+        {/* Will show who is signed in, once there are accounts. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
+            <CircleUserIcon data-icon="inline-start" />
+            Your account
+            <ChevronUpIcon data-icon="inline-end" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" className="w-64">
+            {settings && !settings.openrouter_key && (
+              <DropdownMenuItem onClick={() => onSettings("providers")}>
+                <KeyRoundIcon />
+                Set your OpenRouter key…
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => onSettings("providers")}>
+              <SettingsIcon />
+              Settings…
+              <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <PlugIcon />
+              API keys & MCP connections
+              <DropdownMenuShortcut>Soon</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled>
+              <LogOutIcon />
+              Log out
+              <DropdownMenuShortcut>Soon</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <TooltipButton
           label={resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
           variant="ghost"
