@@ -24,7 +24,7 @@ test-hosted:
 
 lint:
 	cd server && uv run ruff check && uv run ruff format --check
-	cd web && pnpm lint && pnpm exec tsc --noEmit
+	cd web && pnpm lint && pnpm typecheck
 
 # Build the web UI, bundle it into the Python package, and build the wheel.
 build: gen-client
