@@ -4,19 +4,14 @@ import type { components, paths } from "./schema";
 
 export type Dataset = components["schemas"]["Dataset"];
 export type ColumnProfile = components["schemas"]["ColumnProfile"];
-// As returned, with every field; the API accepts the same shape.
-export type Filter = components["schemas"]["Filter-Output"];
-export type Sort = components["schemas"]["Sort"];
 export type QueryResult = components["schemas"]["QueryResult"];
 export type RenderResult = components["schemas"]["RenderResult"];
-export type Scope = components["schemas"]["Scope-Output"];
-export type Job = components["schemas"]["Job"];
-// What the editor changes: the job as returned, which always has every field.
-export type JobConfig = Pick<Job, "scope" | "tasks">;
 export type Run = components["schemas"]["Run"];
 export type Model = components["schemas"]["Model"];
 export type Settings = components["schemas"]["Settings"];
-export type Task = Job["tasks"][number];
+// As a run returns it, with every field; the API accepts the same shape.
+export type Task = Run["config"]["tasks"][number];
+export type Column = Dataset["columns"][number];
 export type AnswerType = Task["type"];
 export type Option = components["schemas"]["Option"];
 export type ExtractField = Task["fields"][number];

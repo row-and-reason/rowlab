@@ -1,11 +1,11 @@
 # Roadmap to MVP
 
 **Today:** milestones 1 to 7 are done; the MVP release (8) is next. CSV, TSV, JSON, JSONL and Parquet
-files are uploaded, or loaded by local path, public http(s) URL or from S3, and explored with
-server-side search, filters, sort and paging; 1M rows ingest in under a second and every page query
-returns in about 0.1 s. A job runs several tasks, each with one or more decision models or LLMs, on the
-rows its scope picks: tasks classify (yes/no, pick one, pick any, scale), extract typed fields, or write
-new text. Every run makes a new dataset that appears at once and fills in as the run works in the
+files are uploaded, or loaded by local path, public http(s) URL or from S3, and explored with SQL
+(which the UI's search, filters and sort write for you) and paging; 1M rows ingest in under a second and
+every page query returns in about 0.1 s. A run asks several tasks, each with one or more decision models
+or LLMs, about the rows a query picks: tasks classify (yes/no, pick one, pick any, scale), extract typed
+fields, or write new text. Any columns can be compared, e.g. several models' answers. Every run makes a new dataset that appears at once and fills in as the run works in the
 background in chunks of 500 rows; runs can be stopped and resumed, survive a server restart without
 paying twice, and show live progress. Any dataset exports as CSV, JSONL or Parquet, to disk or S3.
 `rowlab serve` serves the API and UI on one port, and `make build` produces a wheel with the UI bundled.
@@ -23,11 +23,14 @@ resumed without paying twice, shows all work and its live progress, and writes t
   `titanic__1`. They are branches, not versions: siblings are alternatives side by side, children
   refine their parent. Numbers count per parent and aren't reused. The UI never names runs; it shows
   datasets. The format to export to is picked at export time.
-- **Job** — a saved configuration: the dataset rows to process and the tasks to run on each.
+- **Query** — one DuckDB `SELECT` over the table `data`, the dataset: which rows to look at, run on or
+  export. The UI's search, filters, sort and limit write it; it can also be written by hand.
+- **Draft** — the next run of a dataset, as the UI holds it: its query and tasks. Kept in the browser;
+  the server only sees runs.
 - **Task** — one thing to produce per row: a prompt (the question, with the row's columns in it), an answer
   type with its options, a result column name, and the models that answer it.
-- **Run** — one execution of a job, which makes a new dataset. Holds a frozen copy of the job's settings,
-  its progress and costs. It belongs to the dataset it makes: that dataset's Lineage tab shows it.
+- **Run** — the tasks asked about the rows a query picks, which makes a new dataset. Holds a frozen copy
+  of its query and tasks, its progress and costs. It belongs to the dataset it makes: that dataset's Lineage tab shows it.
 
 ## Workflow: a loop
 
@@ -37,11 +40,11 @@ on the new labels and label again, e.g. a cheap yes/no filter first, then an LLM
 rows only.
 
 - A run's dataset holds **every row of its parent**, with the parent's columns plus the result columns.
-  Only the rows in the job's scope are asked; the others keep empty result columns. So each step is the
+  Only the rows the run's query picks are asked; the others keep empty result columns. So each step is the
   complete data with every label so far, and the last one is the one to export. `__row_id` is kept from
   the parent, so every row can be traced back to the original file.
 - It records its parent dataset and the run that made it: it sits under its parent in the dataset list,
-  and its Lineage tab shows what it was made from and how (scope, tasks, models, costs). Its rows are
+  and its Lineage tab shows what it was made from and how (query, tasks, models, costs). Its rows are
   copied when the run starts, so it doesn't depend on its parent; each run is a full copy, which a cheaper
   storage model can replace later if needed.
 
@@ -57,10 +60,10 @@ One page with three resizable columns (widths are remembered):
   connections and Log out (both still to come). Settings is its own page (`/settings/`, ⌘,): sections
   on the left (Providers, with the OpenRouter key; Storage, with S3 connections), Back or Esc returns to the dataset
   you came from.
-- **Rows** — the selected dataset's data: the rows table (search, filters, sort, limit), a Columns tab
-  with statistics for every column and nested field, and a Lineage tab. Columns are dragged from here
-  into a task's prompt. The search, filters, sort and limit are the next run's **scope**: the table
-  shows exactly the rows it processes. A dataset still being made shows its answers as they come in,
+- **Rows** — the selected dataset's data: the rows table (search, filters, sort, limit, and the SQL they
+  make, to read or write by hand), a Columns tab with statistics for every column and nested field, a
+  Compare tab, and a Lineage tab. Columns are dragged from here into a task's prompt. The table's query
+  is the next run's: the table shows exactly the rows it asks about. A dataset still being made shows its answers as they come in,
   with Stop/Resume in its toolbar.
 - **New run** — the tasks (each a prompt with columns dragged in, an answer type, a result column and
   models) and **Run**, which opens the dataset the run makes. Later also exporting to a file or S3.
@@ -68,6 +71,36 @@ One page with three resizable columns (widths are remembered):
 It works like a desktop app: thin column toolbars, Filter and Display popovers instead of forms, menus
 for actions, a ⌘K command palette and shortcuts (⌘↵ run, J/K switch dataset, / search, E export), dark mode
 following the system. `AGENTS.md` lists the conventions.
+
+## API
+
+Everything the UI does goes through this API, so a script or an agent can do it too. Rows are always
+picked with SQL: one DuckDB `SELECT` over the table `data`, e.g.
+`SELECT * FROM data WHERE stars = 1 ORDER BY review LIMIT 20`. It runs where it can read nothing but
+the dataset's own files, and write nothing. To pick rows for a run, an estimate or an export it must
+return `__row_id` (as `SELECT *` does). `agree([a, b, …])`, `disagree([a, b, …])`, and
+`agree_within`/`disagree_within` with a tolerance, compare columns in a row.
+
+| | | |
+|---|---|---|
+| `GET` `POST` | `/v1/datasets` | list; add (upload a `file`, or a `source`: path, URL or `s3://`, with a `connection_id`) |
+| `GET` `DELETE` | `/v1/datasets/{id}` | |
+| `GET` | `/v1/datasets/{id}/profile` | column statistics |
+| `POST` | `/v1/datasets/{id}/query` | `{sql, offset, limit}` → `{columns, rows, total}` |
+| `POST` | `/v1/datasets/{id}/compare` | `{columns, reference, tolerance, sql}`: agreement, accuracy, and SQL for each count |
+| `POST` | `/v1/datasets/{id}/render` | `{template, sql, offset, limit}`: a prompt as sent, with token estimates |
+| `GET` `POST` | `/v1/datasets/{id}/export` | download, or write to a path or `s3://`; `sql` exports only the rows it picks |
+| `POST` | `/v1/datasets/{id}/runs` | `{sql, tasks}` → the run, and the dataset it makes |
+| `POST` | `/v1/datasets/{id}/estimate` | `{sql, tasks}` → rows, model calls, rough cost, or what to change |
+| `GET` | `/v1/runs/{id}` | status, progress, costs |
+| `POST` | `/v1/runs/{id}/stop`, `/v1/runs/{id}/resume` | |
+| `GET` | `/v1/settings` | |
+| `PUT` | `/v1/settings/openrouter-key` | checked with OpenRouter, never returned |
+| `GET` `POST` | `/v1/settings/connections` | S3 connections; secrets never returned |
+| `PUT` `DELETE` | `/v1/settings/connections/{id}` | |
+| `GET` | `/v1/utils/models` | decision models and LLMs |
+| `GET` | `/v1/utils/task-types` | answer types, write presets, field types |
+| `GET` | `/v1/health` | |
 
 What is selected lives in the query string, e.g. `/?dataset=<id>&tab=columns`: the UI is a static export,
 which can't have routes for ids that only exist at runtime, and path-style URLs would need a server-side
@@ -97,14 +130,14 @@ later). Each milestone ships API, UI and tests together, and ends with `make lin
   (unknown fields with suggestions, empty values, no fields used) and token estimates from a sample of
   200 rows, using OpenAI's o200k tokenizer as a model-independent estimate.
 - UI: TipTap editor with column chips (click, drag or type `{{…}}`), a searchable column list, live
-  per-row preview with the source values, and token stats. The template is kept in the browser until
-  milestone 3 saves it as part of a job.
+  per-row preview with the source values, and token stats. The template is kept in the browser, as part
+  of the dataset's draft.
 
-### 3. Models and job configuration ✅
+### 3. Models and tasks ✅
 
 Answer types come in three families, by what the answer is: **Classify** puts the row in a known box,
 **Extract** pulls typed facts out of it, **Write** produces new text from it. For Classify the model never
-limits what a job can do: decision models and LLMs answer the same answer types and write the same
+limits what a run can do: decision models and LLMs answer the same answer types and write the same
 columns, so choosing one is a matter of cost, speed and accuracy. Extract and Write need an LLM.
 
 **Phase 1 — done.** Four answer types, each with any model:
@@ -116,7 +149,7 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 | Pick any | tags, topics, several policies | one `noul` per option, one call | `{answers: {option: {answer, proba}}}` |
 | Scale | urgency, quality, ratings | `score` (most likely level) | `{answer: enum of levels, proba}` |
 
-- A job has several tasks, so labeling many things is set up once and run in one pass. Each task has its
+- A run has several tasks, so labeling many things is set up once and run in one pass. Each task has its
   own prompt, answer type, result column and models; several models answer the same task for comparison.
 - Every model writes its own columns, named after it: `<column>__<model>` and `<column>__<model>_proba`,
   the probability that the answer is right (pick any: `<column>_<option>__<model>`), e.g.
@@ -130,12 +163,11 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 - Response cache in SQLite, keyed on a hash of the full request, pulled forward from milestone 4: running
   the same task on the same row with the same model never pays twice.
 - OpenRouter key from `OPENROUTER_API_KEY` or saved in Settings after OpenRouter accepts it.
-- Jobs (`GET`/`POST /v1/datasets/{id}/jobs`, `PUT /v1/jobs/{id}`) hold the scope (the Rows tab's search,
-  filters, sort and limit) and the tasks; the UI creates one per dataset and saves as you edit. A new job
-  is limited to 20 rows, so its first run is cheap; on a dataset a run made, it starts on the rows that
-  run answered instead (its first answer column is not null). Tasks are small cards that expand to their prompt,
-  answer and models.
-- Running a job asks every task and model about the rows in scope: answers, probabilities and cost per
+- Each dataset has a draft of its next run, its query and tasks, kept in the browser and saved as you
+  edit (it was a server-side "job" until queries became SQL). A new draft is limited to 20 rows, so its
+  first run is cheap; on a dataset a run made, it starts on the rows that run answered instead (its first
+  answer column is not null). Tasks are small cards that expand to their prompt, answer and models.
+- A run asks every task and model about the rows its query picks: answers, probabilities and cost per
   task and model. The UI shows the answers as columns next to the rows. Runs are milestone 4.
 
 **Phase 2 — done.** What only LLMs can give, and making every task effortless to set up:
@@ -152,10 +184,10 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
   `<column>__<model>_reason`; the model writes it before answering.
 - **Defaults:** a task needs only its prompt and type; the result column and models default to ones that
   suit the type (a decision model for Classify, `anthropic/claude-haiku-5.5` for Extract and Write).
-  `GET /v1/task-types` lists the types by family, the presets, field types and languages: the UI builds
+  `GET /v1/utils/task-types` lists the types by family, the presets, field types and languages: the UI builds
   its menus from it, and API clients can discover everything there.
-- **One call to run:** `POST /v1/datasets/{id}/runs` with `{tasks, scope}` (all rows without a scope).
-  Jobs remain the UI's saved draft. `POST /v1/datasets/{id}/estimate` with the same body returns the rows,
+- **One call to run:** `POST /v1/datasets/{id}/runs` with `{sql, tasks}` (all rows without a query).
+  `POST /v1/datasets/{id}/estimate` with the same body returns the rows,
   model calls and rough cost (from sample rows' token counts and the models' prices), or why it can't
   run and what to change.
 - **UI:** the task's type menu is grouped by family, with the Write presets (and a language submenu for
@@ -167,13 +199,13 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 ### 4. Runs: start, stop, resume ✅
 
 - `POST /v1/datasets/{id}/runs` queues a run and returns at once with the dataset it makes (`dataset_id`):
-  every row of the parent is copied into it (`rows.parquet`) and the rows in scope listed
+  every row of the parent is copied into it (`rows.parquet`) and the rows its query picks listed
   (`asked.parquet`); it is named after its place in the tree (`titanic__1.2`), with empty
-  answer columns. The run keeps a frozen copy of its scope and tasks.
+  answer columns. The run keeps a frozen copy of its query and tasks.
   `GET /v1/runs/{id}` returns its status (`queued`, `running`, `stopping`, `stopped`, `done`, `failed`),
   progress and cost per task and model; each dataset carries its run's status and progress too.
 - One runner thread in the server works through queued runs one at a time, oldest first, with 16 model
-  calls in flight. The rows in scope are split into fixed chunks of 500 by `__row_id`. Each finished chunk's answers
+  calls in flight. The rows it asks about are split into fixed chunks of 500 by `__row_id`. Each finished chunk's answers
   are written to its own Parquet part file (`datasets/<id>/parts/part-<n>.parquet`, written to a temporary
   file and renamed), and SQLite only records the next chunk to do. Progress is saved about twice a second.
   Until the run is done the dataset is read as its rows joined with the parts written so far, so search,
@@ -192,7 +224,7 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
   Deleting a dataset deletes the run that makes it; datasets made from it stay.
 - UI: Run opens the new dataset. Its rows fill in as chunks finish; its toolbar has Stop or Resume; its
   Lineage tab shows what it was made from, the run's status, progress bar, answers per second and time
-  left, its settings and costs, and "Use these settings again" (puts its scope and tasks back on the parent).
+  left, its settings and costs, and "Use these settings again" (puts its query and tasks in the parent's draft).
 
 ### 5. Live progress in the dataset feed ✅
 
@@ -210,8 +242,9 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 - API: `GET /v1/datasets/{id}/export?format=…` downloads it as `<name>.<format>`;
   `POST /v1/datasets/{id}/export` writes it to a path on the server (a folder or a file name),
   replacing the file atomically.
-- UI: "Export…" in a dataset's menus and the ⌘K palette (shortcut E): a dialog with the format, whether
-  to include the `#` column, and Download or Save to a path.
+- UI: "Export…" in a dataset's menus and the ⌘K palette (shortcut E): a dialog in two steps, like "Add
+  data": where to (Download or S3), then the format, whether to include the `#` column, and for S3 the
+  connection and object. Writing to a path on the server stays in the API.
 
 ### 7. Remote storage: read and write ✅
 
@@ -221,7 +254,7 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
   JSON and CSV readers are tried in turn, and `.gz` objects are decompressed by their name.
 - Export to S3: the export `path` accepts `s3://bucket/key`, or `s3://bucket/folder/` for
   `<name>.<format>` in it.
-- Connections (`GET`/`POST /v1/connections`, `PUT`/`DELETE /v1/connections/{id}`): a name, an
+- Connections (`GET`/`POST /v1/settings/connections`, `PUT`/`DELETE /v1/settings/connections/{id}`): a name, an
   endpoint (empty for AWS; storage other than AWS is addressed by path), a region and keys, stored
   locally; the secret key is never returned. Creating a dataset and exporting take a `connection_id`;
   without one, the AWS credentials in the environment (variables, `~/.aws`) are used, and public buckets
@@ -241,14 +274,14 @@ trusts measures accuracy. So any columns compare: several models' answers to one
 existing labels, or two columns of the original data.
 
 - `POST /v1/datasets/{id}/compare` with two or more `columns` (or one and a `reference`), an optional
-  `tolerance` for numbers and dates, and the usual search and filters: rows where all agree, disagree,
+  `tolerance` for numbers and dates, and a query for the rows to compare: rows where all agree, disagree,
   are partly answered or not answered; how often each two columns agree; how often each column gives
   each value; for exactly two columns, the crosstab of their values; with a reference, each column's
   accuracy, precision and recall per value. Lists are the same when they hold the same items; empty
   values never count as a disagreement. Nothing is saved: comparisons are asked for, not kept.
-- Every count comes with the filter for its rows, in the scope's language: two new filter ops,
-  `agree` and `disagree`, over any number of `columns`. So the rows behind a count can be looked at
-  (`query`) or asked about again (`runs`), e.g. a stronger model on just the disagreements.
+- Every count comes with SQL for its rows (`where`), e.g. `disagree([a, b, c])`, using the comparing
+  functions every query has. So the rows behind a count can be looked at (`query`), asked about again
+  (`runs`, e.g. a stronger model on just the disagreements) or exported.
 - Write answers compare exactly only, for good: to judge whether two texts say the same, label another
   column with a task that asks.
 - UI: a Compare tab picks the columns (to start with, the models' answers of the run that made the
@@ -284,11 +317,6 @@ Not planned yet; noted so they aren't lost. Add new ones here.
 - **More kinds of storage.** S3-compatible storage is the first (milestone 7); Settings → Storage is
   where others would go: Google Cloud Storage, Azure Blob Storage, and maybe databases or warehouses
   (Postgres, BigQuery) as sources and destinations.
-- **SQL instead of our own filter language.** Scopes describe rows with a small filter language of our
-  own (search, `eq`, `contains`, `agree`, …) through `POST /v1/datasets/{id}/query`, a name that
-  suggests SQL it isn't. Rows could be picked with DuckDB SQL instead (a `WHERE` clause, or a whole
-  `SELECT`), and the UI's filters become SQL templates it fills in: one language for people, the UI
-  and agents, and nothing to extend when a new kind of filter is needed.
 - **Recommended models first.** In the model picker, show a short "Recommended for <type>" group at the
   top, picked by the task's type (e.g. fast decision models for Classify, LLMs good at structured output
   for Extract), then the rest sorted as now.

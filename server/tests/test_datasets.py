@@ -113,54 +113,52 @@ def test_profile(client, dataset):
 
 
 def test_query_pages_in_file_order(client, dataset):
-    result = query(client, dataset["id"], page_size=2)
+    result = query(client, dataset["id"], limit=2)
     assert result["total"] == 3
     assert [r["name"] for r in result["rows"]] == ["Ada", "Alan"]
-    result = query(client, dataset["id"], page_size=2, offset=2)
+    result = query(client, dataset["id"], limit=2, offset=2)
     assert [r["name"] for r in result["rows"]] == ["Grace"]
     assert result["rows"][0] == {"__row_id": 2, "name": "Grace", "age": None, "city": "Arlington"}
 
 
-def test_query_sort_puts_nulls_last(client, dataset):
-    rows = query(client, dataset["id"], sort=[{"column": "age", "desc": True}])["rows"]
-    assert [r["name"] for r in rows] == ["Alan", "Ada", "Grace"]
+def test_query_is_sql_over_data(client, dataset):
+    sql = "SELECT * FROM data WHERE city ILIKE '%on' ORDER BY age DESC NULLS LAST"
+    assert [r["name"] for r in query(client, dataset["id"], sql=sql)["rows"]] == ["Ada", "Grace"]
+    # Any columns, even computed ones: the result says what they are.
+    computed = query(client, dataset["id"], sql="SELECT name, age * 2 AS twice FROM data;")
+    assert computed["columns"] == [
+        {"name": "name", "type": "VARCHAR"},
+        {"name": "twice", "type": "BIGINT"},
+    ]
+    assert computed["rows"][0] == {"name": "Ada", "twice": 72}
 
 
-def test_query_search_is_case_insensitive(client, dataset):
-    result = query(client, dataset["id"], search="LONDON")
-    assert result["total"] == 1
-    assert result["rows"][0]["name"] == "Ada"
+def test_the_querys_own_limit_caps_the_total(client, dataset):
+    sql = "SELECT * FROM data ORDER BY age DESC NULLS LAST LIMIT 2"
+    result = query(client, dataset["id"], sql=sql, limit=1, offset=1)
+    assert result["total"] == 2
+    assert [r["name"] for r in result["rows"]] == ["Ada"]
 
 
 @pytest.mark.parametrize(
-    ("op", "value", "names"),
+    ("sql", "detail"),
     [
-        ("eq", "36", ["Ada"]),
-        ("ne", "36", ["Alan", "Grace"]),
-        ("gt", 36, ["Alan"]),
-        ("lte", "41", ["Ada", "Alan"]),
-        ("is_null", None, ["Grace"]),
-        ("is_not_null", None, ["Ada", "Alan"]),
+        ("DELETE FROM data", "Write one SELECT over the table `data`."),
+        ("SELECT 1; SELECT 2", "Write one SELECT over the table `data`."),
+        ("SELECT * FROM nope", "The SQL has an error"),
+        ("SELEKT 1", "The SQL has an error"),
+        # It can read the dataset and nothing else.
+        ("SELECT * FROM read_text('/etc/hosts')", "The SQL has an error"),
+        ("SELECT * FROM read_csv('people.csv')", "The SQL has an error"),
     ],
 )
-def test_query_filters(client, dataset, op, value, names):
-    filters = [{"column": "age", "op": op, "value": value}]
-    rows = query(client, dataset["id"], filters=filters)["rows"]
-    assert [r["name"] for r in rows] == names
+def test_query_rejects_anything_but_one_select_over_the_dataset(client, dataset, sql, detail):
+    response = client.post(f"/v1/datasets/{dataset['id']}/query", json={"sql": sql})
+    assert response.status_code == 400
+    assert response.json()["detail"].startswith(detail)
 
 
-def test_query_contains_filter(client, dataset):
-    filters = [{"column": "city", "op": "contains", "value": "ON"}]
-    rows = query(client, dataset["id"], filters=filters)["rows"]
-    assert [r["name"] for r in rows] == ["Ada", "Grace"]
-
-
-def test_query_rejects_bad_columns_and_values(client, dataset):
-    url = f"/v1/datasets/{dataset['id']}/query"
-    unknown = client.post(url, json={"sort": [{"column": "nope"}]})
-    assert unknown.status_code == 400
-    bad_value = client.post(url, json={"filters": [{"column": "age", "op": "eq", "value": "x"}]})
-    assert bad_value.status_code == 400
+def test_query_of_an_unknown_dataset(client):
     assert client.post("/v1/datasets/nope/query", json={}).status_code == 404
 
 
@@ -276,12 +274,3 @@ def test_profile_includes_nested_fields(client, tmp_path):
     assert list(profile) == ["actor", "actor.login", "actor.id"]
     assert profile["actor.login"]["min"] == "ada"
     assert profile["actor.id"]["max"] == "2"
-
-
-def test_query_limit_keeps_only_the_first_rows_in_order(client, dataset):
-    sort = [{"column": "age", "desc": True}]
-    result = query(client, dataset["id"], sort=sort, limit=2, page_size=1, offset=1)
-    assert result["total"] == 2
-    assert result["matched"] == 3
-    assert [r["name"] for r in result["rows"]] == ["Ada"]
-    assert query(client, dataset["id"], limit=2, offset=2)["rows"] == []

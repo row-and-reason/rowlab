@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from rowlab.core import connections
 from rowlab.core.connections import Connection, ConnectionInput
 
-router = APIRouter(prefix="/v1/connections", tags=["connections"])
+router = APIRouter(prefix="/v1/settings/connections", tags=["settings"])
 
 
 @router.get("", operation_id="listConnections")

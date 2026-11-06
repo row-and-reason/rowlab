@@ -7,6 +7,7 @@ import {
   ArrowUpIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  CodeIcon,
   ListFilterIcon,
   SearchIcon,
   SlidersHorizontalIcon,
@@ -37,14 +38,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type Dataset, type Filter, type QueryResult, type Scope } from "@/lib/api/client";
-import {
-  columnLabel,
-  describeComparison,
-  errorMessage,
-  formatCell,
-  formatNumber,
-} from "@/lib/format";
+import { Textarea } from "@/components/ui/textarea";
+import { api, type Dataset, type QueryResult } from "@/lib/api/client";
+import { columnLabel, errorMessage, formatCell, formatNumber } from "@/lib/format";
+import type { ColumnFilter, View } from "@/lib/sql";
 
 type Row = Record<string, unknown>;
 
@@ -54,7 +51,7 @@ const features = tableFeatures({});
 const helper = createColumnHelper<typeof features, Row>();
 const emptyRows: Row[] = [];
 
-const OPS: { value: Filter["op"]; label: string }[] = [
+const OPS: { value: ColumnFilter["op"]; label: string }[] = [
   { value: "eq", label: "=" },
   { value: "ne", label: "≠" },
   { value: "lt", label: "<" },
@@ -65,42 +62,46 @@ const OPS: { value: Filter["op"]; label: string }[] = [
   { value: "is_null", label: "is null" },
   { value: "is_not_null", label: "is not null" },
 ];
-const opLabel = (op: Filter["op"]) => OPS.find((o) => o.value === op)?.label;
-const takesValue = (op: Filter["op"]) => op !== "is_null" && op !== "is_not_null";
+const opLabel = (op: ColumnFilter["op"]) => OPS.find((o) => o.value === op)?.label;
+const takesValue = (op: ColumnFilter["op"]) => op !== "is_null" && op !== "is_not_null";
 
 const PAGE_SIZES = [50, 100, 250, 500].map((n) => ({ value: String(n), label: `${n} rows` }));
 
 /**
- * Server-side search, filters, sort, limit and paging over a dataset's rows. All but the paging are
- * the job's scope: the rows shown here are exactly the rows the job runs on. `version` changes when
- * the rows themselves do, e.g. as a run fills in its answers, so the page is fetched again.
+ * A dataset's rows, as the view picks them: search, filters, sort and limit, which become `sql`, or SQL
+ * written directly. The rows shown here are exactly the rows the next run asks about. Paging is the
+ * table's own. `version` changes when the rows themselves do, e.g. as a run fills in its answers, so
+ * the page is fetched again.
  */
 export function DatasetExplorer({
   dataset,
-  scope,
-  onScopeChange,
+  view,
+  sql,
+  onViewChange,
   version,
 }: {
   dataset: Dataset;
-  scope: Scope;
-  onScopeChange: (changes: Partial<Scope>) => void;
+  view: View;
+  sql: string;
+  onViewChange: (changes: Partial<View>) => void;
   version?: number;
 }) {
-  const { search, filters } = scope;
-  const sort = scope.sort[0] ?? null;
+  const { search, filters } = view;
+  const custom = view.sql !== null;
+  const sort = view.sort[0] ?? null;
   const [searchInput, setSearchInput] = useState(search);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(100);
 
-  function changeScope(changes: Partial<Scope>) {
-    onScopeChange(changes);
+  function changeView(changes: Partial<View>) {
+    onViewChange(changes);
     setPage(0);
   }
 
   // Each result remembers the request it answers, so a stale response is never shown as current.
   const request = useMemo(
-    () => ({ ...scope, offset: page * pageSize, page_size: pageSize }),
-    [scope, page, pageSize],
+    () => ({ sql, offset: page * pageSize, limit: pageSize }),
+    [sql, page, pageSize],
   );
   const [result, setResult] = useState<{
     request: typeof request;
@@ -112,11 +113,11 @@ export function DatasetExplorer({
   useEffect(() => {
     const timer = setTimeout(() => {
       if (searchInput === search) return;
-      onScopeChange({ search: searchInput });
+      onViewChange({ search: searchInput });
       setPage(0);
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchInput, search, onScopeChange]);
+  }, [searchInput, search, onViewChange]);
 
   useEffect(() => {
     let current = true;
@@ -137,16 +138,18 @@ export function DatasetExplorer({
   const [shown, setShown] = useState<QueryResult>();
   if (result?.data && result.data !== shown) setShown(result.data);
 
+  // The query's columns, which SQL can choose or compute.
+  const shownColumns = shown?.columns ?? dataset.columns;
   const columns = useMemo(
     () =>
-      dataset.columns.map((c) =>
+      shownColumns.map((c) =>
         helper.accessor((row) => row[c.name], {
           id: c.name,
           header: columnLabel(c.name),
           cell: (info) => <CellValue value={info.getValue()} />,
         }),
       ),
-    [dataset.columns],
+    [shownColumns],
   );
   const table = useTable({ features, columns, data: shown?.rows ?? emptyRows });
 
@@ -155,66 +158,85 @@ export function DatasetExplorer({
   const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
 
   function toggleSort(column: string) {
-    if (sort?.column !== column) changeScope({ sort: [{ column, desc: false }] });
-    else if (!sort.desc) changeScope({ sort: [{ column, desc: true }] });
-    else changeScope({ sort: [] });
+    if (sort?.column !== column) changeView({ sort: [{ column, desc: false }] });
+    else if (!sort.desc) changeView({ sort: [{ column, desc: true }] });
+    else changeView({ sort: [] });
   }
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b px-3 py-2">
-        <InputGroup className="w-56">
-          <InputGroupAddon>
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            id="rows-search"
-            placeholder="Search"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-        </InputGroup>
-        <FilterButton
-          dataset={dataset}
-          onAdd={(filter) => changeScope({ filters: [...filters, filter] })}
-        />
-        <DisplayButton
-          scope={scope}
-          pageSize={pageSize}
-          onScopeChange={changeScope}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(0);
-          }}
-        />
-        {filters.map((f, i) => (
-          <Badge key={i} variant="secondary" className="h-7 gap-1 pr-0.5">
-            {f.columns.length ? (
-              describeComparison(f)
-            ) : (
-              <>
-                {columnLabel(f.column)} {opLabel(f.op)}{" "}
-                {takesValue(f.op) && <code>{String(f.value)}</code>}
-              </>
-            )}
+        {custom ? (
+          <Badge variant="secondary" className="h-7 gap-1 pr-0.5">
+            Custom SQL
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="Remove filter"
-              onClick={() => changeScope({ filters: filters.filter((_, j) => j !== i) })}
+              aria-label="Back to the search, filters and sort"
+              title="Back to the search, filters and sort"
+              onClick={() => changeView({ sql: null })}
             >
               <XIcon />
             </Button>
           </Badge>
-        ))}
-        {scope.limit && (
+        ) : (
+          <>
+            <InputGroup className="w-56">
+              <InputGroupAddon>
+                <SearchIcon />
+              </InputGroupAddon>
+              <InputGroupInput
+                id="rows-search"
+                placeholder="Search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+            </InputGroup>
+            <FilterButton
+              dataset={dataset}
+              onAdd={(filter) => changeView({ filters: [...filters, filter] })}
+            />
+            <DisplayButton
+              view={view}
+              pageSize={pageSize}
+              onViewChange={changeView}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(0);
+              }}
+            />
+          </>
+        )}
+        <SqlButton sql={sql} onApply={(written) => changeView({ sql: written })} />
+        {!custom &&
+          filters.map((f, i) => (
+            <Badge key={i} variant="secondary" className="h-7 gap-1 pr-0.5">
+              {"where" in f ? (
+                f.label
+              ) : (
+                <>
+                  {columnLabel(f.column)} {opLabel(f.op)}{" "}
+                  {takesValue(f.op) && <code>{String(f.value)}</code>}
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Remove filter"
+                onClick={() => changeView({ filters: filters.filter((_, j) => j !== i) })}
+              >
+                <XIcon />
+              </Button>
+            </Badge>
+          ))}
+        {!custom && view.limit && (
           <Badge variant="secondary" className="h-7 gap-1 pr-0.5">
-            First {formatNumber(scope.limit)} rows
+            First {formatNumber(view.limit)} rows
             <Button
               variant="ghost"
               size="icon-xs"
               aria-label="Remove limit"
-              onClick={() => changeScope({ limit: null })}
+              onClick={() => changeView({ limit: null })}
             >
               <XIcon />
             </Button>
@@ -222,13 +244,7 @@ export function DatasetExplorer({
         )}
         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
           {loading && <Spinner />}
-          <span
-            title={
-              shown && shown.matched > total
-                ? `${formatNumber(shown.matched)} rows match`
-                : undefined
-            }
-          >
+          <span>
             {total === 0
               ? "No rows"
               : `${formatNumber(page * pageSize + 1)}–${formatNumber(Math.min(total, (page + 1) * pageSize))} of ${formatNumber(total)}`}
@@ -267,7 +283,7 @@ export function DatasetExplorer({
             {table.getHeaderGroups().map((group) => (
               <TableRow key={group.id}>
                 {group.headers.map((header) => {
-                  const column = dataset.columns.find((c) => c.name === header.id);
+                  const column = shownColumns.find((c) => c.name === header.id);
                   const SortIcon =
                     sort?.column !== header.id
                       ? ArrowUpDownIcon
@@ -286,6 +302,8 @@ export function DatasetExplorer({
                         size="xs"
                         className="-ml-2"
                         title={column?.type}
+                        // Custom SQL sorts itself.
+                        disabled={custom}
                         onClick={() => toggleSort(header.id)}
                       >
                         {columnLabel(header.id)}
@@ -329,11 +347,17 @@ function CellValue({ value }: { value: unknown }) {
   );
 }
 
-function FilterButton({ dataset, onAdd }: { dataset: Dataset; onAdd: (filter: Filter) => void }) {
+function FilterButton({
+  dataset,
+  onAdd,
+}: {
+  dataset: Dataset;
+  onAdd: (filter: ColumnFilter) => void;
+}) {
   const columnItems = dataset.columns.map((c) => ({ value: c.name, label: columnLabel(c.name) }));
   const [open, setOpen] = useState(false);
   const [column, setColumn] = useState<string | null>(null);
-  const [op, setOp] = useState<Filter["op"]>("eq");
+  const [op, setOp] = useState<ColumnFilter["op"]>("eq");
   const [value, setValue] = useState("");
 
   return (
@@ -348,13 +372,7 @@ function FilterButton({ dataset, onAdd }: { dataset: Dataset; onAdd: (filter: Fi
           onSubmit={(e) => {
             e.preventDefault();
             if (!column) return;
-            onAdd({
-              column,
-              op,
-              value: takesValue(op) ? value : null,
-              columns: [],
-              tolerance: null,
-            });
+            onAdd({ column, op, value: takesValue(op) ? value : null });
             setValue("");
             setOpen(false);
           }}
@@ -402,19 +420,19 @@ function FilterButton({ dataset, onAdd }: { dataset: Dataset; onAdd: (filter: Fi
   );
 }
 
-/** How the rows are shown: the limit (part of the job's scope) and the page size. */
+/** How the rows are shown: the limit (which the next run keeps to too) and the page size. */
 function DisplayButton({
-  scope,
+  view,
   pageSize,
-  onScopeChange,
+  onViewChange,
   onPageSizeChange,
 }: {
-  scope: Scope;
+  view: View;
   pageSize: number;
-  onScopeChange: (changes: Partial<Scope>) => void;
+  onViewChange: (changes: Partial<View>) => void;
   onPageSizeChange: (size: number) => void;
 }) {
-  const sort = scope.sort[0];
+  const sort = view.sort[0];
   return (
     <Popover>
       <PopoverTrigger render={<Button variant="ghost" size="sm" />}>
@@ -430,13 +448,13 @@ function DisplayButton({
               type="number"
               min={1}
               placeholder="No limit"
-              value={scope.limit ?? ""}
+              value={view.limit ?? ""}
               onChange={(e) =>
-                onScopeChange({ limit: Number(e.target.value) > 0 ? Number(e.target.value) : null })
+                onViewChange({ limit: Number(e.target.value) > 0 ? Number(e.target.value) : null })
               }
             />
             <FieldDescription>
-              Only the first rows, in this order. The job runs on these.
+              Only the first rows, in this order. The next run asks about these.
             </FieldDescription>
           </Field>
           <Field>
@@ -447,7 +465,7 @@ function DisplayButton({
                   <span>
                     {columnLabel(sort.column)}, {sort.desc ? "high to low" : "low to high"}
                   </span>
-                  <Button variant="ghost" size="xs" onClick={() => onScopeChange({ sort: [] })}>
+                  <Button variant="ghost" size="xs" onClick={() => onViewChange({ sort: [] })}>
                     Reset
                   </Button>
                 </>
@@ -478,6 +496,58 @@ function DisplayButton({
             </Select>
           </Field>
         </FieldGroup>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** The SQL behind the rows shown: to read, or to edit, which replaces the search, filters and sort. */
+function SqlButton({ sql, onApply }: { sql: string; onApply: (sql: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(sql);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setText(sql);
+      }}
+    >
+      <PopoverTrigger render={<Button variant="ghost" size="sm" />}>
+        <CodeIcon data-icon="inline-start" />
+        SQL
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[32rem]">
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onApply(text);
+            setOpen(false);
+          }}
+        >
+          <Field>
+            <FieldLabel htmlFor="rows-sql">SQL</FieldLabel>
+            <Textarea
+              id="rows-sql"
+              className="min-h-32 font-mono text-xs"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+                  e.currentTarget.form?.requestSubmit();
+              }}
+            />
+            <FieldDescription>
+              One DuckDB SELECT over the table <code>data</code>. A run asks about the rows it
+              returns, so keep <code>__row_id</code> in them. <code>agree([a, b])</code> and{" "}
+              <code>disagree([a, b])</code> compare columns.
+            </FieldDescription>
+          </Field>
+          <Button type="submit" size="sm" className="self-end">
+            Use this SQL
+          </Button>
+        </form>
       </PopoverContent>
     </Popover>
   );

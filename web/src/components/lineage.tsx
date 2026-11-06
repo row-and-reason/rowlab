@@ -19,19 +19,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type Dataset, type Run, type Scope, type TaskTypes } from "@/lib/api/client";
-import {
-  columnLabel,
-  describeComparison,
-  errorMessage,
-  formatAgo,
-  formatDuration,
-  formatNumber,
-  formatUsd,
-} from "@/lib/format";
+import { api, type Dataset, type Run, type TaskTypes } from "@/lib/api/client";
+import { errorMessage, formatAgo, formatDuration, formatNumber, formatUsd } from "@/lib/format";
 import { isActive } from "@/lib/runs";
 import { useTaskTypes } from "@/lib/catalog";
-import { loadOrCreate } from "@/lib/use-job";
+import { saveDraft } from "@/lib/draft";
 
 /**
  * The Lineage tab: what a dataset was made from and how. Every run makes a new dataset, so the datasets
@@ -131,16 +123,13 @@ function RunDetails({
   }, [summary.id, summary.status, summary.done]);
   const speed = useSpeed(summary);
 
-  // Puts this run's rows and tasks into the parent's job, to change and run again.
-  async function runAgain(config: Run["config"]) {
-    const job = await loadOrCreate(dataset.parent_id!);
-    if (!job) return;
-    const { error } = await api.PUT("/v1/jobs/{job_id}", {
-      params: { path: { job_id: job.id } },
-      body: config,
+  // Puts this run's query and tasks into the parent's draft, to change and run again.
+  function runAgain(config: Run["config"]) {
+    saveDraft(dataset.parent_id!, {
+      view: { search: "", filters: [], sort: [], limit: null, sql: config.sql },
+      tasks: config.tasks,
     });
-    if (error) toast.error(errorMessage(error));
-    else onOpenDataset(dataset.parent_id!);
+    onOpenDataset(dataset.parent_id!);
   }
 
   if (!run) return <Spinner />;
@@ -150,9 +139,10 @@ function RunDetails({
       <FieldLegend variant="label">How it was made</FieldLegend>
       <p className="text-sm text-muted-foreground">
         {statusText(run)} · {formatAgo(run.created_at)}
-        <br />
-        {describeScope(run.config.scope)}
       </p>
+      <pre className="rounded-lg bg-muted p-3 font-mono text-xs whitespace-pre-wrap select-text">
+        {run.config.sql}
+      </pre>
       {isActive(run) && (
         <div className="flex flex-col gap-1.5">
           <Progress value={run.total ? (100 * run.done) / run.total : 0} aria-label="Progress" />
@@ -268,19 +258,4 @@ function useSpeed(
     setSpeed({ perSecond, secondsLeft: (run.total - run.done) / perSecond });
   }, [run.id, run.done, run.total]);
   return speed;
-}
-
-/** A scope in words, e.g. “city = Tokyo · spend, high to low · first 8 rows”. */
-function describeScope(scope: Scope): string {
-  const parts = [
-    scope.search && `“${scope.search}”`,
-    ...scope.filters.map((f) =>
-      f.columns.length
-        ? describeComparison(f)
-        : [columnLabel(f.column), f.op.replaceAll("_", " "), f.value ?? ""].join(" ").trim(),
-    ),
-    ...scope.sort.map((s) => `${columnLabel(s.column)}, ${s.desc ? "high to low" : "low to high"}`),
-    scope.limit && `first ${formatNumber(scope.limit)} rows`,
-  ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "All rows";
 }

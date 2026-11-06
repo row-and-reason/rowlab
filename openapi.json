@@ -23,10 +23,10 @@
         }
       }
     },
-    "/v1/connections": {
+    "/v1/settings/connections": {
       "get": {
         "tags": [
-          "connections"
+          "settings"
         ],
         "summary": "List Connections",
         "description": "Connections to S3-compatible storage, by name. Secret keys are never returned.",
@@ -50,7 +50,7 @@
       },
       "post": {
         "tags": [
-          "connections"
+          "settings"
         ],
         "summary": "Create Connection",
         "operationId": "createConnection",
@@ -88,10 +88,10 @@
         }
       }
     },
-    "/v1/connections/{connection_id}": {
+    "/v1/settings/connections/{connection_id}": {
       "put": {
         "tags": [
-          "connections"
+          "settings"
         ],
         "summary": "Update Connection",
         "description": "Change a connection; leave out `secret_access_key` to keep the saved one.",
@@ -142,7 +142,7 @@
       },
       "delete": {
         "tags": [
-          "connections"
+          "settings"
         ],
         "summary": "Delete Connection",
         "operationId": "deleteConnection",
@@ -365,6 +365,7 @@
           "datasets"
         ],
         "summary": "Query Dataset",
+        "description": "Run one DuckDB `SELECT` over the table `data`, the dataset, and return a page of its rows,\ne.g. `SELECT * FROM data WHERE stars = 1 ORDER BY review LIMIT 20`. It can read nothing but the\ndataset. `agree([a, b, \u2026])` and `disagree([a, b, \u2026])` compare columns in a row; see\n`POST /v1/datasets/{id}/compare`.",
         "operationId": "queryDataset",
         "parameters": [
           {
@@ -382,7 +383,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Query"
+                "$ref": "#/components/schemas/QueryRequest"
               }
             }
           }
@@ -558,6 +559,24 @@
               "default": false,
               "title": "Include Row Id"
             }
+          },
+          {
+            "name": "sql",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the rows this query picks; it must return `__row_id`.",
+              "title": "Sql"
+            },
+            "description": "Only the rows this query picks; it must return `__row_id`."
           }
         ],
         "responses": {
@@ -631,154 +650,6 @@
         }
       }
     },
-    "/v1/datasets/{dataset_id}/jobs": {
-      "get": {
-        "tags": [
-          "jobs"
-        ],
-        "summary": "List Jobs",
-        "operationId": "listJobs",
-        "parameters": [
-          {
-            "name": "dataset_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Dataset Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Job"
-                  },
-                  "title": "Response Listjobs"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "jobs"
-        ],
-        "summary": "Create Job",
-        "operationId": "createJob",
-        "parameters": [
-          {
-            "name": "dataset_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Dataset Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JobConfig-Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/jobs/{job_id}": {
-      "put": {
-        "tags": [
-          "jobs"
-        ],
-        "summary": "Update Job",
-        "operationId": "updateJob",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JobConfig-Input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/datasets/{dataset_id}/runs": {
       "post": {
         "tags": [
@@ -803,7 +674,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RunRequest"
+                "$ref": "#/components/schemas/RunRequest-Input"
               }
             }
           }
@@ -856,7 +727,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RunRequest"
+                "$ref": "#/components/schemas/RunRequest-Input"
               }
             }
           }
@@ -1076,13 +947,13 @@
         }
       }
     },
-    "/v1/models": {
+    "/v1/utils/models": {
       "get": {
         "tags": [
-          "settings"
+          "utils"
         ],
         "summary": "List Models",
-        "description": "Models a job can use: decision models, then LLMs with structured outputs, each cheapest first.",
+        "description": "Models a task can use: decision models, then LLMs with structured outputs, each cheapest\nfirst.",
         "operationId": "listModels",
         "responses": {
           "200": {
@@ -1102,10 +973,10 @@
         }
       }
     },
-    "/v1/task-types": {
+    "/v1/utils/task-types": {
       "get": {
         "tags": [
-          "tasks"
+          "utils"
         ],
         "summary": "Task Types",
         "description": "The answer types a task can have (classify, extract, write), starting points for write tasks,\nand the types an extracted field can have.",
@@ -1227,19 +1098,16 @@
             "type": "integer",
             "title": "Rows"
           },
-          "filters": {
-            "items": {
-              "$ref": "#/components/schemas/Filter-Output"
-            },
-            "type": "array",
-            "title": "Filters"
+          "where": {
+            "type": "string",
+            "title": "Where"
           }
         },
         "type": "object",
         "required": [
           "values",
           "rows",
-          "filters"
+          "where"
         ],
         "title": "Cell"
       },
@@ -1341,20 +1209,6 @@
       },
       "CompareRequest": {
         "properties": {
-          "search": {
-            "type": "string",
-            "title": "Search",
-            "description": "Case-insensitive text match against any column.",
-            "default": ""
-          },
-          "filters": {
-            "items": {
-              "$ref": "#/components/schemas/Filter-Input"
-            },
-            "type": "array",
-            "title": "Filters",
-            "default": []
-          },
           "columns": {
             "items": {
               "type": "string"
@@ -1386,21 +1240,26 @@
             ],
             "title": "Tolerance",
             "description": "For number and date columns: how far apart values may be (days for dates)."
+          },
+          "sql": {
+            "type": "string",
+            "title": "Sql",
+            "description": "The rows to compare: a SELECT over `data`.",
+            "default": "SELECT * FROM data"
           }
         },
         "type": "object",
         "required": [
           "columns"
         ],
-        "title": "CompareRequest",
-        "description": "Which columns to compare, on the rows the search and filters pick (all by default)."
+        "title": "CompareRequest"
       },
       "Comparison": {
         "properties": {
           "rows": {
             "type": "integer",
             "title": "Rows",
-            "description": "Rows compared: those the search and filters pick."
+            "description": "Rows compared: those the query returns."
           },
           "columns": {
             "items": {
@@ -1756,6 +1615,18 @@
             "title": "Include Row Id",
             "description": "Keep `__row_id`, rowlab's row number.",
             "default": false
+          },
+          "sql": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sql",
+            "description": "Only the rows this query picks: a SELECT over `data` returning `__row_id`. All rows by default."
           }
         },
         "type": "object",
@@ -1894,158 +1765,6 @@
         ],
         "title": "FieldTypeInfo"
       },
-      "Filter-Input": {
-        "properties": {
-          "column": {
-            "type": "string",
-            "title": "Column",
-            "description": "The column, for every op but `agree` and `disagree`.",
-            "default": ""
-          },
-          "op": {
-            "type": "string",
-            "enum": [
-              "eq",
-              "ne",
-              "lt",
-              "lte",
-              "gt",
-              "gte",
-              "contains",
-              "is_null",
-              "is_not_null",
-              "agree",
-              "disagree"
-            ],
-            "title": "Op"
-          },
-          "value": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value"
-          },
-          "columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Columns",
-            "description": "For `agree` (every column has a value, all the same) and `disagree` (at least two values differ): two or more columns.",
-            "default": []
-          },
-          "tolerance": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tolerance",
-            "description": "For `agree` and `disagree` on number or date columns: how far apart values may be and still count as the same (in days for dates)."
-          }
-        },
-        "type": "object",
-        "required": [
-          "op"
-        ],
-        "title": "Filter",
-        "description": "A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare."
-      },
-      "Filter-Output": {
-        "properties": {
-          "column": {
-            "type": "string",
-            "title": "Column",
-            "description": "The column, for every op but `agree` and `disagree`.",
-            "default": ""
-          },
-          "op": {
-            "type": "string",
-            "enum": [
-              "eq",
-              "ne",
-              "lt",
-              "lte",
-              "gt",
-              "gte",
-              "contains",
-              "is_null",
-              "is_not_null",
-              "agree",
-              "disagree"
-            ],
-            "title": "Op"
-          },
-          "value": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value"
-          },
-          "columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Columns",
-            "description": "For `agree` (every column has a value, all the same) and `disagree` (at least two values differ): two or more columns.",
-            "default": []
-          },
-          "tolerance": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tolerance",
-            "description": "For `agree` and `disagree` on number or date columns: how far apart values may be and still count as the same (in days for dates)."
-          }
-        },
-        "type": "object",
-        "required": [
-          "column",
-          "op",
-          "value",
-          "columns",
-          "tolerance"
-        ],
-        "title": "Filter",
-        "description": "A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare."
-      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2076,84 +1795,6 @@
           "version"
         ],
         "title": "Health"
-      },
-      "Job": {
-        "properties": {
-          "scope": {
-            "$ref": "#/components/schemas/Scope-Output"
-          },
-          "tasks": {
-            "items": {
-              "$ref": "#/components/schemas/Task-Output"
-            },
-            "type": "array",
-            "title": "Tasks"
-          },
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "dataset_id": {
-            "type": "string",
-            "title": "Dataset Id"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "scope",
-          "tasks",
-          "id",
-          "dataset_id",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "Job"
-      },
-      "JobConfig-Input": {
-        "properties": {
-          "scope": {
-            "$ref": "#/components/schemas/Scope-Input"
-          },
-          "tasks": {
-            "items": {
-              "$ref": "#/components/schemas/Task-Input"
-            },
-            "type": "array",
-            "title": "Tasks"
-          }
-        },
-        "type": "object",
-        "title": "JobConfig"
-      },
-      "JobConfig-Output": {
-        "properties": {
-          "scope": {
-            "$ref": "#/components/schemas/Scope-Output"
-          },
-          "tasks": {
-            "items": {
-              "$ref": "#/components/schemas/Task-Output"
-            },
-            "type": "array",
-            "title": "Tasks"
-          }
-        },
-        "type": "object",
-        "required": [
-          "scope",
-          "tasks"
-        ],
-        "title": "JobConfig"
       },
       "Model": {
         "properties": {
@@ -2258,7 +1899,9 @@
             "title": "Rate"
           },
           "disagree": {
-            "$ref": "#/components/schemas/Filter-Output"
+            "type": "string",
+            "title": "Disagree",
+            "description": "SQL picking the rows where the two differ."
           }
         },
         "type": "object",
@@ -2300,43 +1943,13 @@
         "title": "Preset",
         "description": "A starting point for a write task: its prompt, to finish by adding the row's columns."
       },
-      "Query": {
+      "QueryRequest": {
         "properties": {
-          "search": {
+          "sql": {
             "type": "string",
-            "title": "Search",
-            "description": "Case-insensitive text match against any column.",
-            "default": ""
-          },
-          "filters": {
-            "items": {
-              "$ref": "#/components/schemas/Filter-Input"
-            },
-            "type": "array",
-            "title": "Filters",
-            "default": []
-          },
-          "sort": {
-            "items": {
-              "$ref": "#/components/schemas/Sort"
-            },
-            "type": "array",
-            "title": "Sort",
-            "description": "Ties and the default order are by `__row_id`.",
-            "default": []
-          },
-          "limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Limit",
-            "description": "Only the first rows, in this order."
+            "title": "Sql",
+            "description": "One DuckDB `SELECT` over the table `data`.",
+            "default": "SELECT * FROM data"
           },
           "offset": {
             "type": "integer",
@@ -2344,29 +1957,27 @@
             "title": "Offset",
             "default": 0
           },
-          "page_size": {
+          "limit": {
             "type": "integer",
             "maximum": 1000.0,
             "minimum": 1.0,
-            "title": "Page Size",
+            "title": "Limit",
+            "description": "Rows to return; the query's own `LIMIT` caps the total.",
             "default": 100
           }
         },
         "type": "object",
-        "title": "Query",
-        "description": "A page of a scope's rows."
+        "title": "QueryRequest"
       },
       "QueryResult": {
         "properties": {
-          "total": {
-            "type": "integer",
-            "title": "Total",
-            "description": "Rows in the scope, ignoring paging."
-          },
-          "matched": {
-            "type": "integer",
-            "title": "Matched",
-            "description": "Rows matching the search and filters, ignoring the limit."
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/Column"
+            },
+            "type": "array",
+            "title": "Columns",
+            "description": "What the query returns, which needn't be the dataset's."
           },
           "rows": {
             "items": {
@@ -2375,13 +1986,18 @@
             },
             "type": "array",
             "title": "Rows"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Rows the query returns, ignoring `offset` and `limit`."
           }
         },
         "type": "object",
         "required": [
-          "total",
-          "matched",
-          "rows"
+          "columns",
+          "rows",
+          "total"
         ],
         "title": "QueryResult"
       },
@@ -2412,7 +2028,9 @@
             "title": "Accuracy"
           },
           "wrong": {
-            "$ref": "#/components/schemas/Filter-Output"
+            "type": "string",
+            "title": "Wrong",
+            "description": "SQL picking the rows where the column differs from the reference."
           },
           "values": {
             "items": {
@@ -2440,19 +2058,17 @@
             "type": "string",
             "title": "Template"
           },
-          "scope": {
-            "$ref": "#/components/schemas/Scope-Input",
-            "default": {
-              "search": "",
-              "filters": [],
-              "sort": []
-            }
+          "sql": {
+            "type": "string",
+            "title": "Sql",
+            "description": "The rows to render for: a SELECT over `data`.",
+            "default": "SELECT * FROM data"
           },
           "offset": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Offset",
-            "description": "First row of the scope to render, counting from 0.",
+            "description": "First row to render, counting from 0.",
             "default": 0
           },
           "limit": {
@@ -2482,7 +2098,7 @@
           "selected_rows": {
             "type": "integer",
             "title": "Selected Rows",
-            "description": "Rows in the scope."
+            "description": "Rows the query returns."
           },
           "warnings": {
             "items": {
@@ -2515,8 +2131,16 @@
       "RenderedRow": {
         "properties": {
           "row_id": {
-            "type": "integer",
-            "title": "Row Id"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Id",
+            "description": "Empty if the query doesn't return `__row_id`."
           },
           "prompt": {
             "type": "string",
@@ -2548,22 +2172,23 @@
             "type": "integer",
             "title": "Rows"
           },
-          "filter": {
+          "where": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Filter-Output"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Picks these rows, in a scope's `filters`."
+            "title": "Where",
+            "description": "SQL picking these rows, for a query's WHERE clause."
           }
         },
         "type": "object",
         "required": [
           "rows",
-          "filter"
+          "where"
         ],
         "title": "Rows"
       },
@@ -2591,8 +2216,8 @@
             "title": "Status"
           },
           "config": {
-            "$ref": "#/components/schemas/JobConfig-Output",
-            "description": "The job's scope and tasks when the run started."
+            "$ref": "#/components/schemas/RunRequest-Output",
+            "description": "The query and tasks it was started with."
           },
           "columns": {
             "items": {
@@ -2684,11 +2309,13 @@
         ],
         "title": "Run"
       },
-      "RunRequest": {
+      "RunRequest-Input": {
         "properties": {
-          "scope": {
-            "$ref": "#/components/schemas/Scope-Input",
-            "description": "Which rows to ask about; all by default."
+          "sql": {
+            "type": "string",
+            "title": "Sql",
+            "description": "Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.",
+            "default": "SELECT * FROM data"
           },
           "tasks": {
             "items": {
@@ -2703,93 +2330,30 @@
           "tasks"
         ],
         "title": "RunRequest",
-        "description": "What to run: the tasks, on the rows in a scope."
+        "description": "What to run: the tasks, on the rows a query picks."
       },
-      "Scope-Input": {
+      "RunRequest-Output": {
         "properties": {
-          "search": {
+          "sql": {
             "type": "string",
-            "title": "Search",
-            "description": "Case-insensitive text match against any column.",
-            "default": ""
+            "title": "Sql",
+            "description": "Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.",
+            "default": "SELECT * FROM data"
           },
-          "filters": {
+          "tasks": {
             "items": {
-              "$ref": "#/components/schemas/Filter-Input"
+              "$ref": "#/components/schemas/Task-Output"
             },
             "type": "array",
-            "title": "Filters",
-            "default": []
-          },
-          "sort": {
-            "items": {
-              "$ref": "#/components/schemas/Sort"
-            },
-            "type": "array",
-            "title": "Sort",
-            "description": "Ties and the default order are by `__row_id`.",
-            "default": []
-          },
-          "limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Limit",
-            "description": "Only the first rows, in this order."
+            "title": "Tasks"
           }
         },
         "type": "object",
-        "title": "Scope",
-        "description": "Which rows, in which order: what the rows table shows and what a job runs on."
-      },
-      "Scope-Output": {
-        "properties": {
-          "search": {
-            "type": "string",
-            "title": "Search",
-            "description": "Case-insensitive text match against any column.",
-            "default": ""
-          },
-          "filters": {
-            "items": {
-              "$ref": "#/components/schemas/Filter-Output"
-            },
-            "type": "array",
-            "title": "Filters",
-            "default": []
-          },
-          "sort": {
-            "items": {
-              "$ref": "#/components/schemas/Sort"
-            },
-            "type": "array",
-            "title": "Sort",
-            "description": "Ties and the default order are by `__row_id`.",
-            "default": []
-          },
-          "limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Limit",
-            "description": "Only the first rows, in this order."
-          }
-        },
-        "type": "object",
-        "title": "Scope",
-        "description": "Which rows, in which order: what the rows table shows and what a job runs on."
+        "required": [
+          "tasks"
+        ],
+        "title": "RunRequest",
+        "description": "What to run: the tasks, on the rows a query picks."
       },
       "Settings": {
         "properties": {
@@ -2815,24 +2379,6 @@
           "openrouter_key"
         ],
         "title": "Settings"
-      },
-      "Sort": {
-        "properties": {
-          "column": {
-            "type": "string",
-            "title": "Column"
-          },
-          "desc": {
-            "type": "boolean",
-            "title": "Desc",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "column"
-        ],
-        "title": "Sort"
       },
       "Task-Input": {
         "properties": {

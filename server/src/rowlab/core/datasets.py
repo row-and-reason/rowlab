@@ -25,7 +25,7 @@ from urllib.request import Request, urlopen
 
 import duckdb
 import duckdb.sqltypes
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from rowlab import __version__
 from rowlab.core import connections, db
@@ -92,69 +92,6 @@ class ColumnProfile(BaseModel):
     avg: str | None
     approx_unique: int | None
     null_percentage: float | None
-
-
-class Filter(BaseModel):
-    """A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare."""
-
-    # Responses always include every field, so the API schema marks them required there.
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
-
-    column: str = Field("", description="The column, for every op but `agree` and `disagree`.")
-    op: Literal[
-        "eq",
-        "ne",
-        "lt",
-        "lte",
-        "gt",
-        "gte",
-        "contains",
-        "is_null",
-        "is_not_null",
-        "agree",
-        "disagree",
-    ]
-    value: str | int | float | bool | None = None
-    columns: list[str] = Field(
-        [],
-        description="For `agree` (every column has a value, all the same) and `disagree` (at "
-        "least two values differ): two or more columns.",
-    )
-    tolerance: float | None = Field(
-        None,
-        description="For `agree` and `disagree` on number or date columns: how far apart values "
-        "may be and still count as the same (in days for dates).",
-    )
-
-
-class Sort(BaseModel):
-    column: str
-    desc: bool = False
-
-
-class RowSelection(BaseModel):
-    search: str = Field("", description="Case-insensitive text match against any column.")
-    filters: list[Filter] = []
-
-
-class Scope(RowSelection):
-    """Which rows, in which order: what the rows table shows and what a job runs on."""
-
-    sort: list[Sort] = Field([], description=f"Ties and the default order are by `{ROW_ID}`.")
-    limit: int | None = Field(None, ge=1, description="Only the first rows, in this order.")
-
-
-class Query(Scope):
-    """A page of a scope's rows."""
-
-    offset: int = Field(0, ge=0)
-    page_size: int = Field(100, ge=1, le=1000)
-
-
-class QueryResult(BaseModel):
-    total: int = Field(description="Rows in the scope, ignoring paging.")
-    matched: int = Field(description="Rows matching the search and filters, ignoring the limit.")
-    rows: list[dict[str, Any]]
 
 
 def create_dataset(source: str, connection_id: str | None = None) -> Dataset:
@@ -262,7 +199,7 @@ def _ingest(
     """Copy a file into `datasets/{id}/data.parquet` with a `__row_id`, and record it. The first of
     `readers` that can read it is used."""
     dataset_id = uuid.uuid4().hex
-    directory = _dataset_dir(dataset_id)
+    directory = dataset_dir(dataset_id)
     directory.mkdir(parents=True)
     try:
         with duckdb.connect() as con:
@@ -297,15 +234,12 @@ def _ingest(
     return _register(dataset_id, name=name_without_extension(name), source=source)
 
 
-def write_run_rows(parent_id: str, scope: Scope) -> tuple[str, int]:
+def write_run_rows(parent_id: str, asked: list[int]) -> str:
     """Start the dataset a run makes: copy the parent's rows, so it doesn't depend on the parent, and
-    list the ones in the run's scope. Returns its id and how many rows the run asks about; it is
-    recorded once the run's first (empty) part is written."""
-    types = column_types(parent_id)
-    where, params = where_sql(scope, types)
-    limit = f"LIMIT {int(scope.limit)}" if scope.limit else ""
+    list the ones the run asks about. Returns its id; it is recorded once the run's first (empty)
+    part is written."""
     dataset_id = uuid.uuid4().hex
-    directory = _dataset_dir(dataset_id)
+    directory = dataset_dir(dataset_id)
     run_parts_dir(dataset_id).mkdir(parents=True)
     try:
         with duckdb.connect() as con:
@@ -314,18 +248,14 @@ def write_run_rows(parent_id: str, scope: Scope) -> tuple[str, int]:
                 f"TO {sql_string(directory / 'rows.parquet')} (FORMAT parquet)"
             )
             con.execute(
-                f"COPY (SELECT {ROW_ID} FROM {dataset_source(parent_id)} AS t WHERE {where} "
-                f"ORDER BY {_order(scope.sort, types)} {limit}) "
+                f"COPY (SELECT unnest(?::BIGINT[]) AS {ROW_ID}) "
                 f"TO {sql_string(directory / 'asked.parquet')} (FORMAT parquet)",
-                params,
+                [asked],
             )
-            asked = con.execute(
-                f"SELECT count(*) FROM read_parquet({sql_string(directory / 'asked.parquet')})"
-            ).fetchone()[0]
     except BaseException:
         shutil.rmtree(directory)
         raise
-    return dataset_id, asked
+    return dataset_id
 
 
 def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
@@ -352,7 +282,7 @@ def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
 def finish_run_dataset(dataset_id: str) -> None:
     """Write a run's dataset out as one Parquet file, once every chunk is written. Its run's files
     stay, so failed answers can be asked again later (see `reopen_run_dataset`)."""
-    directory = _dataset_dir(dataset_id)
+    directory = dataset_dir(dataset_id)
     temporary = directory / "data.parquet.tmp"
     with duckdb.connect() as con:
         con.execute(
@@ -370,7 +300,7 @@ def finish_run_dataset(dataset_id: str) -> None:
 def reopen_run_dataset(dataset_id: str) -> None:
     """Read a finished run's dataset from its run's files again, while the run asks its failed
     answers again; `finish_run_dataset` writes it out once more."""
-    (_dataset_dir(dataset_id) / "data.parquet").unlink(missing_ok=True)
+    (dataset_dir(dataset_id) / "data.parquet").unlink(missing_ok=True)
 
 
 def read_run_part(dataset_id: str, name: str) -> dict[int, dict[str, Any]]:
@@ -387,7 +317,7 @@ def read_run_part(dataset_id: str, name: str) -> dict[int, dict[str, Any]]:
 
 def read_run_rows(dataset_id: str, *, offset: int, limit: int) -> list[dict[str, Any]]:
     """The rows a run asks about, by `__row_id`, without their answers."""
-    directory = _dataset_dir(dataset_id)
+    directory = dataset_dir(dataset_id)
     rows_file = sql_string(directory / "rows.parquet")
     asked_file = sql_string(directory / "asked.parquet")
     with duckdb.connect() as con:
@@ -402,7 +332,7 @@ def read_run_rows(dataset_id: str, *, offset: int, limit: int) -> list[dict[str,
 
 def run_parts_dir(dataset_id: str) -> Path:
     """Where the run making a dataset writes its answers, one Parquet file per chunk of rows."""
-    return _dataset_dir(dataset_id) / "parts"
+    return dataset_dir(dataset_id) / "parts"
 
 
 def _register(
@@ -414,7 +344,7 @@ def _register(
     branch: str | None = None,
 ) -> Dataset:
     """Record a dataset whose files have been written."""
-    directory = _dataset_dir(dataset_id)
+    directory = dataset_dir(dataset_id)
     file = directory / "data.parquet"
     if not file.exists():
         file = directory / "rows.parquet"
@@ -472,7 +402,7 @@ def get_dataset(dataset_id: str) -> Dataset:
 
 def delete_files(dataset_id: str) -> None:
     """Remove a dataset's files, e.g. of one that was never recorded."""
-    shutil.rmtree(_dataset_dir(dataset_id), ignore_errors=True)
+    shutil.rmtree(dataset_dir(dataset_id), ignore_errors=True)
 
 
 def delete_dataset(dataset_id: str) -> None:
@@ -530,166 +460,19 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
     ]
 
 
-def query_dataset(dataset_id: str, query: Query) -> QueryResult:
-    """One page of a scope's rows: matching the search and filters, in order, up to the limit."""
-    types = column_types(dataset_id)
-    where, params = where_sql(query, types)
-    sql_from = f"FROM {dataset_source(dataset_id)} AS t WHERE {where}"
-    try:
-        with duckdb.connect() as con:
-            matched = con.execute(f"SELECT count(*) {sql_from}", params).fetchone()[0]
-            total = min(matched, query.limit) if query.limit else matched
-            size = max(0, min(query.page_size, total - query.offset))
-            rows = con.execute(
-                f"SELECT to_json(t) {sql_from} ORDER BY {_order(query.sort, types)} LIMIT ? OFFSET ?",
-                [*params, size, query.offset],
-            ).fetchall()
-    except duckdb.ConversionException as e:
-        raise InvalidRequest(f"Invalid filter value: {e}") from e
-    return QueryResult(total=total, matched=matched, rows=[json.loads(r[0]) for r in rows])
-
-
-def sample_rows(dataset_id: str, n: int, selection: RowSelection) -> list[dict[str, Any]]:
-    """Up to `n` of the selected rows, picked at random, the same ones on every call."""
-    where, params = where_sql(selection, column_types(dataset_id))
-    try:
-        with duckdb.connect() as con:
-            # Sampling a subquery, because DuckDB samples before applying a WHERE clause.
-            rows = con.execute(
-                f"SELECT to_json(t) FROM (SELECT * FROM {dataset_source(dataset_id)} "
-                f"WHERE {where}) AS t USING SAMPLE reservoir({int(n)} ROWS) REPEATABLE (1)",
-                params,
-            ).fetchall()
-    except duckdb.ConversionException as e:
-        raise InvalidRequest(f"Invalid filter value: {e}") from e
-    return [json.loads(r[0]) for r in rows]
-
-
-def where_sql(selection: RowSelection, types: dict[str, str]) -> tuple[str, list[Any]]:
-    """A SQL condition, with its parameters, for the rows a selection matches."""
-    where, params = ["true"], []
-    if selection.search:
-        searchable = [sql_ident(c) for c in types if c != ROW_ID]
-        where.append(
-            "(" + " OR ".join(f"contains(lower(CAST({c} AS VARCHAR)), ?)" for c in searchable) + ")"
-        )
-        params += [selection.search.lower()] * len(searchable)
-    for f in selection.filters:
-        if f.op in ("agree", "disagree"):
-            answered, same = agreement_sql(f.columns, types, f.tolerance)
-            if f.op == "agree":
-                where.append(f"({answered} = {len(f.columns)} AND {same})")
-            else:
-                where.append(f"({answered} >= 2 AND NOT {same})")
-            continue
-        column = sql_ident(_check_column(f.column, types))
-        if f.op == "is_null":
-            where.append(f"{column} IS NULL")
-        elif f.op == "is_not_null":
-            where.append(f"{column} IS NOT NULL")
-        elif f.op == "contains":
-            where.append(f"contains(lower(CAST({column} AS VARCHAR)), ?)")
-            params.append(str(f.value or "").lower())
-        else:
-            operator = _OPERATORS[f.op]
-            where.append(f"{column} {operator} CAST(? AS {types[f.column]})")
-            params.append(f.value)
-    return " AND ".join(where), params
-
-
-def agreement_sql(
-    columns: list[str], types: dict[str, str], tolerance: float | None = None
-) -> tuple[str, str]:
-    """SQL for how a row's values in `columns` compare: how many have a value, and whether those
-    values are all the same. Lists are the same when they hold the same items; with `tolerance`,
-    numbers and dates are the same when they are no further apart than that."""
-    if len(columns) < 2:
-        raise InvalidRequest("Compare two or more columns.")
-    for c in columns:
-        _check_column(c, types)
-    if tolerance is None:
-        values = [value_text_sql(c, types[c]) for c in columns]
-    else:
-        if not all(_is_number(types[c]) or types[c] == "DATE" for c in columns):
-            raise InvalidRequest("A tolerance is only for number and date columns.")
-        values = [
-            f"CAST({sql_ident(c)} - DATE '1970-01-01' AS DOUBLE)"
-            if types[c] == "DATE"
-            else f"CAST({sql_ident(c)} AS DOUBLE)"
-            for c in columns
-        ]
-    answered_values = f"list_filter([{', '.join(values)}], lambda x: x IS NOT NULL)"
-    answered = f"len({answered_values})"
-    if tolerance is None:
-        same = f"len(list_distinct({answered_values})) <= 1"
-    else:
-        spread = f"list_max({answered_values}) - list_min({answered_values})"
-        same = f"coalesce({spread}, 0) <= {float(tolerance)}"
-    return answered, same
-
-
-def value_text_sql(column: str, sql_type: str) -> str:
-    """A column's value as text, for comparing it with other columns: lists with the same items
-    compare the same, whatever their order."""
-    if sql_type.endswith("[]"):
-        return f"CAST(list_sort({sql_ident(column)}) AS VARCHAR)"
-    return f"CAST({sql_ident(column)} AS VARCHAR)"
-
-
-def _is_number(sql_type: str) -> bool:
-    return sql_type in (
-        "TINYINT",
-        "SMALLINT",
-        "INTEGER",
-        "BIGINT",
-        "HUGEINT",
-        "FLOAT",
-        "DOUBLE",
-    ) or sql_type.startswith("DECIMAL")
-
-
-def _order(sort: list[Sort], types: dict[str, str]) -> str:
-    """A SQL ORDER BY list for a sort; ties go by `__row_id`."""
-    order = [
-        f"{sql_ident(_check_column(s.column, types))} {'DESC' if s.desc else 'ASC'} NULLS LAST"
-        for s in sort
-    ]
-    return ", ".join([*order, ROW_ID])
-
-
-def column_types(dataset_id: str) -> dict[str, str]:
-    return {c.name: c.type for c in get_dataset(dataset_id).columns}
-
-
-_OPERATORS = {
-    "eq": "=",
-    "ne": "IS DISTINCT FROM",
-    "lt": "<",
-    "lte": "<=",
-    "gt": ">",
-    "gte": ">=",
-}
-
-
-def _check_column(name: str, types: dict[str, str]) -> str:
-    if name not in types:
-        raise InvalidRequest(f"Unknown column: {name}")
-    return name
-
-
 def _from_row(row: sqlite3.Row) -> Dataset:
     run = json.loads(row["run"]) if row["run"] else None
     return Dataset(**{**dict(row), "columns": json.loads(row["columns"]), "run": run})
 
 
-def _dataset_dir(dataset_id: str) -> Path:
+def dataset_dir(dataset_id: str) -> Path:
     return db.data_dir() / "datasets" / dataset_id
 
 
 def dataset_source(dataset_id: str) -> str:
     """A DuckDB table expression for a dataset's rows, including one a run is still making. A run's
     answer columns come right after `__row_id`, so the newest answers are first."""
-    directory = _dataset_dir(dataset_id)
+    directory = dataset_dir(dataset_id)
     if (directory / "data.parquet").exists():
         return f"read_parquet({sql_string(directory / 'data.parquet')})"
     rows = sql_string(directory / "rows.parquet")

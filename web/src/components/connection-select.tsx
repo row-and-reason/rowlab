@@ -20,7 +20,7 @@ const ENVIRONMENT = "environment";
 export function useConnections(): Connection[] | undefined {
   const [connections, setConnections] = useState<Connection[]>();
   useEffect(() => {
-    api.GET("/v1/connections").then(({ data }) => setConnections(data));
+    api.GET("/v1/settings/connections").then(({ data }) => setConnections(data));
   }, []);
   return connections;
 }

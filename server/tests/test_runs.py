@@ -129,10 +129,9 @@ NEGATIVE = {"template": "Is this review negative? {{review}}", "column": "negati
 
 
 @pytest.fixture
-def job(client, dataset):
-    response = client.post(f"/v1/datasets/{dataset['id']}/jobs", json={"tasks": [NEGATIVE]})
-    assert response.status_code == 201, response.text
-    return response.json()
+def job(dataset):
+    """What to run, as the UI's draft holds it: the dataset, a query for the rows, and the tasks."""
+    return {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
 
 
 @pytest.fixture
@@ -140,15 +139,13 @@ def api_key(client):
     assert client.put("/v1/settings/openrouter-key", json={"key": "sk-good"}).status_code == 200
 
 
-def update(client, job, **config):
-    response = client.put(f"/v1/jobs/{job['id']}", json={**job, **config})
-    assert response.status_code == 200, response.text
-    return response.json()
+def update(job, **changes):
+    return {**job, **changes}
 
 
 def start(client, job):
     """Queue a run of the job, as the Run button does."""
-    body = {"scope": job["scope"], "tasks": job["tasks"]}
+    body = {"sql": job["sql"], "tasks": job["tasks"]}
     return client.post(f"/v1/datasets/{job['dataset_id']}/runs", json=body).json()
 
 
@@ -166,31 +163,6 @@ def rows(client, run_):
     """The rows of the dataset a run makes, by `__row_id`."""
     response = client.post(f"/v1/datasets/{run_['dataset_id']}/query", json={})
     return {r["__row_id"]: r for r in response.json()["rows"]}
-
-
-def test_create_list_and_update_jobs(client, dataset, job):
-    [task] = job["tasks"]
-    assert task["models"] == ["typesafe/jev-1.14"]
-    assert task["type"] == "yes_no"
-    assert job["scope"] == {"search": "", "filters": [], "sort": [], "limit": 20}
-    assert [j["id"] for j in client.get(f"/v1/datasets/{dataset['id']}/jobs").json()] == [job["id"]]
-
-    updated = update(client, job, scope={"search": "love", "filters": [], "limit": 5})
-    assert updated["scope"]["search"] == "love"
-    assert updated["scope"]["limit"] == 5
-    assert updated["tasks"] == job["tasks"]
-    assert updated["created_at"] == job["created_at"]
-
-
-def test_a_new_job_starts_with_one_empty_task_on_a_few_rows(client, dataset):
-    job = client.post(f"/v1/datasets/{dataset['id']}/jobs", json={}).json()
-    assert [(t["template"], t["column"]) for t in job["tasks"]] == [("", "answer")]
-    assert job["scope"]["limit"] == 20
-
-
-def test_jobs_are_deleted_with_their_dataset(client, dataset, job):
-    client.delete(f"/v1/datasets/{dataset['id']}")
-    assert client.put(f"/v1/jobs/{job['id']}", json={}).status_code == 404
 
 
 def test_run_answers_each_row(client, job, api_key, fake):
@@ -220,7 +192,7 @@ def test_run_answers_each_row(client, job, api_key, fake):
 def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
     client, dataset, job, api_key, data_dir
 ):
-    job = update(client, job, scope={"filters": [{"column": "stars", "op": "eq", "value": "1"}]})
+    job = update(job, sql="SELECT * FROM data WHERE stars = 1")
     created = start(client, job)
     made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
     assert (made["name"], made["source"]) == ("reviews__1", "Made from reviews")
@@ -240,7 +212,7 @@ def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
         "review",
         "stars",
     ]
-    # Every row is carried over; only the rows in scope get asked.
+    # Every row is carried over; only the rows the query picks get asked.
     assert (made["row_count"], created["row_count"]) == (3, 2)
     # It is listed first, as the newest dataset, before a single answer is in.
     assert client.get("/v1/datasets").json()[0]["id"] == made["id"]
@@ -269,7 +241,7 @@ def test_run_runs_every_task_with_every_model(client, job, api_key):
         "models": ["x/llm"],
     }
     negative = {**NEGATIVE, "models": ["typesafe/jev-1.14", "x/llm"]}
-    finished = run(client, update(client, job, tasks=[negative, stars]))
+    finished = run(client, update(job, tasks=[negative, stars]))
     assert finished["columns"] == ["negative__jev-1.14", "negative__llm", "stars__llm"]
     first = rows(client, finished)[0]
     assert first["negative__jev-1.14"] is True
@@ -301,13 +273,9 @@ def test_runs_go_in_chunks_and_never_pay_twice(client, job, api_key, fake, monke
     ]
 
 
-def test_run_uses_the_scope(client, job, api_key):
-    scope = {
-        "filters": [{"column": "stars", "op": "eq", "value": "1"}],
-        "sort": [{"column": "review", "desc": False}],
-        "limit": 1,
-    }
-    finished = run(client, update(client, job, scope=scope))
+def test_run_asks_about_the_rows_the_query_picks(client, job, api_key):
+    sql = "SELECT * FROM data WHERE stars = 1 ORDER BY review LIMIT 1"
+    finished = run(client, update(job, sql=sql))
     # Sorted by review, "Broke after a day" (row 2) comes before "Terrible product" (row 0).
     assert finished["row_count"] == 1
     answered = [i for i, r in rows(client, finished).items() if r["negative__jev-1.14"] is not None]
@@ -321,7 +289,7 @@ def test_run_retries_rate_limits(client, job, api_key, fake):
 
 
 def test_run_reports_failed_rows(client, job, api_key):
-    finished = run(client, update(client, job, tasks=[{**NEGATIVE, "template": "fail"}]))
+    finished = run(client, update(job, tasks=[{**NEGATIVE, "template": "fail"}]))
     assert rows(client, finished)[0]["negative__jev-1.14"] is None
     assert finished["costs"][0]["failed"] == 3
 
@@ -345,27 +313,6 @@ def test_resuming_a_done_run_asks_its_failed_answers_again(client, job, api_key,
     assert len(fake.calls) == asked + 1
     # Nothing failed now, so there is nothing to resume.
     assert client.post(f"/v1/runs/{finished['id']}/resume").status_code == 400
-
-
-def test_a_new_job_on_a_made_dataset_starts_on_the_answered_rows(client, job, api_key):
-    finished = run(client, update(client, job, scope={"limit": 2}))
-    made = client.post(f"/v1/datasets/{finished['dataset_id']}/jobs", json={}).json()
-    assert made["scope"] == {
-        "search": "",
-        "filters": [
-            {
-                "column": "negative__jev-1.14",
-                "op": "is_not_null",
-                "value": None,
-                "columns": [],
-                "tolerance": None,
-            }
-        ],
-        "sort": [],
-        "limit": None,
-    }
-    page = client.post(f"/v1/datasets/{finished['dataset_id']}/query", json=made["scope"]).json()
-    assert [r["__row_id"] for r in page["rows"]] == [0, 1]
 
 
 def test_a_stopped_run_resumes_where_it_was(client, job, api_key, monkeypatch):
@@ -416,20 +363,22 @@ def test_a_run_killed_mid_way_completes_after_a_restart_without_paying_twice(
 
 def test_made_datasets_are_named_after_their_place_in_the_tree(client, dataset, job, api_key):
     first = run(client, job)
-    second = run(client, update(client, job, scope={**job["scope"], "limit": 1}))
+    second = run(client, update(job, sql="SELECT * FROM data LIMIT 1"))
     # Made from the first made dataset, it is numbered under it.
-    made = client.post(f"/v1/datasets/{first['dataset_id']}/jobs", json={}).json()
-    third = run(client, update(client, made, tasks=[{**NEGATIVE, "column": "again"}]))
+    made = update(job, dataset_id=first["dataset_id"], tasks=[{**NEGATIVE, "column": "again"}])
+    third = run(client, made)
     names = [
         client.get(f"/v1/datasets/{r['dataset_id']}").json()["name"] for r in (first, second, third)
     ]
     assert names == ["reviews__1", "reviews__2", "reviews__1.1"]
     # A deleted dataset's number isn't given out again.
     client.delete(f"/v1/datasets/{second['dataset_id']}")
-    fourth = run(client, update(client, job, scope={**job["scope"], "limit": 2}))
+    fourth = run(client, update(job, sql="SELECT * FROM data LIMIT 2"))
     assert client.get(f"/v1/datasets/{fourth['dataset_id']}").json()["name"] == "reviews__3"
     assert (first["row_count"], second["row_count"]) == (3, 1)
-    assert client.get(f"/v1/runs/{first['id']}").json()["config"]["scope"]["limit"] == 20
+    assert client.get(f"/v1/runs/{fourth['id']}").json()["config"]["sql"] == (
+        "SELECT * FROM data LIMIT 2"
+    )
 
 
 def test_a_run_goes_with_the_dataset_it_makes(client, dataset, job, api_key, data_dir):
@@ -502,7 +451,7 @@ def test_write_needs_only_a_prompt(client, dataset, api_key):
         pass
     finished = client.get(f"/v1/runs/{created['id']}").json()
     assert finished["columns"] == ["text__claude-haiku-5.5"]
-    # No scope means every row.
+    # No query means every row.
     assert finished["row_count"] == 3
     assert rows(client, finished)[1]["text__claude-haiku-5.5"] == "In short: Summarize: Love it"
 
@@ -527,7 +476,7 @@ def test_extract_write_and_reasons_need_an_llm(client, dataset, api_key):
 
 def test_estimate_counts_rows_calls_and_cost(client, dataset, api_key):
     body = {
-        "scope": {"limit": 2},
+        "sql": "SELECT * FROM data LIMIT 2",
         "tasks": [{"template": "Bad? {{review}}", "models": ["typesafe/jev-1.14", "x/llm"]}],
     }
     estimate = client.post(f"/v1/datasets/{dataset['id']}/estimate", json=body).json()
@@ -536,7 +485,7 @@ def test_estimate_counts_rows_calls_and_cost(client, dataset, api_key):
 
 
 def test_task_types_list_the_families_presets_and_field_types(client):
-    types = client.get("/v1/task-types").json()
+    types = client.get("/v1/utils/task-types").json()
     assert [(t["id"], t["family"], t["llm_only"]) for t in types["types"]] == [
         ("yes_no", "classify", False),
         ("pick_one", "classify", False),
@@ -549,15 +498,20 @@ def test_task_types_list_the_families_presets_and_field_types(client):
     assert "items" in [f["id"] for f in types["field_types"]]
 
 
-def test_an_empty_scope_makes_nothing(client, job, api_key):
-    empty = update(client, job, scope={"search": "no such review"})
-    assert start(client, empty)["detail"] == "The scope has no rows."
+def test_a_query_picking_no_rows_makes_nothing(client, job, api_key):
+    empty = update(job, sql="SELECT * FROM data WHERE review = 'no such review'")
+    assert start(client, empty)["detail"] == "The query picks no rows."
     assert len(client.get("/v1/datasets").json()) == 1
+
+
+def test_a_run_needs_the_row_id_to_know_which_rows_it_asks_about(client, job, api_key):
+    without = update(job, sql="SELECT review FROM data")
+    assert start(client, without)["detail"].startswith("The query must return `__row_id`")
 
 
 def test_run_explains_what_is_missing(client, job):
     def detail(**config):
-        return run(client, update(client, job, **config))["detail"]
+        return run(client, update(job, **config))["detail"]
 
     assert detail() == "Set your OpenRouter API key first."
     assert detail(tasks=[]) == "Add a task."
@@ -574,8 +528,7 @@ def test_run_explains_what_is_missing(client, job):
 
 def test_a_run_on_a_dataset_a_run_made_needs_new_column_names(client, job, api_key):
     finished = run(client, job)
-    made = client.post(f"/v1/datasets/{finished['dataset_id']}/jobs", json={"tasks": [NEGATIVE]})
-    again = run(client, made.json())
+    again = run(client, update(job, dataset_id=finished["dataset_id"]))
     assert again["detail"] == (
         "The dataset already has a column negative__jev-1.14. Rename the task's result column."
     )
@@ -597,7 +550,7 @@ def test_environment_key_wins(client, monkeypatch):
 
 
 def test_lists_decision_models_then_llms_with_structured_outputs(client):
-    models = client.get("/v1/models").json()
+    models = client.get("/v1/utils/models").json()
     assert [(m["id"], m["kind"]) for m in models] == [
         ("a/cheap", "decision"),
         ("typesafe/jev-1.14", "decision"),

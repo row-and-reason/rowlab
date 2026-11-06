@@ -24,7 +24,7 @@ import { useDefaultLayout } from "react-resizable-panels";
 import { toast } from "sonner";
 
 import { AddDataset, type SourceKind } from "@/components/add-dataset";
-import { DatasetPanels, TABS, type JobActions, type Tab } from "@/components/dataset-view";
+import { DatasetPanels, TABS, type TaskActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
 import { ExportDataset } from "@/components/export-dataset";
 import { PaneHeader } from "@/components/pane";
@@ -96,7 +96,7 @@ function Workspace() {
   const [deleting, setDeleting] = useState<Dataset>();
   const [exporting, setExporting] = useState<Dataset>();
   const [palette, setPalette] = useState(false);
-  const jobActionsRef = useRef<JobActions | null>(null);
+  const taskActionsRef = useRef<TaskActions | null>(null);
   const taskTypes = useTaskTypes();
   // Remembers the column widths you drag to, in localStorage.
   const layout = useDefaultLayout({ id: "rowlab.workspace" });
@@ -138,7 +138,7 @@ function Workspace() {
         setPalette((open) => !open);
       } else if (mod && e.key === "Enter") {
         e.preventDefault();
-        jobActionsRef.current?.run();
+        taskActionsRef.current?.run();
       } else if (!mod && !e.altKey && !isTyping(e.target)) {
         if ((e.key === "j" || e.key === "k") && datasets?.length) {
           // In the list's order, made datasets under the one they were made from.
@@ -203,7 +203,7 @@ function Workspace() {
             onDelete={() => setDeleting(selected)}
             onChanged={load}
             onOpenDataset={select}
-            actionsRef={jobActionsRef}
+            actionsRef={taskActionsRef}
           />
         ) : (
           <>
@@ -289,16 +289,16 @@ function Workspace() {
             <CommandGroup heading="Actions">
               {selected && (
                 <>
-                  <CommandItem onSelect={() => command(() => jobActionsRef.current?.run())}>
+                  <CommandItem onSelect={() => command(() => taskActionsRef.current?.run())}>
                     <PlayIcon />
-                    Run job
+                    Run
                     <CommandShortcut>⌘↵</CommandShortcut>
                   </CommandItem>
-                  <CommandItem onSelect={() => command(() => jobActionsRef.current?.clearTasks())}>
+                  <CommandItem onSelect={() => command(() => taskActionsRef.current?.clearTasks())}>
                     <ListRestartIcon />
                     Clear tasks
                   </CommandItem>
-                  <CommandItem onSelect={() => command(() => jobActionsRef.current?.addTask())}>
+                  <CommandItem onSelect={() => command(() => taskActionsRef.current?.addTask())}>
                     <ListChecksIcon />
                     Add task
                   </CommandItem>
@@ -306,7 +306,7 @@ function Workspace() {
                     <CommandItem
                       key={preset.id}
                       value={`add ${preset.label} task`}
-                      onSelect={() => command(() => jobActionsRef.current?.addTask(preset))}
+                      onSelect={() => command(() => taskActionsRef.current?.addTask(preset))}
                     >
                       <PenLineIcon />
                       {preset.label}…

@@ -8,31 +8,26 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  api,
-  type Dataset,
-  type RenderResult,
-  type Scope,
-} from "@/lib/api/client";
+import { api, type Dataset, type RenderResult } from "@/lib/api/client";
 import { errorMessage, formatNumber } from "@/lib/format";
 
-/** A task's prompt, with the row's columns in it, previewed as sent for each row in scope. */
+/** A task's prompt, with the row's columns in it, previewed as sent for each row the query picks. */
 export function PromptComposer({
   dataset,
-  scope,
+  sql,
   template,
   onChange,
 }: {
   dataset: Dataset;
-  scope: Scope;
+  sql: string;
   template: string;
   onChange: (template: string) => void;
 }) {
   const [rendered, setRendered] = useState(template);
-  // Position within the scope's rows, reset when the scope changes.
-  const [position, setPosition] = useState({ scope, index: 0 });
-  const index = position.scope === scope ? position.index : 0;
-  const setIndex = (index: number) => setPosition({ scope, index });
+  // Position within the query's rows, reset when the query changes.
+  const [position, setPosition] = useState({ sql, index: 0 });
+  const index = position.sql === sql ? position.index : 0;
+  const setIndex = (index: number) => setPosition({ sql, index });
   const editor = usePromptEditor(template, onChange);
 
   useEffect(() => {
@@ -42,8 +37,8 @@ export function PromptComposer({
 
   // Each result remembers the request it answers, so a stale response is never shown as current.
   const request = useMemo(
-    () => ({ template: rendered, scope, offset: index, limit: 1 }),
-    [rendered, scope, index],
+    () => ({ template: rendered, sql, offset: index, limit: 1 }),
+    [rendered, sql, index],
   );
   const [result, setResult] = useState<{
     request: typeof request;
@@ -58,10 +53,7 @@ export function PromptComposer({
         body: request,
       })
       .then(({ data, error }) => {
-        if (current)
-          setResult(
-            error ? { request, error: errorMessage(error) } : { request, data },
-          );
+        if (current) setResult(error ? { request, error: errorMessage(error) } : { request, data });
       });
     return () => {
       current = false;
@@ -72,10 +64,7 @@ export function PromptComposer({
   const [shown, setShown] = useState<RenderResult>();
   if (result?.data && result.data !== shown) setShown(result.data);
   const loading = result?.request !== request || rendered !== template;
-  const known = useMemo(
-    () => (shown ? new Set(shown.fields.map((f) => f.path)) : null),
-    [shown],
-  );
+  const known = useMemo(() => (shown ? new Set(shown.fields.map((f) => f.path)) : null), [shown]);
   const row = shown?.rows[0];
   const lastIndex = Math.max(0, (shown?.selected_rows ?? 1) - 1);
 
@@ -88,7 +77,7 @@ export function PromptComposer({
           Asked once per row, with that row&apos;s values. Drag columns in from the table, or type{" "}
           {"{{column}}"}.
           {shown &&
-            ` ≈ ${formatNumber(Math.round(shown.tokens.avg))} tokens per row, ≈ ${formatNumber(shown.tokens.total_estimate)} for all ${formatNumber(shown.selected_rows)} rows in scope.`}
+            ` ≈ ${formatNumber(Math.round(shown.tokens.avg))} tokens per row, ≈ ${formatNumber(shown.tokens.total_estimate)} for all ${formatNumber(shown.selected_rows)} rows picked.`}
         </FieldDescription>
         {result?.error && (
           <Alert variant="destructive">
@@ -109,8 +98,7 @@ export function PromptComposer({
         <Field>
           <div className="flex items-center justify-between gap-2">
             <FieldLabel>
-              As sent for row {formatNumber(index + 1)} of{" "}
-              {formatNumber(shown?.selected_rows ?? 0)}
+              As sent for row {formatNumber(index + 1)} of {formatNumber(shown?.selected_rows ?? 0)}
             </FieldLabel>
             <div className="flex items-center gap-1">
               {loading && <Spinner />}
@@ -145,7 +133,5 @@ export function PromptComposer({
 
 /** Text with `backticked` parts shown as code, as in the server's warnings. */
 function Code({ text }: { text: string }) {
-  return text
-    .split("`")
-    .map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+  return text.split("`").map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
 }

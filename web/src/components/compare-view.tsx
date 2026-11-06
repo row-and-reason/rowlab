@@ -34,8 +34,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type Comparison, type Dataset, type Filter } from "@/lib/api/client";
+import { api, type Comparison, type Dataset } from "@/lib/api/client";
 import { columnLabel, errorMessage, formatNumber } from "@/lib/format";
+import { ALL_ROWS, type WhereFilter } from "@/lib/sql";
 
 const NO_REFERENCE = "none";
 const NUMERIC = /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|FLOAT|DOUBLE|DECIMAL.*|DATE)$/;
@@ -50,7 +51,7 @@ export function CompareView({
   onFilter,
 }: {
   dataset: Dataset;
-  onFilter: (filters: Filter[]) => void;
+  onFilter: (filters: WhereFilter[]) => void;
 }) {
   const choices = dataset.columns.filter((c) => c.name !== "__row_id");
   const [columns, setColumns] = useState<string[]>([]);
@@ -76,9 +77,8 @@ export function CompareView({
     () =>
       enough
         ? {
-            // Every row: the comparison is of the whole dataset, whatever the Rows tab shows.
-            search: "",
-            filters: [],
+            // Every row, whatever the Rows tab shows.
+            sql: ALL_ROWS,
             columns,
             reference,
             tolerance: numeric && tolerance !== "" ? Number(tolerance) : null,
@@ -210,12 +210,13 @@ function Results({
   onFilter,
 }: {
   comparison: Comparison;
-  onFilter: (filters: Filter[]) => void;
+  onFilter: (filters: WhereFilter[]) => void;
 }) {
   const { agreement, columns } = comparison;
-  const count = (rows: number, filters?: Filter[]) =>
-    filters && rows > 0 ? (
-      <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onFilter(filters)}>
+  const names = (cs: string[]) => cs.map(columnLabel).join(", ");
+  const count = (rows: number, filter?: WhereFilter) =>
+    filter && rows > 0 ? (
+      <Button variant="link" size="xs" className="h-auto p-0" onClick={() => onFilter([filter])}>
         {formatNumber(rows)}
       </Button>
     ) : (
@@ -231,9 +232,16 @@ function Results({
             : `Agree on ${percent(agreement.rate)} of the rows with answers to compare`}
         </h3>
         <p className="text-muted-foreground">
-          {count(agreement.all_agree.rows, [agreement.all_agree.filter!])} all agree ·{" "}
-          {count(agreement.disagree.rows, [agreement.disagree.filter!])} disagree ·{" "}
-          {formatNumber(agreement.partly_answered)} partly answered ·{" "}
+          {count(agreement.all_agree.rows, {
+            where: agreement.all_agree.where!,
+            label: `${names(columns)} agree`,
+          })}{" "}
+          all agree ·{" "}
+          {count(agreement.disagree.rows, {
+            where: agreement.disagree.where!,
+            label: `${names(columns)} disagree`,
+          })}{" "}
+          disagree · {formatNumber(agreement.partly_answered)} partly answered ·{" "}
           {formatNumber(agreement.not_answered)} not answered, of {formatNumber(comparison.rows)}{" "}
           rows. Click a number to see its rows.
         </p>
@@ -260,7 +268,10 @@ function Results({
                   </TableCell>
                   <TableCell className="text-right">{formatNumber(r.correct)}</TableCell>
                   <TableCell className="text-right">
-                    {count(r.compared - r.correct, [r.wrong])}
+                    {count(r.compared - r.correct, {
+                      where: r.wrong,
+                      label: `${columnLabel(r.column)} ≠ ${columnLabel(columns.at(-1)!)}`,
+                    })}
                   </TableCell>
                 </TableRow>
               ))}
@@ -288,7 +299,10 @@ function Results({
                     {p.rate === null ? "–" : percent(p.rate)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {count(p.compared - p.agree, [p.disagree])}
+                    {count(p.compared - p.agree, {
+                      where: p.disagree,
+                      label: `${names(p.columns).replace(", ", " ≠ ")}`,
+                    })}
                   </TableCell>
                 </TableRow>
               ))}
@@ -340,7 +354,7 @@ function Crosstab({
   count,
 }: {
   comparison: Comparison;
-  count: (rows: number, filters?: Filter[]) => React.ReactNode;
+  count: (rows: number, filter?: WhereFilter) => React.ReactNode;
 }) {
   const cells = comparison.crosstab!;
   const [a, b] = comparison.columns;
@@ -374,7 +388,12 @@ function Crosstab({
                     key={col}
                     className={col === row ? "text-right" : "bg-muted text-right"}
                   >
-                    {c ? count(c.rows, c.filters) : ""}
+                    {c
+                      ? count(c.rows, {
+                          where: c.where,
+                          label: `${columnLabel(a)} = ${row}, ${columnLabel(b)} = ${col}`,
+                        })
+                      : ""}
                   </TableCell>
                 );
               })}

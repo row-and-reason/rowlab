@@ -47,7 +47,7 @@ export function StorageConnections() {
   const [editing, setEditing] = useState<Connection | "new">();
 
   const load = useCallback(async () => {
-    const { data } = await api.GET("/v1/connections");
+    const { data } = await api.GET("/v1/settings/connections");
     setConnections(data);
   }, []);
   useEffect(() => {
@@ -56,7 +56,7 @@ export function StorageConnections() {
   }, [load]);
 
   async function remove(connection: Connection) {
-    const { error } = await api.DELETE("/v1/connections/{connection_id}", {
+    const { error } = await api.DELETE("/v1/settings/connections/{connection_id}", {
       params: { path: { connection_id: connection.id } },
     });
     if (error) toast.error(errorMessage(error));
@@ -175,11 +175,11 @@ function ConnectionDialog({
     setError(undefined);
     const body = { ...form, secret_access_key: form.secret_access_key || null };
     const { error } = connection
-      ? await api.PUT("/v1/connections/{connection_id}", {
+      ? await api.PUT("/v1/settings/connections/{connection_id}", {
           params: { path: { connection_id: connection.id } },
           body,
         })
-      : await api.POST("/v1/connections", { body });
+      : await api.POST("/v1/settings/connections", { body });
     setSaving(false);
     if (error) setError(errorMessage(error));
     else {

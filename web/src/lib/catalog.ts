@@ -12,7 +12,7 @@ let taskTypes: Promise<TaskTypes | undefined> | undefined;
 export function useModels(): Model[] {
   const [loaded, setLoaded] = useState<Model[]>([]);
   useEffect(() => {
-    models ??= api.GET("/v1/models").then(({ data }) => data ?? []);
+    models ??= api.GET("/v1/utils/models").then(({ data }) => data ?? []);
     models.then(setLoaded);
   }, []);
   return loaded;
@@ -22,7 +22,7 @@ export function useModels(): Model[] {
 export function useTaskTypes(): TaskTypes | undefined {
   const [loaded, setLoaded] = useState<TaskTypes>();
   useEffect(() => {
-    taskTypes ??= api.GET("/v1/task-types").then(({ data }) => data);
+    taskTypes ??= api.GET("/v1/utils/task-types").then(({ data }) => data);
     taskTypes.then(setLoaded);
   }, []);
   return loaded;

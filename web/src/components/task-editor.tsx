@@ -39,14 +39,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FieldGroup } from "@/components/ui/field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { AnswerType, Dataset, Job, Model, Task, TaskTypes } from "@/lib/api/client";
+import type { AnswerType, Dataset, Model, Task, TaskTypes } from "@/lib/api/client";
 import { useModels, useTaskTypes } from "@/lib/catalog";
 
-/** The job's tasks as compact rows: the answer type and models are edited in place, and a row
- * expands to its prompt, options and result column. */
-export function JobEditor({
+/** The next run's tasks as compact rows: the answer type and models are edited in place, and a row
+ * expands to its prompt, options and result column. `sql` picks the rows its prompt is previewed on. */
+export function TaskEditor({
   dataset,
-  job,
+  tasks,
+  sql,
   opened,
   onTasksChange,
   onAddTask,
@@ -54,7 +55,8 @@ export function JobEditor({
   problem,
 }: {
   dataset: Dataset;
-  job: Job;
+  tasks: Task[];
+  sql: string;
   opened: string | undefined;
   onTasksChange: (tasks: Task[]) => void;
   onAddTask: (task?: Task) => void;
@@ -63,24 +65,24 @@ export function JobEditor({
 }) {
   const types = useTaskTypes();
   const models = useModels();
-  const setTask = (task: Task) =>
-    onTasksChange(job.tasks.map((t) => (t.id === task.id ? task : t)));
+  const setTask = (task: Task) => onTasksChange(tasks.map((t) => (t.id === task.id ? task : t)));
 
   if (!types) return null;
   return (
     <div className="flex flex-col">
-      {job.tasks.map((task) => (
+      {tasks.map((task) => (
         <TaskRow
           key={task.id}
           dataset={dataset}
-          job={job}
+          sql={sql}
+          only={tasks.length === 1}
           task={task}
           types={types}
           models={models}
-          defaultOpen={task.id === opened || job.tasks.length === 1 || !task.template}
+          defaultOpen={task.id === opened || tasks.length === 1 || !task.template}
           onChange={setTask}
           onDuplicate={() => onAddTask({ ...task, column: `${task.column}_copy` })}
-          onDelete={() => onTasksChange(job.tasks.filter((t) => t.id !== task.id))}
+          onDelete={() => onTasksChange(tasks.filter((t) => t.id !== task.id))}
         />
       ))}
       <Button variant="ghost" size="sm" className="m-2 self-start" onClick={() => onAddTask()}>
@@ -108,7 +110,8 @@ const FAMILIES = [
 
 function TaskRow({
   dataset,
-  job,
+  sql,
+  only,
   task,
   types,
   models,
@@ -118,7 +121,9 @@ function TaskRow({
   onDelete,
 }: {
   dataset: Dataset;
-  job: Job;
+  sql: string;
+  /** The only task, which can't be deleted. */
+  only: boolean;
   task: Task;
   types: TaskTypes;
   models: Model[];
@@ -236,11 +241,7 @@ function TaskRow({
               <CopyIcon />
               Duplicate
             </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={job.tasks.length === 1}
-              onClick={onDelete}
-            >
+            <DropdownMenuItem variant="destructive" disabled={only} onClick={onDelete}>
               <Trash2Icon />
               Delete
             </DropdownMenuItem>
@@ -251,7 +252,7 @@ function TaskRow({
         <FieldGroup className="gap-5 px-4 pt-1 pb-4">
           <PromptComposer
             dataset={dataset}
-            scope={job.scope}
+            sql={sql}
             template={task.template}
             onChange={(template) => onChange({ ...task, template })}
           />

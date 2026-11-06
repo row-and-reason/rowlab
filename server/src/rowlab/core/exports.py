@@ -8,7 +8,7 @@ from typing import Literal
 import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import connections, datasets, db
+from rowlab.core import connections, datasets, db, sql
 from rowlab.core.datasets import ROW_ID, sql_ident, sql_string
 from rowlab.core.errors import InvalidRequest
 from rowlab.core.runs import ACTIVE
@@ -35,6 +35,11 @@ class ExportRequest(BaseModel):
         None, description="For `s3://` paths; without one, the environment's AWS credentials."
     )
     include_row_id: bool = Field(False, description=f"Keep `{ROW_ID}`, rowlab's row number.")
+    sql: str | None = Field(
+        None,
+        description=f"Only the rows this query picks: a SELECT over `data` returning `{ROW_ID}`. "
+        "All rows by default.",
+    )
 
 
 class ExportResult(BaseModel):
@@ -46,7 +51,9 @@ def file_name(dataset_id: str, fmt: ExportFormat) -> str:
     return datasets.get_dataset(dataset_id).name + EXTENSIONS[fmt]
 
 
-def export_to_temp(dataset_id: str, fmt: ExportFormat, *, include_row_id: bool) -> Path:
+def export_to_temp(
+    dataset_id: str, fmt: ExportFormat, *, include_row_id: bool, query: str | None = None
+) -> Path:
     """Write the dataset to a new temporary file, for a download; the caller deletes it."""
     tmp_dir = db.data_dir() / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -55,7 +62,7 @@ def export_to_temp(dataset_id: str, fmt: ExportFormat, *, include_row_id: bool) 
     path = Path(name)
     try:
         with duckdb.connect() as con:
-            _write(con, dataset_id, fmt, path, include_row_id=include_row_id)
+            _write(con, dataset_id, fmt, path, include_row_id=include_row_id, query=query)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
@@ -78,7 +85,12 @@ def export_to_path(dataset_id: str, request: ExportRequest) -> ExportResult:
     try:
         with duckdb.connect() as con:
             _write(
-                con, dataset_id, request.format, temporary, include_row_id=request.include_row_id
+                con,
+                dataset_id,
+                request.format,
+                temporary,
+                include_row_id=request.include_row_id,
+                query=request.sql,
             )
         os.replace(temporary, path)
     except BaseException:
@@ -95,7 +107,14 @@ def _export_to_s3(dataset_id: str, request: ExportRequest) -> ExportResult:
     try:
         with duckdb.connect() as con:
             connections.configure(con, request.connection_id)
-            _write(con, dataset_id, request.format, uri, include_row_id=request.include_row_id)
+            _write(
+                con,
+                dataset_id,
+                request.format,
+                uri,
+                include_row_id=request.include_row_id,
+                query=request.sql,
+            )
             size = con.execute("SELECT size FROM read_blob(?)", [uri]).fetchone()[0]
     except duckdb.Error as e:
         raise InvalidRequest(f"Could not write {uri}: {e}") from e
@@ -109,6 +128,7 @@ def _write(
     path: Path | str,
     *,
     include_row_id: bool,
+    query: str | None,
 ) -> None:
     dataset = datasets.get_dataset(dataset_id)
     if dataset.run and dataset.run.status in ACTIVE:
@@ -123,7 +143,14 @@ def _write(
         columns.append(
             f"CAST(to_json({name}) AS VARCHAR) AS {name}" if fmt == "csv" and nested else name
         )
+    where, params = "", []
+    if query is not None:
+        # The query runs where it can only read the dataset; this connection then writes its rows.
+        with sql.connect(dataset_id) as locked:
+            picked = sql.execute(locked, sql.row_ids(locked, query)).fetchall()
+        where, params = f"WHERE {ROW_ID} IN (SELECT unnest(?::BIGINT[]))", [[r[0] for r in picked]]
     con.execute(
-        f"COPY (SELECT {', '.join(columns)} FROM {datasets.dataset_source(dataset_id)} "
-        f"ORDER BY {ROW_ID}) TO {sql_string(path)} ({_COPY_OPTIONS[fmt]})"
+        f"COPY (SELECT {', '.join(columns)} FROM {datasets.dataset_source(dataset_id)} {where} "
+        f"ORDER BY {ROW_ID}) TO {sql_string(path)} ({_COPY_OPTIONS[fmt]})",
+        params,
     )

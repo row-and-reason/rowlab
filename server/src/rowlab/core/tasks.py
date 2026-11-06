@@ -285,7 +285,7 @@ def task_types() -> TaskTypes:
 
 def check(task: Task) -> None:
     """Raise InvalidRequest if the task can't be asked as configured. Whether its models can give
-    its type of answer is checked with the model catalog, in `jobs.check`."""
+    its type of answer is checked with the model catalog, in `runs.check`."""
     if not task.template.strip():
         raise InvalidRequest("Write the prompt.")
     if not task.column.strip():

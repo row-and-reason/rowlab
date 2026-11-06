@@ -13,8 +13,8 @@ from typing import Any
 import tiktoken
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets
-from rowlab.core.datasets import ROW_ID, Query, Scope
+from rowlab.core import datasets, sql
+from rowlab.core.datasets import ROW_ID
 
 PLACEHOLDER = re.compile(r"\{\{\s*(.+?)\s*\}\}")
 
@@ -28,7 +28,7 @@ class TemplateField(BaseModel):
 
 
 class RenderedRow(BaseModel):
-    row_id: int
+    row_id: int | None = Field(description="Empty if the query doesn't return `__row_id`.")
     prompt: str
     tokens: int
     values: dict[str, Any] = Field(description="The row's value for each field the template uses.")
@@ -44,14 +44,14 @@ class TokenStats(BaseModel):
 
 class RenderRequest(BaseModel):
     template: str
-    scope: Scope = Scope()
-    offset: int = Field(0, ge=0, description="First row of the scope to render, counting from 0.")
+    sql: str = Field(sql.ALL_ROWS, description="The rows to render for: a SELECT over `data`.")
+    offset: int = Field(0, ge=0, description="First row to render, counting from 0.")
     limit: int = Field(1, ge=1, le=50)
 
 
 class RenderResult(BaseModel):
     fields: list[TemplateField] = Field(description="Everything the template can use.")
-    selected_rows: int = Field(description="Rows in the scope.")
+    selected_rows: int = Field(description="Rows the query returns.")
     warnings: list[str]
     rows: list[RenderedRow]
     tokens: TokenStats
@@ -73,9 +73,8 @@ def render_dataset(dataset_id: str, request: RenderRequest) -> RenderResult:
     if request.template.strip() and not used:
         warnings.append("The template uses no columns, so every row gets the same prompt.")
 
-    page = datasets.query_dataset(
-        dataset_id,
-        Query(**request.scope.model_dump(), offset=request.offset, page_size=request.limit),
+    page = sql.query(
+        dataset_id, sql.QueryRequest(sql=request.sql, offset=request.offset, limit=request.limit)
     )
     rows = []
     for row in page.rows:
@@ -83,12 +82,11 @@ def render_dataset(dataset_id: str, request: RenderRequest) -> RenderResult:
         values = {path: _lookup(row, keys.get(path)) for path in used}
         rows.append(
             RenderedRow(
-                row_id=row[ROW_ID], prompt=prompt, tokens=count_tokens(prompt), values=values
+                row_id=row.get(ROW_ID), prompt=prompt, tokens=count_tokens(prompt), values=values
             )
         )
 
-    # Sampled from all matching rows: a limit picks rows by order, which says nothing about tokens.
-    sample = datasets.sample_rows(dataset_id, SAMPLE_SIZE, request.scope)
+    sample = sql.sample(dataset_id, request.sql, SAMPLE_SIZE)
     counts = [count_tokens(render(request.template, row, keys)) for row in sample]
     for path in used:
         if path in keys:

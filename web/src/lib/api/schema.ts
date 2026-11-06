@@ -21,7 +21,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/connections": {
+    "/v1/settings/connections": {
         parameters: {
             query?: never;
             header?: never;
@@ -42,7 +42,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/connections/{connection_id}": {
+    "/v1/settings/connections/{connection_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -129,7 +129,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Query Dataset */
+        /**
+         * Query Dataset
+         * @description Run one DuckDB `SELECT` over the table `data`, the dataset, and return a page of its rows,
+         *     e.g. `SELECT * FROM data WHERE stars = 1 ORDER BY review LIMIT 20`. It can read nothing but the
+         *     dataset. `agree([a, b, …])` and `disagree([a, b, …])` compare columns in a row; see
+         *     `POST /v1/datasets/{id}/compare`.
+         */
         post: operations["queryDataset"];
         delete?: never;
         options?: never;
@@ -199,41 +205,6 @@ export interface paths {
          * @description Write the dataset as CSV, JSONL or Parquet to a file on the server, or to S3.
          */
         post: operations["exportDataset"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Jobs */
-        get: operations["listJobs"];
-        put?: never;
-        /** Create Job */
-        post: operations["createJob"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/jobs/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update Job */
-        put: operations["updateJob"];
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -383,7 +354,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/models": {
+    "/v1/utils/models": {
         parameters: {
             query?: never;
             header?: never;
@@ -392,7 +363,8 @@ export interface paths {
         };
         /**
          * List Models
-         * @description Models a job can use: decision models, then LLMs with structured outputs, each cheapest first.
+         * @description Models a task can use: decision models, then LLMs with structured outputs, each cheapest
+         *     first.
          */
         get: operations["listModels"];
         put?: never;
@@ -403,7 +375,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/task-types": {
+    "/v1/utils/task-types": {
         parameters: {
             query?: never;
             header?: never;
@@ -477,8 +449,8 @@ export interface components {
             values: string[];
             /** Rows */
             rows: number;
-            /** Filters */
-            filters: components["schemas"]["Filter-Output"][];
+            /** Where */
+            where: string;
         };
         /** Column */
         Column: {
@@ -504,22 +476,8 @@ export interface components {
             /** Null Percentage */
             null_percentage: number | null;
         };
-        /**
-         * CompareRequest
-         * @description Which columns to compare, on the rows the search and filters pick (all by default).
-         */
+        /** CompareRequest */
         CompareRequest: {
-            /**
-             * Search
-             * @description Case-insensitive text match against any column.
-             * @default
-             */
-            search: string;
-            /**
-             * Filters
-             * @default []
-             */
-            filters: components["schemas"]["Filter-Input"][];
             /**
              * Columns
              * @description Two or more; or one, with a reference.
@@ -535,12 +493,18 @@ export interface components {
              * @description For number and date columns: how far apart values may be (days for dates).
              */
             tolerance?: number | null;
+            /**
+             * Sql
+             * @description The rows to compare: a SELECT over `data`.
+             * @default SELECT * FROM data
+             */
+            sql: string;
         };
         /** Comparison */
         Comparison: {
             /**
              * Rows
-             * @description Rows compared: those the search and filters pick.
+             * @description Rows compared: those the query returns.
              */
             rows: number;
             /**
@@ -721,6 +685,11 @@ export interface components {
              * @default false
              */
             include_row_id: boolean;
+            /**
+             * Sql
+             * @description Only the rows this query picks: a SELECT over `data` returning `__row_id`. All rows by default.
+             */
+            sql?: string | null;
         };
         /** ExportResult */
         ExportResult: {
@@ -785,66 +754,6 @@ export interface components {
             /** Label */
             label: string;
         };
-        /**
-         * Filter
-         * @description A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare.
-         */
-        "Filter-Input": {
-            /**
-             * Column
-             * @description The column, for every op but `agree` and `disagree`.
-             * @default
-             */
-            column: string;
-            /**
-             * Op
-             * @enum {string}
-             */
-            op: "eq" | "ne" | "lt" | "lte" | "gt" | "gte" | "contains" | "is_null" | "is_not_null" | "agree" | "disagree";
-            /** Value */
-            value?: string | number | boolean | null;
-            /**
-             * Columns
-             * @description For `agree` (every column has a value, all the same) and `disagree` (at least two values differ): two or more columns.
-             * @default []
-             */
-            columns: string[];
-            /**
-             * Tolerance
-             * @description For `agree` and `disagree` on number or date columns: how far apart values may be and still count as the same (in days for dates).
-             */
-            tolerance?: number | null;
-        };
-        /**
-         * Filter
-         * @description A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare.
-         */
-        "Filter-Output": {
-            /**
-             * Column
-             * @description The column, for every op but `agree` and `disagree`.
-             * @default
-             */
-            column: string;
-            /**
-             * Op
-             * @enum {string}
-             */
-            op: "eq" | "ne" | "lt" | "lte" | "gt" | "gte" | "contains" | "is_null" | "is_not_null" | "agree" | "disagree";
-            /** Value */
-            value: string | number | boolean | null;
-            /**
-             * Columns
-             * @description For `agree` (every column has a value, all the same) and `disagree` (at least two values differ): two or more columns.
-             * @default []
-             */
-            columns: string[];
-            /**
-             * Tolerance
-             * @description For `agree` and `disagree` on number or date columns: how far apart values may be and still count as the same (in days for dates).
-             */
-            tolerance: number | null;
-        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -856,38 +765,6 @@ export interface components {
             status: string;
             /** Version */
             version: string;
-        };
-        /** Job */
-        Job: {
-            scope: components["schemas"]["Scope-Output"];
-            /** Tasks */
-            tasks: components["schemas"]["Task-Output"][];
-            /** Id */
-            id: string;
-            /** Dataset Id */
-            dataset_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /** JobConfig */
-        "JobConfig-Input": {
-            scope?: components["schemas"]["Scope-Input"];
-            /** Tasks */
-            tasks?: components["schemas"]["Task-Input"][];
-        };
-        /** JobConfig */
-        "JobConfig-Output": {
-            scope: components["schemas"]["Scope-Output"];
-            /** Tasks */
-            tasks: components["schemas"]["Task-Output"][];
         };
         /** Model */
         Model: {
@@ -935,7 +812,11 @@ export interface components {
             agree: number;
             /** Rate */
             rate: number | null;
-            disagree: components["schemas"]["Filter-Output"];
+            /**
+             * Disagree
+             * @description SQL picking the rows where the two differ.
+             */
+            disagree: string;
         };
         /**
          * Preset
@@ -951,60 +832,42 @@ export interface components {
             /** Template */
             template: string;
         };
-        /**
-         * Query
-         * @description A page of a scope's rows.
-         */
-        Query: {
+        /** QueryRequest */
+        QueryRequest: {
             /**
-             * Search
-             * @description Case-insensitive text match against any column.
-             * @default
+             * Sql
+             * @description One DuckDB `SELECT` over the table `data`.
+             * @default SELECT * FROM data
              */
-            search: string;
-            /**
-             * Filters
-             * @default []
-             */
-            filters: components["schemas"]["Filter-Input"][];
-            /**
-             * Sort
-             * @description Ties and the default order are by `__row_id`.
-             * @default []
-             */
-            sort: components["schemas"]["Sort"][];
-            /**
-             * Limit
-             * @description Only the first rows, in this order.
-             */
-            limit?: number | null;
+            sql: string;
             /**
              * Offset
              * @default 0
              */
             offset: number;
             /**
-             * Page Size
+             * Limit
+             * @description Rows to return; the query's own `LIMIT` caps the total.
              * @default 100
              */
-            page_size: number;
+            limit: number;
         };
         /** QueryResult */
         QueryResult: {
             /**
-             * Total
-             * @description Rows in the scope, ignoring paging.
+             * Columns
+             * @description What the query returns, which needn't be the dataset's.
              */
-            total: number;
-            /**
-             * Matched
-             * @description Rows matching the search and filters, ignoring the limit.
-             */
-            matched: number;
+            columns: components["schemas"]["Column"][];
             /** Rows */
             rows: {
                 [key: string]: unknown;
             }[];
+            /**
+             * Total
+             * @description Rows the query returns, ignoring `offset` and `limit`.
+             */
+            total: number;
         };
         /** ReferenceAccuracy */
         ReferenceAccuracy: {
@@ -1019,7 +882,11 @@ export interface components {
             correct: number;
             /** Accuracy */
             accuracy: number | null;
-            wrong: components["schemas"]["Filter-Output"];
+            /**
+             * Wrong
+             * @description SQL picking the rows where the column differs from the reference.
+             */
+            wrong: string;
             /**
              * Values
              * @description For the reference's most common values; empty with a tolerance.
@@ -1031,16 +898,14 @@ export interface components {
             /** Template */
             template: string;
             /**
-             * @default {
-             *       "search": "",
-             *       "filters": [],
-             *       "sort": []
-             *     }
+             * Sql
+             * @description The rows to render for: a SELECT over `data`.
+             * @default SELECT * FROM data
              */
-            scope: components["schemas"]["Scope-Input"];
+            sql: string;
             /**
              * Offset
-             * @description First row of the scope to render, counting from 0.
+             * @description First row to render, counting from 0.
              * @default 0
              */
             offset: number;
@@ -1059,7 +924,7 @@ export interface components {
             fields: components["schemas"]["TemplateField"][];
             /**
              * Selected Rows
-             * @description Rows in the scope.
+             * @description Rows the query returns.
              */
             selected_rows: number;
             /** Warnings */
@@ -1070,8 +935,11 @@ export interface components {
         };
         /** RenderedRow */
         RenderedRow: {
-            /** Row Id */
-            row_id: number;
+            /**
+             * Row Id
+             * @description Empty if the query doesn't return `__row_id`.
+             */
+            row_id: number | null;
             /** Prompt */
             prompt: string;
             /** Tokens */
@@ -1088,8 +956,11 @@ export interface components {
         Rows: {
             /** Rows */
             rows: number;
-            /** @description Picks these rows, in a scope's `filters`. */
-            filter: components["schemas"]["Filter-Output"] | null;
+            /**
+             * Where
+             * @description SQL picking these rows, for a query's WHERE clause.
+             */
+            where: string | null;
         };
         /** Run */
         Run: {
@@ -1105,8 +976,8 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed";
-            /** @description The job's scope and tasks when the run started. */
-            config: components["schemas"]["JobConfig-Output"];
+            /** @description The query and tasks it was started with. */
+            config: components["schemas"]["RunRequest-Output"];
             /**
              * Columns
              * @description The answer columns, each with a `_proba` column.
@@ -1157,69 +1028,31 @@ export interface components {
         };
         /**
          * RunRequest
-         * @description What to run: the tasks, on the rows in a scope.
+         * @description What to run: the tasks, on the rows a query picks.
          */
-        RunRequest: {
-            /** @description Which rows to ask about; all by default. */
-            scope?: components["schemas"]["Scope-Input"];
+        "RunRequest-Input": {
+            /**
+             * Sql
+             * @description Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.
+             * @default SELECT * FROM data
+             */
+            sql: string;
             /** Tasks */
             tasks: components["schemas"]["Task-Input"][];
         };
         /**
-         * Scope
-         * @description Which rows, in which order: what the rows table shows and what a job runs on.
+         * RunRequest
+         * @description What to run: the tasks, on the rows a query picks.
          */
-        "Scope-Input": {
+        "RunRequest-Output": {
             /**
-             * Search
-             * @description Case-insensitive text match against any column.
-             * @default
+             * Sql
+             * @description Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.
+             * @default SELECT * FROM data
              */
-            search: string;
-            /**
-             * Filters
-             * @default []
-             */
-            filters: components["schemas"]["Filter-Input"][];
-            /**
-             * Sort
-             * @description Ties and the default order are by `__row_id`.
-             * @default []
-             */
-            sort: components["schemas"]["Sort"][];
-            /**
-             * Limit
-             * @description Only the first rows, in this order.
-             */
-            limit?: number | null;
-        };
-        /**
-         * Scope
-         * @description Which rows, in which order: what the rows table shows and what a job runs on.
-         */
-        "Scope-Output": {
-            /**
-             * Search
-             * @description Case-insensitive text match against any column.
-             * @default
-             */
-            search: string;
-            /**
-             * Filters
-             * @default []
-             */
-            filters: components["schemas"]["Filter-Output"][];
-            /**
-             * Sort
-             * @description Ties and the default order are by `__row_id`.
-             * @default []
-             */
-            sort: components["schemas"]["Sort"][];
-            /**
-             * Limit
-             * @description Only the first rows, in this order.
-             */
-            limit?: number | null;
+            sql: string;
+            /** Tasks */
+            tasks: components["schemas"]["Task-Output"][];
         };
         /** Settings */
         Settings: {
@@ -1228,16 +1061,6 @@ export interface components {
              * @description Where the OpenRouter API key comes from, if set. The key is never returned.
              */
             openrouter_key: ("environment" | "saved") | null;
-        };
-        /** Sort */
-        Sort: {
-            /** Column */
-            column: string;
-            /**
-             * Desc
-             * @default false
-             */
-            desc: boolean;
         };
         /** Task */
         "Task-Input": {
@@ -1776,7 +1599,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Query"];
+                "application/json": components["schemas"]["QueryRequest"];
             };
         };
         responses: {
@@ -1875,6 +1698,8 @@ export interface operations {
             query: {
                 format: "csv" | "jsonl" | "parquet";
                 include_row_id?: boolean;
+                /** @description Only the rows this query picks; it must return `__row_id`. */
+                sql?: string | null;
             };
             header?: never;
             path: {
@@ -1939,107 +1764,6 @@ export interface operations {
             };
         };
     };
-    listJobs: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Job"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    createJob: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["JobConfig-Input"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Job"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    updateJob: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["JobConfig-Input"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Job"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     createRun: {
         parameters: {
             query?: never;
@@ -2051,7 +1775,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RunRequest"];
+                "application/json": components["schemas"]["RunRequest-Input"];
             };
         };
         responses: {
@@ -2086,7 +1810,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RunRequest"];
+                "application/json": components["schemas"]["RunRequest-Input"];
             };
         };
         responses: {

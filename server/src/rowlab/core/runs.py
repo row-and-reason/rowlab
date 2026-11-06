@@ -22,10 +22,9 @@ from typing import Any, Literal
 import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets, db, prompts, settings, tasks
-from rowlab.core.datasets import ROW_ID, Query, Scope
+from rowlab.core import datasets, db, prompts, settings, sql, tasks
+from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest, NotFound
-from rowlab.core.jobs import JobConfig
 from rowlab.core.providers import openrouter
 from rowlab.core.tasks import Task
 
@@ -53,11 +52,22 @@ class TaskModelCost(BaseModel):
     failed: int = Field(description="Rows without an answer.")
 
 
+class RunRequest(BaseModel):
+    """What to run: the tasks, on the rows a query picks."""
+
+    sql: str = Field(
+        sql.ALL_ROWS,
+        description="Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows "
+        "by default.",
+    )
+    tasks: list[Task]
+
+
 class Run(BaseModel):
     id: str
     dataset_id: str = Field(description="The dataset it makes.")
     status: Status
-    config: JobConfig = Field(description="The job's scope and tasks when the run started.")
+    config: RunRequest = Field(description="The query and tasks it was started with.")
     columns: list[str] = Field(description="The answer columns, each with a `_proba` column.")
     costs: list[TaskModelCost] = Field(description="Per task and model, so far.")
     row_count: int = Field(description="Rows it asks about: the rows in its scope.")
@@ -68,15 +78,6 @@ class Run(BaseModel):
     error: str | None = Field(description="Why the run failed.")
     created_at: datetime
     updated_at: datetime | None
-
-
-class RunRequest(BaseModel):
-    """What to run: the tasks, on the rows in a scope."""
-
-    scope: Scope = Field(
-        default_factory=Scope, description="Which rows to ask about; all by default."
-    )
-    tasks: list[Task]
 
 
 class Estimate(BaseModel):
@@ -100,19 +101,21 @@ _wake = threading.Event()
 
 
 def create_run(dataset_id: str, request: RunRequest) -> Run:
-    """Queue a run of every task with every model on the rows in the scope. Its dataset, with every
-    row of the dataset and empty answer columns, is created right away."""
+    """Queue a run of every task with every model on the rows the query picks. Its dataset, with
+    every row of the dataset and empty answer columns, is created right away."""
     check(dataset_id, request)
     if settings.openrouter_key() is None:
         raise InvalidRequest("Set your OpenRouter API key first.")
-    job = JobConfig(scope=request.scope, tasks=request.tasks)
+    with sql.connect(dataset_id) as con:
+        query = sql.row_ids(con, request.sql)
+        asked = [r[0] for r in sql.execute(con, f"{query} ORDER BY {ROW_ID}").fetchall()]
+    if not asked:
+        raise InvalidRequest("The query picks no rows.")
 
-    made_id, asked = datasets.write_run_rows(dataset_id, job.scope)
+    made_id = datasets.write_run_rows(dataset_id, asked)
     try:
-        if asked == 0:
-            raise InvalidRequest("The scope has no rows.")
         # An empty part gives the answer columns their types before any chunk is written.
-        _write_part(made_id, job.tasks, "part-schema", {})
+        _write_part(made_id, request.tasks, "part-schema", {})
         datasets.register_run_dataset(made_id, dataset_id)
         run_id = uuid.uuid4().hex
         with db.connect() as conn:
@@ -122,10 +125,10 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
                 (
                     run_id,
                     made_id,
-                    JobConfig(scope=job.scope, tasks=job.tasks).model_dump_json(),
-                    json.dumps([c for task in job.tasks for c in tasks.result_columns(task)]),
-                    asked,
-                    asked * sum(len(task.models) for task in job.tasks),
+                    request.model_dump_json(),
+                    json.dumps([c for task in request.tasks for c in tasks.result_columns(task)]),
+                    len(asked),
+                    len(asked) * sum(len(task.models) for task in request.tasks),
                     datetime.now(UTC).isoformat(),
                 ),
             )
@@ -177,29 +180,33 @@ _ANSWER_TOKENS = {"classify": 20, "field": 15, "reason": 60}
 
 def estimate(dataset_id: str, request: RunRequest) -> Estimate:
     """How many rows and model calls a run would take, and roughly what it would cost."""
-    rows = datasets.query_dataset(
-        dataset_id, Query(**request.scope.model_dump(), page_size=ESTIMATE_SAMPLE_ROWS)
-    )
-    calls = rows.total * sum(len(task.models) for task in request.tasks)
+    try:
+        total = sql.count(dataset_id, request.sql)
+        rows = sql.query(
+            dataset_id, sql.QueryRequest(sql=request.sql, limit=ESTIMATE_SAMPLE_ROWS)
+        ).rows
+    except InvalidRequest as e:
+        return Estimate(rows=0, calls=0, cost=0, problem=str(e))
+    calls = total * sum(len(task.models) for task in request.tasks)
     problem = None
     try:
         check(dataset_id, request)
         if settings.openrouter_key() is None:
             raise InvalidRequest("Set your OpenRouter API key first.")
-        if rows.total == 0:
-            raise InvalidRequest("The scope has no rows.")
+        if total == 0:
+            raise InvalidRequest("The query picks no rows.")
     except InvalidRequest as e:
         problem = str(e)
-    if problem or not rows.rows:
-        return Estimate(rows=rows.total, calls=calls, cost=0, problem=problem)
+    if problem or not rows:
+        return Estimate(rows=total, calls=calls, cost=0, problem=problem)
 
     keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
     prices = {m.id: m for m in openrouter.models()}
     cost = 0.0
     for task in request.tasks:
         prompt_tokens = sum(
-            prompts.count_tokens(prompts.render(task.template, row, keys)) for row in rows.rows
-        ) / len(rows.rows)
+            prompts.count_tokens(prompts.render(task.template, row, keys)) for row in rows
+        ) / len(rows)
         if task.type == "write":
             # Rewrites and translations are about as long as what they're given; summaries shorter.
             answer_tokens = prompt_tokens
@@ -214,11 +221,11 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
                 if prices[model].kind == "llm"
                 else 0
             )
-            cost += rows.total * (
+            cost += total * (
                 (prompt_tokens + instructions) * prices[model].prompt_price
                 + answer_tokens * prices[model].completion_price
             )
-    return Estimate(rows=rows.total, calls=calls, cost=cost, problem=None)
+    return Estimate(rows=total, calls=calls, cost=cost, problem=None)
 
 
 def get_run(run_id: str) -> Run:

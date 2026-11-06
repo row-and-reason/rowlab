@@ -3,7 +3,8 @@
 The columns can be anything: several models' answers to one task, a model's answers against labels
 someone already has, or two columns of the original data. With a reference column, the comparison also
 says how often each other column matches it (its accuracy, if the reference is right). Every count
-comes with the filter for its rows, to look at them (`query`) or to ask about them again (`runs`).
+comes with SQL for its rows (`where`), to add to a query's WHERE clause: to look at them, or to ask
+about them again.
 
 Lists count as the same when they hold the same items; with a tolerance, numbers and dates count as the
 same when they are no further apart. Empty values never count as a disagreement.
@@ -12,18 +13,18 @@ same when they are no further apart. Empty values never count as a disagreement.
 import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets
-from rowlab.core.datasets import Filter, RowSelection, agreement_sql, sql_string, value_text_sql
+from rowlab.core import sql
+from rowlab.core.datasets import sql_ident, sql_string
 from rowlab.core.errors import InvalidRequest
 
 # Most common values listed (the rest are added up), and most common pairs in a crosstab.
 TOP_VALUES = 20
 TOP_CELLS = 50
 
+_NUMBERS = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "FLOAT", "DOUBLE")
 
-class CompareRequest(RowSelection):
-    """Which columns to compare, on the rows the search and filters pick (all by default)."""
 
+class CompareRequest(BaseModel):
     columns: list[str] = Field(description="Two or more; or one, with a reference.")
     reference: str | None = Field(
         None, description="A column to measure the others against, e.g. labels known to be right."
@@ -32,11 +33,12 @@ class CompareRequest(RowSelection):
         None,
         description="For number and date columns: how far apart values may be (days for dates).",
     )
+    sql: str = Field(sql.ALL_ROWS, description="The rows to compare: a SELECT over `data`.")
 
 
 class Rows(BaseModel):
     rows: int
-    filter: Filter | None = Field(description="Picks these rows, in a scope's `filters`.")
+    where: str | None = Field(description="SQL picking these rows, for a query's WHERE clause.")
 
 
 class Agreement(BaseModel):
@@ -54,7 +56,7 @@ class Pair(BaseModel):
     compared: int = Field(description="Rows where both have a value.")
     agree: int
     rate: float | None
-    disagree: Filter
+    disagree: str = Field(description="SQL picking the rows where the two differ.")
 
 
 class ValueCounts(BaseModel):
@@ -67,7 +69,7 @@ class ValueCounts(BaseModel):
 class Cell(BaseModel):
     values: list[str] = Field(description="The two columns' values, in the order compared.")
     rows: int
-    filters: list[Filter]
+    where: str
 
 
 class ValueAccuracy(BaseModel):
@@ -88,14 +90,16 @@ class ReferenceAccuracy(BaseModel):
     compared: int = Field(description="Rows where both the column and the reference have a value.")
     correct: int
     accuracy: float | None
-    wrong: Filter
+    wrong: str = Field(
+        description="SQL picking the rows where the column differs from the reference."
+    )
     values: list[ValueAccuracy] = Field(
         description="For the reference's most common values; empty with a tolerance."
     )
 
 
 class Comparison(BaseModel):
-    rows: int = Field(description="Rows compared: those the search and filters pick.")
+    rows: int = Field(description="Rows compared: those the query returns.")
     columns: list[str] = Field(description="The columns compared, with the reference last.")
     agreement: Agreement
     pairs: list[Pair] = Field(description="Every two of the columns.")
@@ -111,36 +115,44 @@ class Comparison(BaseModel):
 
 
 def compare(dataset_id: str, request: CompareRequest) -> Comparison:
-    types = datasets.column_types(dataset_id)
     columns = request.columns + ([request.reference] if request.reference else [])
+    if len(columns) < 2:
+        raise InvalidRequest("Compare two or more columns.")
     if len(set(columns)) != len(columns):
         raise InvalidRequest("Compare different columns.")
-    answered, same = agreement_sql(columns, types, request.tolerance)
-    where, params = datasets.where_sql(request, types)
-    source = f"FROM {datasets.dataset_source(dataset_id)} AS t WHERE {where}"
-    n = len(columns)
-    group = {"columns": columns, "tolerance": request.tolerance}
 
-    with duckdb.connect() as con:
+    with sql.connect(dataset_id) as con:
+        query = sql.check(con, request.sql)
+        types = {
+            r[0]: r[1] for r in sql.execute(con, f"DESCRIBE SELECT * FROM ({query})").fetchall()
+        }
+        for c in columns:
+            if c not in types:
+                raise InvalidRequest(f"Unknown column: {c}")
+        same = _Same(types, request.tolerance)
+        source = f"FROM ({query}) AS t"
 
-        def one(sql: str) -> tuple:
-            return con.execute(sql, params).fetchone()
+        def one(expressions: list[str]) -> tuple:
+            return sql.execute(con, f"SELECT {', '.join(expressions)} {source}").fetchone()
 
-        rows, all_agree, disagree, partly, none = one(
-            f"SELECT count(*),"
-            f" count(*) FILTER ({answered} = {n} AND {same}),"
-            f" count(*) FILTER ({answered} >= 2 AND NOT {same}),"
-            f" count(*) FILTER ({answered} BETWEEN 1 AND {n - 1} AND ({answered} < 2 OR {same})),"
-            f" count(*) FILTER ({answered} = 0) {source}"
+        answered = " + ".join(f"({sql_ident(c)} IS NOT NULL)::INT" for c in columns)
+        rows, all_agree, disagree, none = one(
+            [
+                "count(*)",
+                f"count(*) FILTER ({same.agree(columns)})",
+                f"count(*) FILTER ({same.disagree(columns)})",
+                f"count(*) FILTER ({answered} = 0)",
+            ]
         )
 
         pairs = []
         for i, a in enumerate(columns):
             for b in columns[i + 1 :]:
-                pair_answered, pair_same = agreement_sql([a, b], types, request.tolerance)
                 compared, agree = one(
-                    f"SELECT count(*) FILTER ({pair_answered} = 2),"
-                    f" count(*) FILTER ({pair_answered} = 2 AND {pair_same}) {source}"
+                    [
+                        f"count(*) FILTER ({sql_ident(a)} IS NOT NULL AND {sql_ident(b)} IS NOT NULL)",
+                        f"count(*) FILTER ({same.agree([a, b])})",
+                    ]
                 )
                 pairs.append(
                     Pair(
@@ -148,28 +160,25 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
                         compared=compared,
                         agree=agree,
                         rate=_share(agree, compared),
-                        disagree=Filter(op="disagree", columns=[a, b], tolerance=request.tolerance),
+                        disagree=same.disagree([a, b]),
                     )
                 )
 
-        values = _value_counts(con, columns, types, source, params)
+        values = _value_counts(con, columns, types, source)
 
         crosstab = None
-        if n == 2:
-            a, b = (value_text_sql(c, types[c]) for c in columns)
-            cells = con.execute(
-                f"SELECT {a}, {b}, count(*) {source} AND {a} IS NOT NULL AND {b} IS NOT NULL"
+        if len(columns) == 2:
+            a, b = (_text(c, types[c]) for c in columns)
+            cells = sql.execute(
+                con,
+                f"SELECT {a}, {b}, count(*) {source} WHERE {a} IS NOT NULL AND {b} IS NOT NULL"
                 f" GROUP BY ALL ORDER BY count(*) DESC, 1, 2 LIMIT {TOP_CELLS}",
-                params,
             ).fetchall()
             crosstab = [
                 Cell(
                     values=[va, vb],
                     rows=count,
-                    filters=[
-                        Filter(column=columns[0], op="eq", value=va),
-                        Filter(column=columns[1], op="eq", value=vb),
-                    ],
+                    where=f"{a} = {sql_string(va)} AND {b} = {sql_string(vb)}",
                 )
                 for va, vb, count in cells
             ]
@@ -177,7 +186,7 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
         reference = None
         if request.reference:
             reference = [
-                _accuracy(con, column, request.reference, types, request.tolerance, source, params)
+                _accuracy(con, column, request.reference, types, same, source)
                 for column in request.columns
             ]
 
@@ -185,9 +194,9 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
         rows=rows,
         columns=columns,
         agreement=Agreement(
-            all_agree=Rows(rows=all_agree, filter=Filter(op="agree", **group)),
-            disagree=Rows(rows=disagree, filter=Filter(op="disagree", **group)),
-            partly_answered=partly,
+            all_agree=Rows(rows=all_agree, where=same.agree(columns)),
+            disagree=Rows(rows=disagree, where=same.disagree(columns)),
+            partly_answered=rows - all_agree - disagree - none,
             not_answered=none,
             rate=_share(all_agree, all_agree + disagree),
         ),
@@ -198,20 +207,59 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
     )
 
 
+class _Same:
+    """SQL for whether columns' values are the same, with the `agree` and `disagree` functions."""
+
+    def __init__(self, types: dict[str, str], tolerance: float | None):
+        self.types = types
+        self.tolerance = tolerance
+
+    def agree(self, columns: list[str]) -> str:
+        return self._call("agree", columns)
+
+    def disagree(self, columns: list[str]) -> str:
+        return self._call("disagree", columns)
+
+    def _call(self, function: str, columns: list[str]) -> str:
+        if self.tolerance is None:
+            return f"{function}([{', '.join(self._exact(columns))}])"
+        values = ", ".join(self._number(c) for c in columns)
+        return f"{function}_within([{values}], {float(self.tolerance)})"
+
+    def _exact(self, columns: list[str]) -> list[str]:
+        kinds = {self.types[c] for c in columns}
+        # Columns of one type compare as they are, lists by their items; others as text.
+        if len(kinds) == 1 and not kinds.pop().endswith("[]"):
+            return [sql_ident(c) for c in columns]
+        return [_text(c, self.types[c]) for c in columns]
+
+    def _number(self, column: str) -> str:
+        sql_type = self.types[column]
+        if sql_type == "DATE":
+            return f"date_diff('day', DATE '1970-01-01', {sql_ident(column)})"
+        if sql_type in _NUMBERS or sql_type.startswith("DECIMAL"):
+            return f"CAST({sql_ident(column)} AS DOUBLE)"
+        raise InvalidRequest("A tolerance is only for number and date columns.")
+
+
+def _text(column: str, sql_type: str) -> str:
+    """A column's value as text, for comparing it with other columns: lists with the same items
+    compare the same, whatever their order."""
+    if sql_type == "VARCHAR":
+        return sql_ident(column)
+    if sql_type.endswith("[]"):
+        return f"CAST(list_sort({sql_ident(column)}) AS VARCHAR)"
+    return f"CAST({sql_ident(column)} AS VARCHAR)"
+
+
 def _value_counts(
-    con: duckdb.DuckDBPyConnection,
-    columns: list[str],
-    types: dict[str, str],
-    source: str,
-    params: list,
+    con: duckdb.DuckDBPyConnection, columns: list[str], types: dict[str, str], source: str
 ) -> list[ValueCounts]:
     union = " UNION ALL ".join(
-        f"SELECT {sql_string(c)} AS col, {value_text_sql(c, types[c])} AS value {source}"
-        for c in columns
+        f"SELECT {sql_string(c)} AS col, {_text(c, types[c])} AS value {source}" for c in columns
     )
-    counted = con.execute(
-        f"SELECT col, value, count(*) FROM ({union}) WHERE value IS NOT NULL GROUP BY ALL",
-        params * len(columns),
+    counted = sql.execute(
+        con, f"SELECT col, value, count(*) FROM ({union}) WHERE value IS NOT NULL GROUP BY ALL"
     ).fetchall()
     totals: dict[str, int] = {}
     by_value: dict[str, dict[str, int]] = {}
@@ -231,28 +279,26 @@ def _accuracy(
     column: str,
     reference: str,
     types: dict[str, str],
-    tolerance: float | None,
+    same: _Same,
     source: str,
-    params: list,
 ) -> ReferenceAccuracy:
-    answered, same = agreement_sql([column, reference], types, tolerance)
-    compared, correct = con.execute(
-        f"SELECT count(*) FILTER ({answered} = 2), count(*) FILTER ({answered} = 2 AND {same}) "
+    both = f"{sql_ident(column)} IS NOT NULL AND {sql_ident(reference)} IS NOT NULL"
+    compared, correct = sql.execute(
+        con,
+        f"SELECT count(*) FILTER ({both}), count(*) FILTER ({same.agree([column, reference])}) "
         f"{source}",
-        params,
     ).fetchone()
     values = []
-    if tolerance is None:
-        c, r = value_text_sql(column, types[column]), value_text_sql(reference, types[reference])
-        both = f"{source} AND {c} IS NOT NULL AND {r} IS NOT NULL"
-        for value, support, predicted, hits in con.execute(
-            f"WITH v AS (SELECT {r} AS value, count(*) AS support {both} GROUP BY 1"
-            f" ORDER BY 2 DESC, 1 LIMIT {TOP_VALUES})"
+    if same.tolerance is None:
+        c, r = _text(column, types[column]), _text(reference, types[reference])
+        for value, support, predicted, hits in sql.execute(
+            con,
+            f"WITH v AS (SELECT {r} AS value, count(*) AS support {source} WHERE {both}"
+            f" GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT {TOP_VALUES})"
             f" SELECT v.value, v.support,"
-            f" (SELECT count(*) {both} AND {c} = v.value),"
-            f" (SELECT count(*) {both} AND {c} = v.value AND {r} = v.value)"
+            f" (SELECT count(*) {source} WHERE {both} AND {c} = v.value),"
+            f" (SELECT count(*) {source} WHERE {both} AND {c} = v.value AND {r} = v.value)"
             f" FROM v ORDER BY v.support DESC, v.value",
-            params * 3,
         ).fetchall():
             values.append(
                 ValueAccuracy(
@@ -269,7 +315,7 @@ def _accuracy(
         compared=compared,
         correct=correct,
         accuracy=_share(correct, compared),
-        wrong=Filter(op="disagree", columns=[column, reference], tolerance=tolerance),
+        wrong=same.disagree([column, reference]),
         values=values,
     )
 

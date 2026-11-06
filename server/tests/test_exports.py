@@ -72,3 +72,13 @@ def test_export_explains_a_missing_folder(client, events, tmp_path):
     )
     assert response.status_code == 400
     assert "Folder not found" in response.json()["detail"]
+
+
+def test_exports_only_the_rows_a_query_picks(client, events):
+    response = download(client, events, "jsonl", sql="SELECT * FROM data WHERE id = 2")
+    assert [json.loads(line)["id"] for line in response.text.splitlines()] == [2]
+    without_row_id = client.get(
+        f"/v1/datasets/{events['id']}/export",
+        params={"format": "csv", "sql": "SELECT id FROM data"},
+    )
+    assert without_row_id.status_code == 400

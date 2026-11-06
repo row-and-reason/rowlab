@@ -1,15 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from rowlab.core import compare, datasets, exports, prompts
+from rowlab.core import compare, datasets, exports, prompts, sql
 from rowlab.core.compare import CompareRequest, Comparison
-from rowlab.core.datasets import ColumnProfile, Dataset, Query, QueryResult
+from rowlab.core.datasets import ColumnProfile, Dataset
 from rowlab.core.errors import InvalidRequest
 from rowlab.core.exports import ExportFormat, ExportRequest, ExportResult
 from rowlab.core.prompts import RenderRequest, RenderResult
+from rowlab.core.sql import QueryRequest, QueryResult
 
 router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
 
@@ -59,8 +60,12 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
 
 
 @router.post("/{dataset_id}/query", operation_id="queryDataset")
-def query_dataset(dataset_id: str, query: Query) -> QueryResult:
-    return datasets.query_dataset(dataset_id, query)
+def query_dataset(dataset_id: str, request: QueryRequest) -> QueryResult:
+    """Run one DuckDB `SELECT` over the table `data`, the dataset, and return a page of its rows,
+    e.g. `SELECT * FROM data WHERE stars = 1 ORDER BY review LIMIT 20`. It can read nothing but the
+    dataset. `agree([a, b, …])` and `disagree([a, b, …])` compare columns in a row; see
+    `POST /v1/datasets/{id}/compare`."""
+    return sql.query(dataset_id, request)
 
 
 @router.post("/{dataset_id}/compare", operation_id="compareColumns")
@@ -85,11 +90,16 @@ def render_prompt(dataset_id: str, request: RenderRequest) -> RenderResult:
     responses={200: {"content": {"application/octet-stream": {}}}},
 )
 def download_dataset(
-    dataset_id: str, format: ExportFormat, include_row_id: bool = False
+    dataset_id: str,
+    format: ExportFormat,
+    include_row_id: bool = False,
+    sql: Annotated[
+        str | None, Query(description="Only the rows this query picks; it must return `__row_id`.")
+    ] = None,
 ) -> FileResponse:
     """Download the dataset as a CSV, JSONL or Parquet file, named after it. Nested values are JSON
     text in CSV. A dataset still being made can't be exported until its run is done."""
-    path = exports.export_to_temp(dataset_id, format, include_row_id=include_row_id)
+    path = exports.export_to_temp(dataset_id, format, include_row_id=include_row_id, query=sql)
     return FileResponse(
         path,
         filename=exports.file_name(dataset_id, format),

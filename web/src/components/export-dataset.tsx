@@ -1,6 +1,6 @@
 "use client";
 
-import { DownloadIcon } from "lucide-react";
+import { ArrowLeftIcon, CloudIcon, DownloadIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -13,15 +13,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-  FieldSeparator,
-} from "@/components/ui/field";
 import { ConnectionSelect } from "@/components/connection-select";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import {
   Select,
   SelectContent,
@@ -39,7 +41,25 @@ const FORMATS: { value: ExportFormat; label: string }[] = [
   { value: "parquet", label: "Parquet" },
 ];
 
-/** Download a dataset, or write it to a path on the server's machine, in the format picked here. */
+const DESTINATIONS = [
+  {
+    kind: "download",
+    label: "Download",
+    title: "Download",
+    description: "A file in this browser's downloads.",
+    icon: DownloadIcon,
+  },
+  {
+    kind: "s3",
+    label: "S3",
+    title: "Export to S3",
+    description: "An object in AWS S3, Cloudflare R2, MinIO or other S3-compatible storage.",
+    icon: CloudIcon,
+  },
+] as const;
+type Destination = (typeof DESTINATIONS)[number]["kind"];
+
+/** Export a dataset in two steps: where to (a download or S3), then the format and where exactly. */
 export function ExportDataset({
   dataset,
   open,
@@ -49,11 +69,11 @@ export function ExportDataset({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const [destination, setDestination] = useState<Destination>();
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [includeRowId, setIncludeRowId] = useState(false);
   const [path, setPath] = useState("");
   const [connectionId, setConnectionId] = useState<string | null>(null);
-  const toS3 = path.trim().startsWith("s3://");
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -64,7 +84,7 @@ export function ExportDataset({
         format,
         path: path.trim(),
         include_row_id: includeRowId,
-        connection_id: toS3 ? connectionId : null,
+        connection_id: connectionId,
       },
     });
     setSaving(false);
@@ -76,83 +96,134 @@ export function ExportDataset({
     onOpenChange(false);
   }
 
+  const picked = DESTINATIONS.find((d) => d.kind === destination);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Export {dataset.name}</DialogTitle>
+          <DialogTitle className="flex items-center gap-1">
+            {picked && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="-ml-2"
+                aria-label="Back"
+                disabled={saving}
+                onClick={() => setDestination(undefined)}
+              >
+                <ArrowLeftIcon />
+              </Button>
+            )}
+            {picked ? `${picked.title}: ${dataset.name}` : `Export ${dataset.name}`}
+          </DialogTitle>
           <DialogDescription>
             Every row and column. In CSV, nested values are written as JSON.
           </DialogDescription>
         </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="export-format">Format</FieldLabel>
-            <Select
-              items={FORMATS}
-              value={format}
-              onValueChange={(value) => setFormat(value as ExportFormat)}
-            >
-              <SelectTrigger id="export-format" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FORMATS.map((f) => (
-                  <SelectItem key={f.value} value={f.value}>
-                    {f.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field orientation="horizontal">
-            <Checkbox
-              id="export-row-id"
-              checked={includeRowId}
-              onCheckedChange={(checked) => setIncludeRowId(checked === true)}
-            />
-            <FieldLabel htmlFor="export-row-id" className="font-normal">
-              Include the # column, to trace rows back to the original file
-            </FieldLabel>
-          </Field>
-          <Button
-            render={<a href={downloadUrl(dataset.id, format, includeRowId)} download />}
-            onClick={() => onOpenChange(false)}
+
+        {!destination ? (
+          <ItemGroup className="gap-1">
+            {DESTINATIONS.map((d) => (
+              <Item
+                key={d.kind}
+                variant="outline"
+                size="sm"
+                render={
+                  <button
+                    type="button"
+                    className="text-left"
+                    onClick={() => setDestination(d.kind)}
+                  />
+                }
+              >
+                <ItemMedia variant="icon">
+                  <d.icon />
+                </ItemMedia>
+                <ItemContent>
+                  <ItemTitle>{d.label}</ItemTitle>
+                  <ItemDescription>{d.description}</ItemDescription>
+                </ItemContent>
+              </Item>
+            ))}
+          </ItemGroup>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (destination === "s3" && path.trim()) save();
+            }}
           >
-            <DownloadIcon data-icon="inline-start" />
-            Download {dataset.name}.{format}
-          </Button>
-          <FieldSeparator>or</FieldSeparator>
-          <Field>
-            <FieldLabel htmlFor="export-path">Save to a path or S3</FieldLabel>
-            <div className="flex gap-2">
-              <Input
-                id="export-path"
-                placeholder={`~/Downloads, ~/data/${dataset.name}.${format} or s3://bucket/folder/`}
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && path.trim()) save();
-                }}
-              />
-              <Button variant="outline" disabled={!path.trim() || saving} onClick={save}>
-                {saving && <Spinner data-icon="inline-start" />}
-                Save
-              </Button>
-            </div>
-            <FieldDescription>
-              A folder or file name on this machine, or an s3:// path (ending in / for a folder). An
-              existing file is replaced.
-            </FieldDescription>
-          </Field>
-          {toS3 && (
-            <ConnectionSelect
-              id="export-connection"
-              value={connectionId}
-              onChange={setConnectionId}
-            />
-          )}
-        </FieldGroup>
+            <FieldGroup>
+              {destination === "s3" && (
+                <ConnectionSelect
+                  id="export-connection"
+                  value={connectionId}
+                  onChange={setConnectionId}
+                />
+              )}
+              <Field>
+                <FieldLabel htmlFor="export-format">Format</FieldLabel>
+                <Select
+                  items={FORMATS}
+                  value={format}
+                  onValueChange={(value) => setFormat(value as ExportFormat)}
+                >
+                  <SelectTrigger id="export-format" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FORMATS.map((f) => (
+                      <SelectItem key={f.value} value={f.value}>
+                        {f.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="export-row-id"
+                  checked={includeRowId}
+                  onCheckedChange={(checked) => setIncludeRowId(checked === true)}
+                />
+                <FieldLabel htmlFor="export-row-id" className="font-normal">
+                  Include the # column, to trace rows back to the original file
+                </FieldLabel>
+              </Field>
+              {destination === "download" ? (
+                <Button
+                  render={<a href={downloadUrl(dataset.id, format, includeRowId)} download />}
+                  onClick={() => onOpenChange(false)}
+                >
+                  <DownloadIcon data-icon="inline-start" />
+                  Download {dataset.name}.{format}
+                </Button>
+              ) : (
+                <Field>
+                  <FieldLabel htmlFor="export-path">Object</FieldLabel>
+                  <div className="flex gap-2">
+                    <Input
+                      id="export-path"
+                      autoFocus
+                      placeholder="s3://bucket/folder/"
+                      value={path}
+                      disabled={saving}
+                      onChange={(e) => setPath(e.target.value)}
+                    />
+                    <Button type="submit" disabled={!path.trim() || saving}>
+                      {saving && <Spinner data-icon="inline-start" />}
+                      Export
+                    </Button>
+                  </div>
+                  <FieldDescription>
+                    End in / for {dataset.name}.{format} in that folder. An existing object is
+                    replaced.
+                  </FieldDescription>
+                </Field>
+              )}
+            </FieldGroup>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

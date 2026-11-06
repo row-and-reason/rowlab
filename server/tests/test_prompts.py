@@ -105,8 +105,8 @@ def test_to_text(value, text):
     assert to_text(value) == text
 
 
-def test_renders_only_the_rows_in_scope(client, dataset):
-    result = render(client, dataset, "{{name}}", scope={"search": "alan", "filters": []})
+def test_renders_only_the_rows_the_query_picks(client, dataset):
+    result = render(client, dataset, "{{name}}", sql="SELECT * FROM data WHERE name = 'Alan'")
     assert [r["prompt"] for r in result["rows"]] == ["Alan"]
     assert result["selected_rows"] == 1
     assert result["tokens"]["sample_size"] == 1

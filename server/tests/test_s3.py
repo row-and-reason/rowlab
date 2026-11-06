@@ -46,7 +46,7 @@ def connection(client, s3):
         "access_key_id": "key",
         "secret_access_key": "secret",
     }
-    response = client.post("/v1/connections", json=body)
+    response = client.post("/v1/settings/connections", json=body)
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -57,16 +57,19 @@ def add(client, source, connection):
 
 def test_connections_never_return_their_secret(client, connection):
     assert connection["name"] == "Local"
-    assert "secret" not in str(client.get("/v1/connections").json())
+    assert "secret" not in str(client.get("/v1/settings/connections").json())
     # Leaving the secret out of an update keeps the saved one.
     renamed = {**connection, "name": "MinIO", "access_key_id": "key"}
-    assert client.put(f"/v1/connections/{connection['id']}", json=renamed).json()["name"] == "MinIO"
+    assert (
+        client.put(f"/v1/settings/connections/{connection['id']}", json=renamed).json()["name"]
+        == "MinIO"
+    )
     assert add(client, f"s3://{BUCKET}/people.csv", connection).status_code == 201
 
-    missing = client.post("/v1/connections", json={"name": "x", "access_key_id": "k"})
+    missing = client.post("/v1/settings/connections", json={"name": "x", "access_key_id": "k"})
     assert missing.json()["detail"] == "Enter the secret access key."
-    assert client.delete(f"/v1/connections/{connection['id']}").status_code == 204
-    assert client.get("/v1/connections").json() == []
+    assert client.delete(f"/v1/settings/connections/{connection['id']}").status_code == 204
+    assert client.get("/v1/settings/connections").json() == []
 
 
 def test_reads_csv_json_and_parquet_from_s3_by_content(client, connection):
