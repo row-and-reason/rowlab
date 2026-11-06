@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+.pytest_cache/
+.ruff_cache/
+server/src/rowlab/static/
+
+# Node
+node_modules/
+web/.next/
+web/out/
+
+# Local data
+rowlab-data/
+*.db
+
+.DS_Store
+.env
