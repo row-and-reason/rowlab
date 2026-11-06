@@ -103,3 +103,11 @@ def test_token_estimate_covers_the_whole_dataset(client, dataset):
 )
 def test_to_text(value, text):
     assert to_text(value) == text
+
+
+def test_renders_only_the_rows_in_scope(client, dataset):
+    result = render(client, dataset, "{{name}}", scope={"search": "alan", "filters": []})
+    assert [r["prompt"] for r in result["rows"]] == ["Alan"]
+    assert result["selected_rows"] == 1
+    assert result["tokens"]["sample_size"] == 1
+    assert result["tokens"]["total_estimate"] == 1

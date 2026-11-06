@@ -1,13 +1,48 @@
 "use client";
 
-import { DatabaseIcon } from "lucide-react";
+import {
+  DatabaseIcon,
+  KeyRoundIcon,
+  ListChecksIcon,
+  MoonIcon,
+  PlayIcon,
+  PlusIcon,
+  SearchIcon,
+  TableIcon,
+} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { useTheme } from "next-themes";
+import { Suspense, use, useCallback, useEffect, useRef, useState } from "react";
+import { browser } from "react-dom";
+import { useDefaultLayout } from "react-resizable-panels";
 import { toast } from "sonner";
 
+import { AddDataset } from "@/components/add-dataset";
+import { DatasetPanels, TABS, type JobActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
-import { DatasetView, TABS, type Tab } from "@/components/dataset-view";
-import { OutputPanel } from "@/components/output-panel";
+import { OpenRouterKeyDialog } from "@/components/openrouter-key";
+import { PaneHeader } from "@/components/pane";
+import { Keys } from "@/components/tooltip-button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command";
 import {
   Empty,
   EmptyDescription,
@@ -15,13 +50,14 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Spinner } from "@/components/ui/spinner";
-import { api, type Dataset } from "@/lib/api/client";
+import { api, type Dataset, type Settings } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
 
-// The whole app is this one page: datasets | contents | output. What is selected lives in the query
-// string (`/?dataset=<id>&tab=prompt`), because a static export can't have routes for ids that only
-// exist at runtime. Changing it is a client-side navigation, so the columns stay mounted.
+// The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
+// in the query string (`/?dataset=<id>&tab=rows&run=<id>`), because a static export can't have routes for
+// ids that only exist at runtime. Changing it is a client-side navigation, so the columns stay mounted.
 export default function Home() {
   return (
     <Suspense fallback={<Spinner className="m-6" />}>
@@ -31,11 +67,22 @@ export default function Home() {
 }
 
 function Workspace() {
+  use(browser("Column widths are stored in localStorage."));
   const router = useRouter();
   const params = useSearchParams();
+  const { resolvedTheme, setTheme } = useTheme();
   const selectedId = params.get("dataset");
   const tab: Tab = TABS.find((t) => t === params.get("tab")) ?? "rows";
+  const runId = params.get("run");
   const [datasets, setDatasets] = useState<Dataset[] | null>(null);
+  const [settings, setSettings] = useState<Settings>();
+  const [adding, setAdding] = useState(false);
+  const [settingKey, setSettingKey] = useState(false);
+  const [deleting, setDeleting] = useState<Dataset>();
+  const [palette, setPalette] = useState(false);
+  const jobActionsRef = useRef<JobActions | null>(null);
+  // Remembers the column widths you drag to, in localStorage.
+  const layout = useDefaultLayout({ id: "rowlab.workspace" });
 
   const load = useCallback(async () => {
     const { data, error } = await api.GET("/v1/datasets");
@@ -46,9 +93,44 @@ function Workspace() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount
     load();
+    api.GET("/v1/settings").then(({ data }) => setSettings(data));
   }, [load]);
 
+  // While a run is going, keep its progress (and the list's order) current.
+  const anyRunning = datasets?.some((d) => d.running) ?? false;
+  useEffect(() => {
+    if (!anyRunning) return;
+    const timer = setInterval(load, 1000);
+    return () => clearInterval(timer);
+  }, [anyRunning, load]);
+
   const selected = datasets?.find((d) => d.id === selectedId);
+  const select = useCallback((id: string) => router.push(`/?dataset=${id}`), [router]);
+
+  // Keyboard shortcuts. ⌘K and ⌘↵ work everywhere; single keys only when not typing.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === "k") {
+        e.preventDefault();
+        setPalette((open) => !open);
+      } else if (mod && e.key === "Enter") {
+        e.preventDefault();
+        jobActionsRef.current?.run();
+      } else if (!mod && !e.altKey && !isTyping(e.target)) {
+        if ((e.key === "j" || e.key === "k") && datasets?.length) {
+          const index = datasets.findIndex((d) => d.id === selectedId);
+          const next = e.key === "j" ? index + 1 : index - 1;
+          select(datasets[Math.min(datasets.length - 1, Math.max(0, next))].id);
+        } else if (e.key === "/") {
+          e.preventDefault();
+          document.getElementById("rows-search")?.focus();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [datasets, selectedId, select]);
 
   async function remove(dataset: Dataset) {
     const { error } = await api.DELETE("/v1/datasets/{dataset_id}", {
@@ -56,52 +138,206 @@ function Workspace() {
     });
     if (error) toast.error(errorMessage(error));
     else toast.success(`Deleted ${dataset.name}`);
-    router.push("/");
+    if (dataset.id === selectedId) router.push("/");
     load();
   }
 
+  // Runs a palette command after closing the palette.
+  function command(action: () => void) {
+    setPalette(false);
+    action();
+  }
+
   return (
-    <main className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[16rem_minmax(0,1fr)_18rem] lg:overflow-hidden">
-      <section className="overflow-auto border-b p-4 lg:border-r lg:border-b-0">
-        <DatasetsPanel
-          datasets={datasets}
-          selectedId={selectedId}
-          onAdded={(dataset) => {
-            load();
-            router.push(`/?dataset=${dataset.id}`);
-          }}
-        />
-      </section>
-      <section className="@container overflow-auto p-4">
+    <main className="min-h-0 flex-1">
+      <ResizablePanelGroup
+        defaultLayout={layout.defaultLayout}
+        onLayoutChanged={layout.onLayoutChanged}
+      >
+        <ResizablePanel id="datasets" defaultSize="16" minSize="10">
+          <DatasetsPanel
+            datasets={datasets}
+            selectedId={selectedId}
+            settings={settings}
+            onAdd={() => setAdding(true)}
+            onDelete={setDeleting}
+            onKey={() => setSettingKey(true)}
+          />
+        </ResizablePanel>
         {selected ? (
-          <DatasetView
+          <DatasetPanels
             key={selected.id}
             dataset={selected}
             tab={tab}
-            onTabChange={(t) => router.replace(`/?dataset=${selected.id}&tab=${t}`)}
-            onDelete={() => remove(selected)}
+            runId={runId}
+            onOpen={(t, run) =>
+              router.push(`/?dataset=${selected.id}&tab=${t}${run ? `&run=${run}` : ""}`)
+            }
+            onDelete={() => setDeleting(selected)}
+            onRunStarted={load}
+            actionsRef={jobActionsRef}
           />
-        ) : datasets === null ? (
-          <Spinner />
         ) : (
-          <Empty className="h-full">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <DatabaseIcon />
-              </EmptyMedia>
-              <EmptyTitle>{selectedId ? "Dataset not found" : "Pick a dataset"}</EmptyTitle>
-              <EmptyDescription>
-                {datasets.length
-                  ? "Choose one on the left to explore its rows and write a prompt."
-                  : "Add a CSV, TSV, JSON, JSONL or Parquet file to get started."}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <>
+            <ResizableHandle />
+            <ResizablePanel id="rows" defaultSize="50" minSize="30">
+              <div className="flex h-full flex-col">
+                <PaneHeader>
+                  <span className="font-medium">Rows</span>
+                </PaneHeader>
+                {datasets === null ? (
+                  <Spinner className="m-3" />
+                ) : (
+                  <Empty className="flex-1">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <DatabaseIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>{selectedId ? "Dataset not found" : "Pick a dataset"}</EmptyTitle>
+                      <EmptyDescription>
+                        {datasets.length ? (
+                          <>
+                            Choose one on the left, or press <Keys keys={["⌘", "K"]} />.
+                          </>
+                        ) : (
+                          "Add a CSV, TSV, JSON, JSONL or Parquet file to get started."
+                        )}
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                )}
+              </div>
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel id="job" defaultSize="34" minSize="20">
+              <div className="flex h-full flex-col">
+                <PaneHeader>
+                  <span className="font-medium">Job</span>
+                </PaneHeader>
+                <Empty className="flex-1">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <ListChecksIcon />
+                    </EmptyMedia>
+                    <EmptyDescription>
+                      Pick a dataset to ask questions about each of its rows.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              </div>
+            </ResizablePanel>
+          </>
         )}
-      </section>
-      <section className="overflow-auto border-t p-4 lg:border-t-0 lg:border-l">
-        <OutputPanel />
-      </section>
+      </ResizablePanelGroup>
+
+      <CommandDialog open={palette} onOpenChange={setPalette}>
+        <Command>
+          <CommandInput placeholder="Type a command or a dataset name" />
+          <CommandList>
+            <CommandEmpty>Nothing found.</CommandEmpty>
+            <CommandGroup heading="Actions">
+              {selected && (
+                <>
+                  <CommandItem onSelect={() => command(() => jobActionsRef.current?.run())}>
+                    <PlayIcon />
+                    Run job
+                    <CommandShortcut>⌘↵</CommandShortcut>
+                  </CommandItem>
+                  <CommandItem onSelect={() => command(() => jobActionsRef.current?.newRun())}>
+                    <PlusIcon />
+                    New run
+                  </CommandItem>
+                  <CommandItem onSelect={() => command(() => jobActionsRef.current?.addTask())}>
+                    <ListChecksIcon />
+                    Add task
+                  </CommandItem>
+                  <CommandItem
+                    onSelect={() =>
+                      command(() =>
+                        // Once the palette has closed and handed focus back.
+                        setTimeout(() => document.getElementById("rows-search")?.focus(), 50),
+                      )
+                    }
+                  >
+                    <SearchIcon />
+                    Search rows
+                    <CommandShortcut>/</CommandShortcut>
+                  </CommandItem>
+                </>
+              )}
+              <CommandItem onSelect={() => command(() => setAdding(true))}>
+                <PlusIcon />
+                Add data
+              </CommandItem>
+              <CommandItem onSelect={() => command(() => setSettingKey(true))}>
+                <KeyRoundIcon />
+                Set OpenRouter key
+              </CommandItem>
+              <CommandItem
+                onSelect={() =>
+                  command(() => setTheme(resolvedTheme === "dark" ? "light" : "dark"))
+                }
+              >
+                <MoonIcon />
+                {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+              </CommandItem>
+            </CommandGroup>
+            <CommandGroup heading="Datasets">
+              {datasets?.map((dataset) => (
+                <CommandItem
+                  key={dataset.id}
+                  value={`dataset ${dataset.name} ${dataset.id}`}
+                  onSelect={() => command(() => select(dataset.id))}
+                >
+                  <TableIcon />
+                  {dataset.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </CommandDialog>
+
+      <AddDataset
+        open={adding}
+        onOpenChange={setAdding}
+        onAdded={(dataset) => {
+          load();
+          select(dataset.id);
+        }}
+      />
+      <OpenRouterKeyDialog open={settingKey} onOpenChange={setSettingKey} onSaved={setSettings} />
+      <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(undefined)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes rowlab&apos;s copy of the data and its job. The original file is not
+              touched.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (deleting) remove(deleting);
+                setDeleting(undefined);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
+  );
+}
+
+/** Whether a key press is going into a text field, where single-key shortcuts must not fire. */
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
   );
 }

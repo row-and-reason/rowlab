@@ -312,6 +312,376 @@
           }
         }
       }
+    },
+    "/v1/datasets/{dataset_id}/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "operationId": "listJobs",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Job"
+                  },
+                  "title": "Response Listjobs"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Create Job",
+        "operationId": "createJob",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobConfig-Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "put": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Update Job",
+        "operationId": "updateJob",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobConfig-Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/runs": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Create Run",
+        "description": "Start running every task with every model on the rows in the job's scope. It runs in the\nbackground: poll `GET /v1/runs/{id}` for its progress and answers. Answers already given are\nfree: they come from the response cache.",
+        "operationId": "createRun",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/datasets/{dataset_id}/runs": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List Runs",
+        "description": "A dataset's runs, newest first, without their answers.",
+        "operationId": "listRuns",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RunSummary"
+                  },
+                  "title": "Response Listruns"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run",
+        "description": "A run with its settings, costs and answers for every row.",
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Settings",
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/openrouter-key": {
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Save Openrouter Key",
+        "description": "Check the key with OpenRouter and save it locally.",
+        "operationId": "saveOpenRouterKey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenRouterKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List Models",
+        "description": "Models a job can use: decision models, then LLMs with structured outputs, each cheapest first.",
+        "operationId": "listModels",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Model"
+                  },
+                  "type": "array",
+                  "title": "Response Listmodels"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -486,6 +856,23 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "last_activity_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Activity At",
+            "description": "When it was added or last run, whichever is later."
+          },
+          "running": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its latest run, while that is running."
           }
         },
         "type": "object",
@@ -497,7 +884,9 @@
           "row_count",
           "size_bytes",
           "columns",
-          "created_at"
+          "created_at",
+          "last_activity_at",
+          "running"
         ],
         "title": "Dataset"
       },
@@ -581,6 +970,157 @@
         ],
         "title": "Health"
       },
+      "Job": {
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/Task-Output"
+            },
+            "type": "array",
+            "title": "Tasks"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scope",
+          "tasks",
+          "id",
+          "dataset_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Job"
+      },
+      "JobConfig-Input": {
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/Task-Input"
+            },
+            "type": "array",
+            "title": "Tasks"
+          }
+        },
+        "type": "object",
+        "title": "JobConfig"
+      },
+      "JobConfig-Output": {
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/Task-Output"
+            },
+            "type": "array",
+            "title": "Tasks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scope",
+          "tasks"
+        ],
+        "title": "JobConfig"
+      },
+      "Model": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "llm"
+            ],
+            "title": "Kind"
+          },
+          "prompt_price": {
+            "type": "number",
+            "title": "Prompt Price"
+          },
+          "completion_price": {
+            "type": "number",
+            "title": "Completion Price"
+          },
+          "context_length": {
+            "type": "integer",
+            "title": "Context Length"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "prompt_price",
+          "completion_price",
+          "context_length"
+        ],
+        "title": "Model"
+      },
+      "OpenRouterKey": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "title": "OpenRouterKey"
+      },
+      "Option": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "Option"
+      },
       "Query": {
         "properties": {
           "search": {
@@ -606,29 +1146,48 @@
             "description": "Ties and the default order are by `__row_id`.",
             "default": []
           },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "description": "Only the first rows, in this order."
+          },
           "offset": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Offset",
             "default": 0
           },
-          "limit": {
+          "page_size": {
             "type": "integer",
             "maximum": 1000.0,
             "minimum": 1.0,
-            "title": "Limit",
+            "title": "Page Size",
             "default": 100
           }
         },
         "type": "object",
-        "title": "Query"
+        "title": "Query",
+        "description": "A page of a scope's rows."
       },
       "QueryResult": {
         "properties": {
           "total": {
             "type": "integer",
             "title": "Total",
-            "description": "Rows matching the search and filters, ignoring paging."
+            "description": "Rows in the scope, ignoring paging."
+          },
+          "matched": {
+            "type": "integer",
+            "title": "Matched",
+            "description": "Rows matching the search and filters, ignoring the limit."
           },
           "rows": {
             "items": {
@@ -642,6 +1201,7 @@
         "type": "object",
         "required": [
           "total",
+          "matched",
           "rows"
         ],
         "title": "QueryResult"
@@ -652,11 +1212,19 @@
             "type": "string",
             "title": "Template"
           },
+          "scope": {
+            "$ref": "#/components/schemas/Scope",
+            "default": {
+              "search": "",
+              "filters": [],
+              "sort": []
+            }
+          },
           "offset": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Offset",
-            "description": "First row to render, by `__row_id`.",
+            "description": "First row of the scope to render, counting from 0.",
             "default": 0
           },
           "limit": {
@@ -683,6 +1251,11 @@
             "title": "Fields",
             "description": "Everything the template can use."
           },
+          "selected_rows": {
+            "type": "integer",
+            "title": "Selected Rows",
+            "description": "Rows in the scope."
+          },
           "warnings": {
             "items": {
               "type": "string"
@@ -704,6 +1277,7 @@
         "type": "object",
         "required": [
           "fields",
+          "selected_rows",
           "warnings",
           "rows",
           "tokens"
@@ -740,6 +1314,339 @@
         ],
         "title": "RenderedRow"
       },
+      "Run": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number",
+            "description": "1, 2, \u2026 per dataset."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "description": "Model calls answered so far."
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Model calls the run makes."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Why the run failed."
+          },
+          "config": {
+            "$ref": "#/components/schemas/JobConfig-Output",
+            "description": "The job's scope and tasks when the run started."
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns",
+            "description": "The answer columns, each with a `_proba` column."
+          },
+          "costs": {
+            "items": {
+              "$ref": "#/components/schemas/TaskModelCost"
+            },
+            "type": "array",
+            "title": "Costs",
+            "description": "Per task and model."
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "cost": {
+            "type": "number",
+            "title": "Cost",
+            "description": "USD spent by this run; cached answers are free."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RunRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "dataset_id",
+          "number",
+          "status",
+          "done",
+          "total",
+          "error",
+          "config",
+          "columns",
+          "costs",
+          "row_count",
+          "cost",
+          "created_at",
+          "rows"
+        ],
+        "title": "Run"
+      },
+      "RunProgress": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "description": "Model calls answered so far."
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Model calls the run makes."
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "number",
+          "done",
+          "total"
+        ],
+        "title": "RunProgress"
+      },
+      "RunRow": {
+        "properties": {
+          "row_id": {
+            "type": "integer",
+            "title": "Row Id"
+          },
+          "values": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Values",
+            "description": "Each answer column and its `_proba` column."
+          },
+          "errors": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Errors",
+            "description": "Why an answer column is missing, by column."
+          }
+        },
+        "type": "object",
+        "required": [
+          "row_id",
+          "values",
+          "errors"
+        ],
+        "title": "RunRow"
+      },
+      "RunSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number",
+            "description": "1, 2, \u2026 per dataset."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "description": "Model calls answered so far."
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Model calls the run makes."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Why the run failed."
+          },
+          "config": {
+            "$ref": "#/components/schemas/JobConfig-Output",
+            "description": "The job's scope and tasks when the run started."
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns",
+            "description": "The answer columns, each with a `_proba` column."
+          },
+          "costs": {
+            "items": {
+              "$ref": "#/components/schemas/TaskModelCost"
+            },
+            "type": "array",
+            "title": "Costs",
+            "description": "Per task and model."
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "cost": {
+            "type": "number",
+            "title": "Cost",
+            "description": "USD spent by this run; cached answers are free."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "dataset_id",
+          "number",
+          "status",
+          "done",
+          "total",
+          "error",
+          "config",
+          "columns",
+          "costs",
+          "row_count",
+          "cost",
+          "created_at"
+        ],
+        "title": "RunSummary"
+      },
+      "Scope": {
+        "properties": {
+          "search": {
+            "type": "string",
+            "title": "Search",
+            "description": "Case-insensitive text match against any column.",
+            "default": ""
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/Filter"
+            },
+            "type": "array",
+            "title": "Filters",
+            "default": []
+          },
+          "sort": {
+            "items": {
+              "$ref": "#/components/schemas/Sort"
+            },
+            "type": "array",
+            "title": "Sort",
+            "description": "Ties and the default order are by `__row_id`.",
+            "default": []
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "description": "Only the first rows, in this order."
+          }
+        },
+        "type": "object",
+        "title": "Scope",
+        "description": "Which rows, in which order: what the rows table shows and what a job runs on."
+      },
+      "Settings": {
+        "properties": {
+          "openrouter_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "environment",
+                  "saved"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Openrouter Key",
+            "description": "Where the OpenRouter API key comes from, if set. The key is never returned."
+          }
+        },
+        "type": "object",
+        "required": [
+          "openrouter_key"
+        ],
+        "title": "Settings"
+      },
       "Sort": {
         "properties": {
           "column": {
@@ -757,6 +1664,150 @@
           "column"
         ],
         "title": "Sort"
+      },
+      "Task-Input": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "template": {
+            "type": "string",
+            "title": "Template",
+            "description": "The prompt, e.g. \u201cIs this review negative? {{review}}\u201d.",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "yes_no",
+              "pick_one",
+              "pick_any",
+              "scale"
+            ],
+            "title": "Type",
+            "default": "yes_no"
+          },
+          "column": {
+            "type": "string",
+            "title": "Column",
+            "description": "Base name of the result columns.",
+            "default": "answer"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "type": "array",
+            "title": "Options",
+            "description": "The choices for pick one and pick any; the levels, lowest first, for scale.",
+            "default": []
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models",
+            "description": "Decision models or LLMs; see `GET /v1/models`.",
+            "default": [
+              "typesafe/jev-1.14"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "Task"
+      },
+      "Task-Output": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "template": {
+            "type": "string",
+            "title": "Template",
+            "description": "The prompt, e.g. \u201cIs this review negative? {{review}}\u201d.",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "yes_no",
+              "pick_one",
+              "pick_any",
+              "scale"
+            ],
+            "title": "Type",
+            "default": "yes_no"
+          },
+          "column": {
+            "type": "string",
+            "title": "Column",
+            "description": "Base name of the result columns.",
+            "default": "answer"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "type": "array",
+            "title": "Options",
+            "description": "The choices for pick one and pick any; the levels, lowest first, for scale.",
+            "default": []
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models",
+            "description": "Decision models or LLMs; see `GET /v1/models`.",
+            "default": [
+              "typesafe/jev-1.14"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "template",
+          "type",
+          "column",
+          "options",
+          "models"
+        ],
+        "title": "Task"
+      },
+      "TaskModelCost": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "cost": {
+            "type": "number",
+            "title": "Cost",
+            "description": "USD spent by this run; cached answers are free."
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "description": "Rows without an answer."
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "model",
+          "cost",
+          "failed"
+        ],
+        "title": "TaskModelCost"
       },
       "TemplateField": {
         "properties": {
@@ -797,7 +1848,7 @@
           "total_estimate": {
             "type": "integer",
             "title": "Total Estimate",
-            "description": "Estimated tokens for all rows of the dataset."
+            "description": "Estimated tokens for all selected rows."
           }
         },
         "type": "object",

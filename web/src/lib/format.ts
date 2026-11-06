@@ -31,3 +31,26 @@ export function errorMessage(error: unknown): string {
   if (Array.isArray(detail)) return detail.map((d) => d.msg).join("; ");
   return "Something went wrong";
 }
+
+/** US dollars; tiny per-row costs keep two significant digits instead of rounding to $0.00. */
+export function formatUsd(amount: number): string {
+  if (amount === 0) return "$0";
+  if (amount < 0.01) return `$${amount.toPrecision(2)}`;
+  return `$${amount.toFixed(2)}`;
+}
+
+const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+/** How long ago, e.g. "5 minutes ago", "yesterday". */
+export function formatAgo(iso: string): string {
+  const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60],
+  ];
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit);
+  }
+  return "just now";
+}

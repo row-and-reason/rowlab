@@ -40,6 +40,9 @@ make gen-client   # after any API change: regenerate openapi.json + web/src/lib/
 make build        # web static export bundled into the Python wheel → server/dist/
 ```
 
+Model calls go through [OpenRouter](https://openrouter.ai): set `OPENROUTER_API_KEY`, or save a key from
+the UI (stored in the data folder, never returned by the API).
+
 Run the built package as a user would: `uvx --from server/dist/rowlab-*.whl rowlab serve`.
 
 rowlab keeps its state (SQLite database, ingested datasets as Parquet) in `~/.rowlab`. Set

@@ -1,0 +1,156 @@
+"""OpenRouter: the model catalog, decision calls and chat completions. Everything OpenRouter-specific
+lives here.
+
+- Decisions API (alpha): `POST /api/alpha/decisions` with a `state` (the content to judge) and typed
+  `questions`; returns one typed answer per question.
+- Chat completions: `POST /api/v1/chat/completions`, with `response_format` set to a JSON schema.
+
+Both report their cost in USD as `usage.cost`.
+"""
+
+import hashlib
+import json
+import time
+from datetime import UTC, datetime
+from typing import Any, Literal
+
+import httpx
+from pydantic import BaseModel
+
+from rowlab import __version__
+from rowlab.core import db
+from rowlab.core.errors import InvalidRequest
+
+BASE_URL = "https://openrouter.ai/api"
+CATALOG_TTL_SECONDS = 3600
+
+
+class Model(BaseModel):
+    id: str
+    name: str
+    kind: Literal["decision", "llm"]
+    prompt_price: float  # USD per input token
+    completion_price: float  # USD per output token
+    context_length: int
+
+
+class Response(BaseModel):
+    """A model's reply: the decision answers, or the chat message content."""
+
+    data: Any
+    cost: float
+    cached: bool
+
+
+class OpenRouterError(Exception):
+    """A failed OpenRouter call, with OpenRouter's own message."""
+
+
+_catalog: tuple[float, list[Model]] | None = None
+
+
+def models() -> list[Model]:
+    """Decision models, then LLMs that support structured outputs, each cheapest first. Cached for
+    an hour."""
+    global _catalog
+    if _catalog is None or time.monotonic() - _catalog[0] > CATALOG_TTL_SECONDS:
+        decision = _request("GET", "/v1/models?output_modalities=decisions", api_key=None)["data"]
+        chat = _request("GET", "/v1/models", api_key=None)["data"]
+        llms = [
+            m
+            for m in chat
+            if "text" in m["architecture"]["output_modalities"]
+            and "structured_outputs" in (m.get("supported_parameters") or [])
+        ]
+        found = [_model(m, "decision") for m in decision] + [_model(m, "llm") for m in llms]
+        _catalog = (
+            time.monotonic(),
+            sorted(found, key=lambda m: (m.kind != "decision", m.prompt_price, m.name)),
+        )
+    return _catalog[1]
+
+
+def model_kind(model_id: str) -> Literal["decision", "llm"]:
+    for model in models():
+        if model.id == model_id:
+            return model.kind
+    raise InvalidRequest(f"Unknown model: {model_id}")
+
+
+def check_key(api_key: str) -> None:
+    """Raise InvalidRequest unless OpenRouter accepts the key."""
+    try:
+        _request("GET", "/v1/key", api_key=api_key)
+    except OpenRouterError as e:
+        raise InvalidRequest(f"OpenRouter did not accept the key: {e}") from e
+
+
+def decide(model: str, state: str, questions: dict[str, Any], *, api_key: str) -> Response:
+    """Ask a decision model typed questions about `state`. `data` is the answers by question."""
+    body = {"model": model, "state": state, "questions": questions}
+    response, cached = _cached_post("/alpha/decisions", body, api_key)
+    return Response(data=response["answers"], cost=response["usage"]["cost"], cached=cached)
+
+
+def complete(
+    model: str, messages: list[dict[str, str]], schema: dict[str, Any], *, api_key: str
+) -> Response:
+    """Ask an LLM for a JSON reply matching `schema`. `data` is the reply's text."""
+    body = {
+        "model": model,
+        "messages": messages,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "answer", "strict": True, "schema": schema},
+        },
+    }
+    response, cached = _cached_post("/v1/chat/completions", body, api_key)
+    content = (response.get("choices") or [{}])[0].get("message", {}).get("content")
+    return Response(data=content, cost=response.get("usage", {}).get("cost", 0), cached=cached)
+
+
+def _cached_post(path: str, body: dict[str, Any], api_key: str) -> tuple[dict[str, Any], bool]:
+    """POST, unless the identical request was answered before: a paid call is never made twice."""
+    key = hashlib.sha256(
+        json.dumps({"path": path, "body": body}, sort_keys=True).encode()
+    ).hexdigest()
+    with db.connect() as conn:
+        row = conn.execute("SELECT response FROM responses WHERE key = ?", (key,)).fetchone()
+    if row is not None:
+        return json.loads(row["response"]), True
+    response = _request("POST", path, api_key=api_key, body=body)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO responses (key, response, created_at) VALUES (?, ?, ?)",
+            (key, json.dumps(response), datetime.now(UTC).isoformat()),
+        )
+    return response, False
+
+
+def _model(data: dict[str, Any], kind: Literal["decision", "llm"]) -> Model:
+    pricing = data.get("pricing") or {}
+    return Model(
+        id=data["id"],
+        name=data["name"],
+        kind=kind,
+        prompt_price=float(pricing.get("prompt") or 0),
+        completion_price=float(pricing.get("completion") or 0),
+        context_length=data.get("context_length") or 0,
+    )
+
+
+def _request(method: str, path: str, *, api_key: str | None, body: Any = None) -> dict[str, Any]:
+    headers = {"User-Agent": f"rowlab/{__version__}", "X-Title": "rowlab"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        response = httpx.request(method, BASE_URL + path, headers=headers, json=body, timeout=120)
+    except httpx.HTTPError as e:
+        raise OpenRouterError(f"Could not reach OpenRouter: {e}") from e
+    if response.is_error:
+        try:
+            message = response.json()["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            message = response.text[:200]
+        raise OpenRouterError(f"HTTP {response.status_code}: {message}")
+    return response.json()

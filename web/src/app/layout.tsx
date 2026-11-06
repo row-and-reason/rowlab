@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import { ThemeProvider } from "next-themes";
 
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,15 +26,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // next-themes sets the theme class before React hydrates.
+      suppressHydrationWarning
     >
-      <body className="flex h-full flex-col">
-        <header className="flex h-12 shrink-0 items-center border-b px-4">
-          <Link href="/" className="font-semibold">
-            rowlab
-          </Link>
-        </header>
-        {children}
-        <Toaster />
+      <body className="flex h-full flex-col overflow-hidden">
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <TooltipProvider>
+            {children}
+            <Toaster />
+          </TooltipProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

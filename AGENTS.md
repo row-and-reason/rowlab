@@ -21,6 +21,18 @@ Guidance for AI agents (and humans) working in this repo. See `README.md` for wh
   If nothing in the registry fits, ask before building one.
 - Leave the generated files in `web/src/components/ui/` as shadcn wrote them.
 
+## Make it feel like an app, not a website
+
+- The window never scrolls; each column scrolls on its own and starts with a thin toolbar (`PaneHeader`)
+  holding its title and actions. No page-style headings or hero sections.
+- Dense: small control sizes (`size="sm"`/`"xs"`), no cards inside cards, lists over boxed forms.
+- Settings live in toolbars and popovers (Filter ▾, Display ▾); actions on a thing live in its menu
+  (right-click or "…"), not in loose buttons.
+- Everything important is in the ⌘K palette, common actions get a shortcut, and shortcuts are shown in
+  tooltips and menus (`TooltipButton`, `Kbd`).
+- Interface chrome isn't selectable text; data (table cells) and inputs are.
+- One accent colour, dark mode following the system; both come from the theme variables in `globals.css`.
+
 ## Clean up tech debt when you find it, not later
 
 "Later" never comes. When your work touches an area with debt, fix it as part of the same change.

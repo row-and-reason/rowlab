@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import duckdb
+import duckdb.sqltypes
 from pydantic import BaseModel, Field
 
 from rowlab import __version__
@@ -51,6 +52,13 @@ class Column(BaseModel):
     type: str
 
 
+class RunProgress(BaseModel):
+    run_id: str
+    number: int
+    done: int = Field(description="Model calls answered so far.")
+    total: int = Field(description="Model calls the run makes.")
+
+
 class Dataset(BaseModel):
     id: str
     name: str
@@ -60,6 +68,10 @@ class Dataset(BaseModel):
     size_bytes: int
     columns: list[Column]
     created_at: datetime
+    last_activity_at: datetime = Field(
+        description="When it was added or last run, whichever is later."
+    )
+    running: RunProgress | None = Field(description="Its latest run, while that is running.")
 
 
 class ColumnProfile(BaseModel):
@@ -83,16 +95,28 @@ class Sort(BaseModel):
     desc: bool = False
 
 
-class Query(BaseModel):
+class RowSelection(BaseModel):
     search: str = Field("", description="Case-insensitive text match against any column.")
     filters: list[Filter] = []
+
+
+class Scope(RowSelection):
+    """Which rows, in which order: what the rows table shows and what a job runs on."""
+
     sort: list[Sort] = Field([], description=f"Ties and the default order are by `{ROW_ID}`.")
+    limit: int | None = Field(None, ge=1, description="Only the first rows, in this order.")
+
+
+class Query(Scope):
+    """A page of a scope's rows."""
+
     offset: int = Field(0, ge=0)
-    limit: int = Field(100, ge=1, le=1000)
+    page_size: int = Field(100, ge=1, le=1000)
 
 
 class QueryResult(BaseModel):
-    total: int = Field(description="Rows matching the search and filters, ignoring paging.")
+    total: int = Field(description="Rows in the scope, ignoring paging.")
+    matched: int = Field(description="Rows matching the search and filters, ignoring the limit.")
     rows: list[dict[str, Any]]
 
 
@@ -199,6 +223,7 @@ def _ingest(path: Path, *, name: str, source: str) -> Dataset:
         shutil.rmtree(directory)
         raise
 
+    now = datetime.now(UTC)
     dataset = Dataset(
         id=dataset_id,
         name=name,
@@ -207,7 +232,9 @@ def _ingest(path: Path, *, name: str, source: str) -> Dataset:
         row_count=row_count,
         size_bytes=(directory / "data.parquet").stat().st_size,
         columns=[Column(name=ROW_ID, type="BIGINT"), *columns],
-        created_at=datetime.now(UTC),
+        created_at=now,
+        last_activity_at=now,
+        running=None,
     )
     with db.connect() as conn:
         conn.execute(
@@ -227,15 +254,29 @@ def _ingest(path: Path, *, name: str, source: str) -> Dataset:
     return dataset
 
 
+# Datasets with their latest activity and the progress of a running run. Timestamps are ISO 8601 in
+# UTC, so they compare as text.
+_SELECT = """
+SELECT d.*,
+    max(d.created_at, coalesce((SELECT max(r.created_at) FROM runs r WHERE r.dataset_id = d.id), ''))
+        AS last_activity_at,
+    (SELECT json_object('run_id', r.id, 'number', r.number, 'done', r.done, 'total', r.total)
+        FROM runs r WHERE r.dataset_id = d.id AND r.status = 'running'
+        ORDER BY r.number DESC LIMIT 1) AS running
+FROM datasets d
+"""
+
+
 def list_datasets() -> list[Dataset]:
+    """Every dataset, the most recently added or run first."""
     with db.connect() as conn:
-        rows = conn.execute("SELECT * FROM datasets ORDER BY created_at DESC").fetchall()
+        rows = conn.execute(f"{_SELECT} ORDER BY last_activity_at DESC").fetchall()
     return [_from_row(row) for row in rows]
 
 
 def get_dataset(dataset_id: str) -> Dataset:
     with db.connect() as conn:
-        row = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+        row = conn.execute(f"{_SELECT} WHERE d.id = ?", (dataset_id,)).fetchone()
     if row is None:
         raise NotFound(f"Dataset {dataset_id} not found")
     return _from_row(row)
@@ -248,13 +289,38 @@ def delete_dataset(dataset_id: str) -> None:
     shutil.rmtree(_dataset_dir(dataset_id), ignore_errors=True)
 
 
-def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
-    """Per-column type, range, average, approximate distinct count and share of nulls."""
-    get_dataset(dataset_id)
+def dataset_fields(dataset_id: str) -> dict[str, tuple[str, list[str]]]:
+    """Every column and every path into struct columns, in column order.
+
+    Maps the path, e.g. `actor.login`, to its type and the keys leading to it in a row,
+    e.g. `["actor", "login"]`. Keys may contain dots themselves; the path is only for display.
+    """
     with duckdb.connect() as con:
-        rows = con.execute(
-            f"SUMMARIZE SELECT * EXCLUDE ({ROW_ID}) FROM {parquet_source(dataset_id)}"
-        )
+        relation = con.sql(f"SELECT * EXCLUDE ({ROW_ID}) FROM {parquet_source(dataset_id)}")
+        columns = list(zip(relation.columns, relation.types))
+    fields: dict[str, tuple[str, list[str]]] = {}
+
+    def add(keys: list[str], type_: duckdb.sqltypes.DuckDBPyType) -> None:
+        fields.setdefault(".".join(keys), (str(type_), keys))
+        if type_.id == "struct":
+            for name, child in type_.children:
+                add([*keys, name], child)
+
+    for name, type_ in columns:
+        add([name], type_)
+    return fields
+
+
+def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
+    """Type, range, average, approximate distinct count and share of nulls for every column and
+    every path into struct columns (e.g. `actor.login`)."""
+    get_dataset(dataset_id)
+    select = ", ".join(
+        "t." + ".".join(_ident(k) for k in keys) + f" AS {_ident(path)}"
+        for path, (_, keys) in dataset_fields(dataset_id).items()
+    )
+    with duckdb.connect() as con:
+        rows = con.execute(f"SUMMARIZE SELECT {select} FROM {parquet_source(dataset_id)} AS t")
         summary = [dict(zip([d[0] for d in rows.description], r)) for r in rows.fetchall()]
     return [
         ColumnProfile(
@@ -271,18 +337,56 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
 
 
 def query_dataset(dataset_id: str, query: Query) -> QueryResult:
-    """One page of rows matching the search and filters, in the requested order."""
-    dataset = get_dataset(dataset_id)
-    types = {c.name: c.type for c in dataset.columns}
+    """One page of a scope's rows: matching the search and filters, in order, up to the limit."""
+    types = _column_types(dataset_id)
+    where, params = _where(query, types)
+    order = [
+        f"{_ident(_check_column(s.column, types))} {'DESC' if s.desc else 'ASC'} NULLS LAST"
+        for s in query.sort
+    ]
+    order.append(ROW_ID)
 
+    sql_from = f"FROM {parquet_source(dataset_id)} AS t WHERE {where}"
+    try:
+        with duckdb.connect() as con:
+            matched = con.execute(f"SELECT count(*) {sql_from}", params).fetchone()[0]
+            total = min(matched, query.limit) if query.limit else matched
+            size = max(0, min(query.page_size, total - query.offset))
+            rows = con.execute(
+                f"SELECT to_json(t) {sql_from} ORDER BY {', '.join(order)} LIMIT ? OFFSET ?",
+                [*params, size, query.offset],
+            ).fetchall()
+    except duckdb.ConversionException as e:
+        raise InvalidRequest(f"Invalid filter value: {e}") from e
+    return QueryResult(total=total, matched=matched, rows=[json.loads(r[0]) for r in rows])
+
+
+def sample_rows(dataset_id: str, n: int, selection: RowSelection) -> list[dict[str, Any]]:
+    """Up to `n` of the selected rows, picked at random, the same ones on every call."""
+    where, params = _where(selection, _column_types(dataset_id))
+    try:
+        with duckdb.connect() as con:
+            # Sampling a subquery, because DuckDB samples before applying a WHERE clause.
+            rows = con.execute(
+                f"SELECT to_json(t) FROM (SELECT * FROM {parquet_source(dataset_id)} "
+                f"WHERE {where}) AS t USING SAMPLE reservoir({int(n)} ROWS) REPEATABLE (1)",
+                params,
+            ).fetchall()
+    except duckdb.ConversionException as e:
+        raise InvalidRequest(f"Invalid filter value: {e}") from e
+    return [json.loads(r[0]) for r in rows]
+
+
+def _where(selection: RowSelection, types: dict[str, str]) -> tuple[str, list[Any]]:
+    """A SQL condition, with its parameters, for the rows a selection matches."""
     where, params = ["true"], []
-    if query.search:
+    if selection.search:
         searchable = [_ident(c) for c in types if c != ROW_ID]
         where.append(
             "(" + " OR ".join(f"contains(lower(CAST({c} AS VARCHAR)), ?)" for c in searchable) + ")"
         )
-        params += [query.search.lower()] * len(searchable)
-    for f in query.filters:
+        params += [selection.search.lower()] * len(searchable)
+    for f in selection.filters:
         column = _ident(_check_column(f.column, types))
         if f.op == "is_null":
             where.append(f"{column} IS NULL")
@@ -295,34 +399,11 @@ def query_dataset(dataset_id: str, query: Query) -> QueryResult:
             operator = _OPERATORS[f.op]
             where.append(f"{column} {operator} CAST(? AS {types[f.column]})")
             params.append(f.value)
-
-    order = [
-        f"{_ident(_check_column(s.column, types))} {'DESC' if s.desc else 'ASC'} NULLS LAST"
-        for s in query.sort
-    ]
-    order.append(ROW_ID)
-
-    sql_from = f"FROM {parquet_source(dataset_id)} AS t WHERE {' AND '.join(where)}"
-    try:
-        with duckdb.connect() as con:
-            total = con.execute(f"SELECT count(*) {sql_from}", params).fetchone()[0]
-            rows = con.execute(
-                f"SELECT to_json(t) {sql_from} ORDER BY {', '.join(order)} LIMIT ? OFFSET ?",
-                [*params, query.limit, query.offset],
-            ).fetchall()
-    except duckdb.ConversionException as e:
-        raise InvalidRequest(f"Invalid filter value: {e}") from e
-    return QueryResult(total=total, rows=[json.loads(r[0]) for r in rows])
+    return " AND ".join(where), params
 
 
-def sample_rows(dataset_id: str, n: int) -> list[dict[str, Any]]:
-    """Up to `n` rows picked at random, the same ones on every call."""
-    with duckdb.connect() as con:
-        rows = con.execute(
-            f"SELECT to_json(t) FROM {parquet_source(dataset_id)} AS t "
-            f"USING SAMPLE reservoir({int(n)} ROWS) REPEATABLE (1)"
-        ).fetchall()
-    return [json.loads(r[0]) for r in rows]
+def _column_types(dataset_id: str) -> dict[str, str]:
+    return {c.name: c.type for c in get_dataset(dataset_id).columns}
 
 
 _OPERATORS = {
@@ -342,7 +423,8 @@ def _check_column(name: str, types: dict[str, str]) -> str:
 
 
 def _from_row(row: sqlite3.Row) -> Dataset:
-    return Dataset(**{**dict(row), "columns": json.loads(row["columns"])})
+    running = json.loads(row["running"]) if row["running"] else None
+    return Dataset(**{**dict(row), "columns": json.loads(row["columns"]), "running": running})
 
 
 def _dataset_dir(dataset_id: str) -> Path:

@@ -1,6 +1,5 @@
 "use client";
 
-import { PlusIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -11,7 +10,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -20,8 +18,15 @@ import { createDataset, type Dataset } from "@/lib/api/client";
 import { errorMessage, formatNumber } from "@/lib/format";
 
 /** Upload a file, or load one from a path on the server's machine or a public URL. */
-export function AddDataset({ onAdded }: { onAdded: (dataset: Dataset) => void }) {
-  const [open, setOpen] = useState(false);
+export function AddDataset({
+  open,
+  onOpenChange,
+  onAdded,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onAdded: (dataset: Dataset) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [source, setSource] = useState("");
 
@@ -35,16 +40,12 @@ export function AddDataset({ onAdded }: { onAdded: (dataset: Dataset) => void })
     }
     toast.success(`Loaded ${data.name}: ${formatNumber(data.row_count)} rows`);
     setSource("");
-    setOpen(false);
+    onOpenChange(false);
     onAdded(data);
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button className="w-full" />}>
-        <PlusIcon data-icon="inline-start" />
-        Add data
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add data</DialogTitle>

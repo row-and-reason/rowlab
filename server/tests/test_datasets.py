@@ -114,10 +114,10 @@ def test_profile(client, dataset):
 
 
 def test_query_pages_in_file_order(client, dataset):
-    result = query(client, dataset["id"], limit=2)
+    result = query(client, dataset["id"], page_size=2)
     assert result["total"] == 3
     assert [r["name"] for r in result["rows"]] == ["Ada", "Alan"]
-    result = query(client, dataset["id"], limit=2, offset=2)
+    result = query(client, dataset["id"], page_size=2, offset=2)
     assert [r["name"] for r in result["rows"]] == ["Grace"]
     assert result["rows"][0] == {"__row_id": 2, "name": "Grace", "age": None, "city": "Arlington"}
 
@@ -268,3 +268,22 @@ def test_name_extension_matches_content(client, tmp_path, filename, content, nam
     dataset = client.post("/v1/datasets", data={"source": str(path)}).json()
     assert dataset["name"] == name
     assert dataset["source"] == str(path)
+
+
+def test_profile_includes_nested_fields(client, tmp_path):
+    path = tmp_path / "events.jsonl"
+    path.write_text('{"actor": {"login": "ada", "id": 1}}\n{"actor": {"login": "alan", "id": 2}}\n')
+    dataset = client.post("/v1/datasets", data={"source": str(path)}).json()
+    profile = {p["name"]: p for p in client.get(f"/v1/datasets/{dataset['id']}/profile").json()}
+    assert list(profile) == ["actor", "actor.login", "actor.id"]
+    assert profile["actor.login"]["min"] == "ada"
+    assert profile["actor.id"]["max"] == "2"
+
+
+def test_query_limit_keeps_only_the_first_rows_in_order(client, dataset):
+    sort = [{"column": "age", "desc": True}]
+    result = query(client, dataset["id"], sort=sort, limit=2, page_size=1, offset=1)
+    assert result["total"] == 2
+    assert result["matched"] == 3
+    assert [r["name"] for r in result["rows"]] == ["Ada"]
+    assert query(client, dataset["id"], limit=2, offset=2)["rows"] == []

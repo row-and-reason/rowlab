@@ -100,10 +100,6 @@ function toDoc(template: string): JSONContent {
   };
 }
 
-export function insertField(editor: Editor, path: string) {
-  editor.chain().focus().insertContent({ type: "field", attrs: { path } }).run();
-}
-
 export function usePromptEditor(template: string, onChange: (template: string) => void) {
   return useEditor({
     extensions: [
@@ -114,7 +110,7 @@ export function usePromptEditor(template: string, onChange: (template: string) =
       UndoRedo,
       Dropcursor,
       Placeholder.configure({
-        placeholder: "Write the prompt for each row. Click or drag a column to insert it.",
+        placeholder: "Is this review negative? …then drag in the columns it is about.",
       }),
     ],
     content: toDoc(template),
@@ -122,7 +118,7 @@ export function usePromptEditor(template: string, onChange: (template: string) =
     editorProps: {
       attributes: {
         class:
-          "min-h-40 w-full rounded-lg border border-input px-3 py-2 text-sm leading-7 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+          "min-h-32 w-full rounded-lg border border-input px-3 py-2 text-sm leading-7 outline-none select-text focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
       },
     },
     onUpdate: ({ editor }) => onChange(editor.getText({ blockSeparator: "\n" })),

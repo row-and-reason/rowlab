@@ -115,6 +115,160 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/datasets/{dataset_id}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Jobs */
+        get: operations["listJobs"];
+        put?: never;
+        /** Create Job */
+        post: operations["createJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Job */
+        put: operations["updateJob"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/jobs/{job_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Run
+         * @description Start running every task with every model on the rows in the job's scope. It runs in the
+         *     background: poll `GET /v1/runs/{id}` for its progress and answers. Answers already given are
+         *     free: they come from the response cache.
+         */
+        post: operations["createRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/datasets/{dataset_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description A dataset's runs, newest first, without their answers.
+         */
+        get: operations["listRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run
+         * @description A run with its settings, costs and answers for every row.
+         */
+        get: operations["getRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["getSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/openrouter-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save Openrouter Key
+         * @description Check the key with OpenRouter and save it locally.
+         */
+        put: operations["saveOpenRouterKey"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Models
+         * @description Models a job can use: decision models, then LLMs with structured outputs, each cheapest first.
+         */
+        get: operations["listModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -180,6 +334,14 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Last Activity At
+             * Format: date-time
+             * @description When it was added or last run, whichever is later.
+             */
+            last_activity_at: string;
+            /** @description Its latest run, while that is running. */
+            running: components["schemas"]["RunProgress"] | null;
         };
         /** Filter */
         Filter: {
@@ -205,7 +367,75 @@ export interface components {
             /** Version */
             version: string;
         };
-        /** Query */
+        /** Job */
+        Job: {
+            scope: components["schemas"]["Scope"];
+            /** Tasks */
+            tasks: components["schemas"]["Task-Output"][];
+            /** Id */
+            id: string;
+            /** Dataset Id */
+            dataset_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** JobConfig */
+        "JobConfig-Input": {
+            scope?: components["schemas"]["Scope"];
+            /** Tasks */
+            tasks?: components["schemas"]["Task-Input"][];
+        };
+        /** JobConfig */
+        "JobConfig-Output": {
+            scope: components["schemas"]["Scope"];
+            /** Tasks */
+            tasks: components["schemas"]["Task-Output"][];
+        };
+        /** Model */
+        Model: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "decision" | "llm";
+            /** Prompt Price */
+            prompt_price: number;
+            /** Completion Price */
+            completion_price: number;
+            /** Context Length */
+            context_length: number;
+        };
+        /** OpenRouterKey */
+        OpenRouterKey: {
+            /** Key */
+            key: string;
+        };
+        /** Option */
+        Option: {
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+        };
+        /**
+         * Query
+         * @description A page of a scope's rows.
+         */
         Query: {
             /**
              * Search
@@ -225,23 +455,33 @@ export interface components {
              */
             sort: components["schemas"]["Sort"][];
             /**
+             * Limit
+             * @description Only the first rows, in this order.
+             */
+            limit?: number | null;
+            /**
              * Offset
              * @default 0
              */
             offset: number;
             /**
-             * Limit
+             * Page Size
              * @default 100
              */
-            limit: number;
+            page_size: number;
         };
         /** QueryResult */
         QueryResult: {
             /**
              * Total
-             * @description Rows matching the search and filters, ignoring paging.
+             * @description Rows in the scope, ignoring paging.
              */
             total: number;
+            /**
+             * Matched
+             * @description Rows matching the search and filters, ignoring the limit.
+             */
+            matched: number;
             /** Rows */
             rows: {
                 [key: string]: unknown;
@@ -252,8 +492,16 @@ export interface components {
             /** Template */
             template: string;
             /**
+             * @default {
+             *       "search": "",
+             *       "filters": [],
+             *       "sort": []
+             *     }
+             */
+            scope: components["schemas"]["Scope"];
+            /**
              * Offset
-             * @description First row to render, by `__row_id`.
+             * @description First row of the scope to render, counting from 0.
              * @default 0
              */
             offset: number;
@@ -270,6 +518,11 @@ export interface components {
              * @description Everything the template can use.
              */
             fields: components["schemas"]["TemplateField"][];
+            /**
+             * Selected Rows
+             * @description Rows in the scope.
+             */
+            selected_rows: number;
             /** Warnings */
             warnings: string[];
             /** Rows */
@@ -292,6 +545,192 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** Run */
+        Run: {
+            /** Id */
+            id: string;
+            /** Dataset Id */
+            dataset_id: string;
+            /**
+             * Number
+             * @description 1, 2, … per dataset.
+             */
+            number: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+            /**
+             * Done
+             * @description Model calls answered so far.
+             */
+            done: number;
+            /**
+             * Total
+             * @description Model calls the run makes.
+             */
+            total: number;
+            /**
+             * Error
+             * @description Why the run failed.
+             */
+            error: string | null;
+            /** @description The job's scope and tasks when the run started. */
+            config: components["schemas"]["JobConfig-Output"];
+            /**
+             * Columns
+             * @description The answer columns, each with a `_proba` column.
+             */
+            columns: string[];
+            /**
+             * Costs
+             * @description Per task and model.
+             */
+            costs: components["schemas"]["TaskModelCost"][];
+            /** Row Count */
+            row_count: number;
+            /**
+             * Cost
+             * @description USD spent by this run; cached answers are free.
+             */
+            cost: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Rows */
+            rows: components["schemas"]["RunRow"][];
+        };
+        /** RunProgress */
+        RunProgress: {
+            /** Run Id */
+            run_id: string;
+            /** Number */
+            number: number;
+            /**
+             * Done
+             * @description Model calls answered so far.
+             */
+            done: number;
+            /**
+             * Total
+             * @description Model calls the run makes.
+             */
+            total: number;
+        };
+        /** RunRow */
+        RunRow: {
+            /** Row Id */
+            row_id: number;
+            /**
+             * Values
+             * @description Each answer column and its `_proba` column.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+            /**
+             * Errors
+             * @description Why an answer column is missing, by column.
+             */
+            errors: {
+                [key: string]: string;
+            };
+        };
+        /** RunSummary */
+        RunSummary: {
+            /** Id */
+            id: string;
+            /** Dataset Id */
+            dataset_id: string;
+            /**
+             * Number
+             * @description 1, 2, … per dataset.
+             */
+            number: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+            /**
+             * Done
+             * @description Model calls answered so far.
+             */
+            done: number;
+            /**
+             * Total
+             * @description Model calls the run makes.
+             */
+            total: number;
+            /**
+             * Error
+             * @description Why the run failed.
+             */
+            error: string | null;
+            /** @description The job's scope and tasks when the run started. */
+            config: components["schemas"]["JobConfig-Output"];
+            /**
+             * Columns
+             * @description The answer columns, each with a `_proba` column.
+             */
+            columns: string[];
+            /**
+             * Costs
+             * @description Per task and model.
+             */
+            costs: components["schemas"]["TaskModelCost"][];
+            /** Row Count */
+            row_count: number;
+            /**
+             * Cost
+             * @description USD spent by this run; cached answers are free.
+             */
+            cost: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * Scope
+         * @description Which rows, in which order: what the rows table shows and what a job runs on.
+         */
+        Scope: {
+            /**
+             * Search
+             * @description Case-insensitive text match against any column.
+             * @default
+             */
+            search: string;
+            /**
+             * Filters
+             * @default []
+             */
+            filters: components["schemas"]["Filter"][];
+            /**
+             * Sort
+             * @description Ties and the default order are by `__row_id`.
+             * @default []
+             */
+            sort: components["schemas"]["Sort"][];
+            /**
+             * Limit
+             * @description Only the first rows, in this order.
+             */
+            limit?: number | null;
+        };
+        /** Settings */
+        Settings: {
+            /**
+             * Openrouter Key
+             * @description Where the OpenRouter API key comes from, if set. The key is never returned.
+             */
+            openrouter_key: ("environment" | "saved") | null;
+        };
         /** Sort */
         Sort: {
             /** Column */
@@ -301,6 +740,97 @@ export interface components {
              * @default false
              */
             desc: boolean;
+        };
+        /** Task */
+        "Task-Input": {
+            /** Id */
+            id?: string;
+            /**
+             * Template
+             * @description The prompt, e.g. “Is this review negative? {{review}}”.
+             * @default
+             */
+            template: string;
+            /**
+             * Type
+             * @default yes_no
+             * @enum {string}
+             */
+            type: "yes_no" | "pick_one" | "pick_any" | "scale";
+            /**
+             * Column
+             * @description Base name of the result columns.
+             * @default answer
+             */
+            column: string;
+            /**
+             * Options
+             * @description The choices for pick one and pick any; the levels, lowest first, for scale.
+             * @default []
+             */
+            options: components["schemas"]["Option"][];
+            /**
+             * Models
+             * @description Decision models or LLMs; see `GET /v1/models`.
+             * @default [
+             *       "typesafe/jev-1.14"
+             *     ]
+             */
+            models: string[];
+        };
+        /** Task */
+        "Task-Output": {
+            /** Id */
+            id: string;
+            /**
+             * Template
+             * @description The prompt, e.g. “Is this review negative? {{review}}”.
+             * @default
+             */
+            template: string;
+            /**
+             * Type
+             * @default yes_no
+             * @enum {string}
+             */
+            type: "yes_no" | "pick_one" | "pick_any" | "scale";
+            /**
+             * Column
+             * @description Base name of the result columns.
+             * @default answer
+             */
+            column: string;
+            /**
+             * Options
+             * @description The choices for pick one and pick any; the levels, lowest first, for scale.
+             * @default []
+             */
+            options: components["schemas"]["Option"][];
+            /**
+             * Models
+             * @description Decision models or LLMs; see `GET /v1/models`.
+             * @default [
+             *       "typesafe/jev-1.14"
+             *     ]
+             */
+            models: string[];
+        };
+        /** TaskModelCost */
+        TaskModelCost: {
+            /** Task Id */
+            task_id: string;
+            /** Model */
+            model: string;
+            /**
+             * Cost
+             * @description USD spent by this run; cached answers are free.
+             */
+            cost: number;
+            /**
+             * Failed
+             * @description Rows without an answer.
+             */
+            failed: number;
         };
         /** TemplateField */
         TemplateField: {
@@ -321,7 +851,7 @@ export interface components {
             max: number;
             /**
              * Total Estimate
-             * @description Estimated tokens for all rows of the dataset.
+             * @description Estimated tokens for all selected rows.
              */
             total_estimate: number;
         };
@@ -577,6 +1107,273 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listJobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    createJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobConfig-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    updateJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobConfig-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    createRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+        };
+    };
+    saveOpenRouterKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenRouterKey"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Model"][];
                 };
             };
         };

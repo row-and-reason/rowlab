@@ -10,13 +10,11 @@ import json
 import re
 from typing import Any
 
-import duckdb
-import duckdb.sqltypes
 import tiktoken
 from pydantic import BaseModel, Field
 
 from rowlab.core import datasets
-from rowlab.core.datasets import ROW_ID, Query
+from rowlab.core.datasets import ROW_ID, Query, Scope
 
 PLACEHOLDER = re.compile(r"\{\{\s*(.+?)\s*\}\}")
 
@@ -41,26 +39,28 @@ class TokenStats(BaseModel):
     min: int
     avg: float
     max: int
-    total_estimate: int = Field(description="Estimated tokens for all rows of the dataset.")
+    total_estimate: int = Field(description="Estimated tokens for all selected rows.")
 
 
 class RenderRequest(BaseModel):
     template: str
-    offset: int = Field(0, ge=0, description=f"First row to render, by `{ROW_ID}`.")
+    scope: Scope = Scope()
+    offset: int = Field(0, ge=0, description="First row of the scope to render, counting from 0.")
     limit: int = Field(1, ge=1, le=50)
 
 
 class RenderResult(BaseModel):
     fields: list[TemplateField] = Field(description="Everything the template can use.")
+    selected_rows: int = Field(description="Rows in the scope.")
     warnings: list[str]
     rows: list[RenderedRow]
     tokens: TokenStats
 
 
 def render_dataset(dataset_id: str, request: RenderRequest) -> RenderResult:
-    """Render a template for a page of rows, with warnings and token estimates from a sample."""
-    dataset = datasets.get_dataset(dataset_id)
-    fields = dataset_fields(dataset_id)
+    """Render a template for a page of the selected rows, with warnings, and token estimates from a
+    sample of them."""
+    fields = datasets.dataset_fields(dataset_id)
     keys = {path: field_keys for path, (_, field_keys) in fields.items()}
     used = list(dict.fromkeys(PLACEHOLDER.findall(request.template)))
 
@@ -73,7 +73,10 @@ def render_dataset(dataset_id: str, request: RenderRequest) -> RenderResult:
     if request.template.strip() and not used:
         warnings.append("The template uses no columns, so every row gets the same prompt.")
 
-    page = datasets.query_dataset(dataset_id, Query(offset=request.offset, limit=request.limit))
+    page = datasets.query_dataset(
+        dataset_id,
+        Query(**request.scope.model_dump(), offset=request.offset, page_size=request.limit),
+    )
     rows = []
     for row in page.rows:
         prompt = render(request.template, row, keys)
@@ -84,7 +87,8 @@ def render_dataset(dataset_id: str, request: RenderRequest) -> RenderResult:
             )
         )
 
-    sample = datasets.sample_rows(dataset_id, SAMPLE_SIZE)
+    # Sampled from all matching rows: a limit picks rows by order, which says nothing about tokens.
+    sample = datasets.sample_rows(dataset_id, SAMPLE_SIZE, request.scope)
     counts = [count_tokens(render(request.template, row, keys)) for row in sample]
     for path in used:
         if path in keys:
@@ -98,10 +102,11 @@ def render_dataset(dataset_id: str, request: RenderRequest) -> RenderResult:
         min=min(counts, default=0),
         avg=round(avg, 1),
         max=max(counts, default=0),
-        total_estimate=round(avg * dataset.row_count),
+        total_estimate=round(avg * page.total),
     )
     return RenderResult(
         fields=[TemplateField(path=path, type=type_) for path, (type_, _) in fields.items()],
+        selected_rows=page.total,
         warnings=warnings,
         rows=rows,
         tokens=tokens,
@@ -125,30 +130,6 @@ def to_text(value: Any) -> str:
 def count_tokens(text: str) -> int:
     """An estimate: models differ, so this uses one common tokenizer (OpenAI's o200k)."""
     return len(_encoding().encode(text, disallowed_special=()))
-
-
-def dataset_fields(dataset_id: str) -> dict[str, tuple[str, list[str]]]:
-    """Every column and every path into struct columns, in column order.
-
-    Maps the path, e.g. `actor.login`, to its type and the keys leading to it in a row,
-    e.g. `["actor", "login"]`. Keys may contain dots themselves; the path is only for display.
-    """
-    with duckdb.connect() as con:
-        relation = con.sql(
-            f"SELECT * EXCLUDE ({ROW_ID}) FROM {datasets.parquet_source(dataset_id)}"
-        )
-        columns = list(zip(relation.columns, relation.types))
-    fields: dict[str, tuple[str, list[str]]] = {}
-
-    def add(keys: list[str], type_: duckdb.sqltypes.DuckDBPyType) -> None:
-        fields.setdefault(".".join(keys), (str(type_), keys))
-        if type_.id == "struct":
-            for name, child in type_.children:
-                add([*keys, name], child)
-
-    for name, type_ in columns:
-        add([name], type_)
-    return fields
 
 
 @functools.cache
