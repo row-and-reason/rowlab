@@ -55,6 +55,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Dataset, type Settings } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
+import { datasetTree } from "@/lib/dataset-tree";
 import { isActive } from "@/lib/runs";
 
 // The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
@@ -120,9 +121,11 @@ function Workspace() {
         jobActionsRef.current?.run();
       } else if (!mod && !e.altKey && !isTyping(e.target)) {
         if ((e.key === "j" || e.key === "k") && datasets?.length) {
-          const index = datasets.findIndex((d) => d.id === selectedId);
+          // In the list's order, made datasets under the one they were made from.
+          const order = datasetTree(datasets).map((r) => r.dataset.id);
+          const index = order.indexOf(selectedId ?? "");
           const next = e.key === "j" ? index + 1 : index - 1;
-          select(datasets[Math.min(datasets.length - 1, Math.max(0, next))].id);
+          select(order[Math.min(order.length - 1, Math.max(0, next))]);
         } else if (e.key === "/") {
           e.preventDefault();
           document.getElementById("rows-search")?.focus();

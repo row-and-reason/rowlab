@@ -51,7 +51,7 @@ rowlab keeps its state (SQLite database, ingested datasets as Parquet) in `~/.ro
 ## Non-goals
 
 - Dataset versioning or branching — use git, DVC or your data lake. A dataset made by a run only records
-  which dataset it came from and how; the Lineage tab follows those links.
+  which dataset it came from and how, shown as a tree in the dataset list.
 - Being a system of record or long-term storage
 - Multi-tenant cloud hosting (for now)
 - A general-purpose BI or spreadsheet tool

@@ -180,7 +180,9 @@ def test_run_answers_each_row(client, job, api_key, fake):
     }
 
 
-def test_a_run_makes_a_dataset_that_fills_in_as_it_goes(client, dataset, job, api_key, data_dir):
+def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
+    client, dataset, job, api_key, data_dir
+):
     job = update(client, job, scope={"filters": [{"column": "stars", "op": "eq", "value": "1"}]})
     created = start(client, job)
     made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
@@ -200,15 +202,17 @@ def test_a_run_makes_a_dataset_that_fills_in_as_it_goes(client, dataset, job, ap
         "review",
         "stars",
     ]
-    assert made["row_count"] == 2
+    # Every row is carried over; only the rows in scope get asked.
+    assert (made["row_count"], created["row_count"]) == (3, 2)
     # It is listed first, as the newest dataset, before a single answer is in.
     assert client.get("/v1/datasets").json()[0]["id"] == made["id"]
-    assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [None, None]
+    assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [None] * 3
 
     while runs.process_next():
         pass
     assert [(i, r["negative__jev-1.14"]) for i, r in rows(client, created).items()] == [
         (0, True),
+        (1, None),
         (2, True),
     ]
     done = client.get(f"/v1/datasets/{made['id']}").json()
@@ -269,7 +273,8 @@ def test_run_uses_the_scope(client, job, api_key):
     finished = run(client, update(client, job, scope=scope))
     # Sorted by review, "Broke after a day" (row 2) comes before "Terrible product" (row 0).
     assert finished["row_count"] == 1
-    assert list(rows(client, finished)) == [2]
+    answered = [i for i, r in rows(client, finished).items() if r["negative__jev-1.14"] is not None]
+    assert answered == [2]
 
 
 def test_run_retries_rate_limits(client, job, api_key, fake):
@@ -335,7 +340,8 @@ def test_runs_are_numbered_per_parent_and_frozen(client, dataset, job, api_key):
     second = run(client, update(client, job, scope={**job["scope"], "limit": 1}))
     assert (first["number"], second["number"]) == (1, 2)
     made = [client.get(f"/v1/datasets/{r['dataset_id']}").json() for r in (first, second)]
-    assert [(d["name"], d["row_count"]) for d in made] == [("reviews-run1", 3), ("reviews-run2", 1)]
+    assert [d["name"] for d in made] == ["reviews-run1", "reviews-run2"]
+    assert (first["row_count"], second["row_count"]) == (3, 1)
     assert client.get(f"/v1/runs/{first['id']}").json()["config"]["scope"]["limit"] == 20
 
 

@@ -25,9 +25,9 @@ import { isActive } from "@/lib/runs";
 import { loadOrCreate } from "@/lib/use-job";
 
 /**
- * The Lineage tab: what a dataset was made from and how, and what has been made from it. Every run
- * makes a new dataset, so the datasets form a tree: each one added from a file at the root, and each
- * run's output below the dataset it ran on.
+ * The Lineage tab: what a dataset was made from and how. Every run makes a new dataset, so the datasets
+ * form a tree, shown in the dataset list: each one added from a file at the root, and each run's
+ * dataset under the one it ran on.
  */
 export function Lineage({
   dataset,
@@ -38,13 +38,7 @@ export function Lineage({
   datasets: Dataset[];
   onOpenDataset: (datasetId: string) => void;
 }) {
-  const byId = new Map(datasets.map((d) => [d.id, d]));
-  // Oldest first, ending with this dataset's parent.
-  const ancestors: Dataset[] = [];
-  for (let d = byId.get(dataset.parent_id ?? ""); d; d = byId.get(d.parent_id ?? "")) {
-    ancestors.unshift(d);
-  }
-  const children = datasets.filter((d) => d.parent_id === dataset.id).reverse();
+  const parent = datasets.find((d) => d.id === dataset.parent_id);
 
   return (
     <FieldGroup className="gap-6 p-4">
@@ -52,7 +46,7 @@ export function Lineage({
         <FieldLegend variant="label">Made from</FieldLegend>
         {dataset.parent_id ? (
           <DatasetList
-            datasets={ancestors}
+            datasets={parent ? [parent] : []}
             empty="A dataset that has been deleted."
             onOpenDataset={onOpenDataset}
           />
@@ -64,14 +58,6 @@ export function Lineage({
         )}
       </FieldSet>
       {dataset.run && <RunDetails dataset={dataset} onOpenDataset={onOpenDataset} />}
-      <FieldSet>
-        <FieldLegend variant="label">Made from this</FieldLegend>
-        <DatasetList
-          datasets={children}
-          empty="Nothing yet. Run tasks on these rows to make a new dataset."
-          onOpenDataset={onOpenDataset}
-        />
-      </FieldSet>
     </FieldGroup>
   );
 }

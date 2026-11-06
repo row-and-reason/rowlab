@@ -1,9 +1,9 @@
 """Runs: a job executed on the rows in its scope, making a new dataset, by one runner thread.
 
-Starting a run copies the rows in the job's scope into a new dataset, which shows up straight away and
-fills in as the run goes; the run keeps a frozen copy of the job's settings. The runner processes queued
-runs oldest first, one at a time, in chunks of those rows by `__row_id` (chunk k is always the same
-rows). A chunk's answers are written to the dataset's `parts/part-{k}.parquet` in one go, and only then
+Starting a run copies every row of the dataset into a new one, which shows up straight away; the rows
+in the job's scope get their answers as the run goes, the others keep empty answer columns. The run keeps
+a frozen copy of the job's settings. The runner processes queued runs oldest first, one at a time, in
+chunks of the rows in scope by `__row_id` (chunk k is always the same rows). A chunk's answers are written to the dataset's `parts/part-{k}.parquet` in one go, and only then
 does the run's bookmark (`next_chunk`) move on. So a stop, a crash or a restart loses at most the chunk
 in progress, and redoing it costs nothing: answers come from the response cache. When every chunk is
 written, the dataset is written out as one Parquet file.
@@ -58,7 +58,7 @@ class Run(BaseModel):
     config: JobConfig = Field(description="The job's scope and tasks when the run started.")
     columns: list[str] = Field(description="The answer columns, each with a `_proba` column.")
     costs: list[TaskModelCost] = Field(description="Per task and model, so far.")
-    row_count: int
+    row_count: int = Field(description="Rows it asks about: the rows in its scope.")
     next_chunk: int = Field(description="The first chunk of rows not yet written.")
     done: int = Field(description="Model calls answered (or failed) so far.")
     total: int = Field(description="Model calls the run makes.")
@@ -80,7 +80,7 @@ _wake = threading.Event()
 
 def create_run(job_id: str) -> Run:
     """Queue a run of every task with every model on the rows in the job's scope. Its dataset, with
-    those rows and empty answer columns, is created right away."""
+    every row of the job's dataset and empty answer columns, is created right away."""
     job = jobs.get_job(job_id)
     jobs.check(job)
     if settings.openrouter_key() is None:
@@ -92,13 +92,13 @@ def create_run(job_id: str) -> Run:
             " JOIN datasets d ON d.id = r.dataset_id WHERE d.parent_id = ?",
             (job.dataset_id,),
         ).fetchone()[0]
-    dataset_id = datasets.write_run_rows(job.dataset_id, job.scope)
+    dataset_id, asked = datasets.write_run_rows(job.dataset_id, job.scope)
     try:
+        if asked == 0:
+            raise InvalidRequest("The scope has no rows.")
         # An empty part gives the answer columns their types before any chunk is written.
         _write_part(dataset_id, job.tasks, "part-schema", {})
-        dataset = datasets.register_run_dataset(dataset_id, job.dataset_id, number)
-        if dataset.row_count == 0:
-            raise InvalidRequest("The scope has no rows.")
+        datasets.register_run_dataset(dataset_id, job.dataset_id, number)
         run_id = uuid.uuid4().hex
         with db.connect() as conn:
             conn.execute(
@@ -110,8 +110,8 @@ def create_run(job_id: str) -> Run:
                     number,
                     JobConfig(scope=job.scope, tasks=job.tasks).model_dump_json(),
                     json.dumps([c for task in job.tasks for c in tasks.result_columns(task)]),
-                    dataset.row_count,
-                    dataset.row_count * sum(len(task.models) for task in job.tasks),
+                    asked,
+                    asked * sum(len(task.models) for task in job.tasks),
                     datetime.now(UTC).isoformat(),
                 ),
             )

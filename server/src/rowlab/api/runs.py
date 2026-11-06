@@ -9,9 +9,9 @@ router = APIRouter(tags=["runs"])
 @router.post("/v1/jobs/{job_id}/runs", operation_id="createRun", status_code=201)
 def create_run(job_id: str) -> Run:
     """Queue a run of every task with every model on the rows in the job's scope. It makes a new
-    dataset (`dataset_id`), created right away with those rows, whose answer columns fill in as the
-    run works through them in the background: poll `GET /v1/runs/{id}` for its progress. Answers
-    already given are free: they come from the response cache."""
+    dataset (`dataset_id`), created right away with every row; the answer columns of the rows in
+    scope fill in as the run works through them in the background: poll `GET /v1/runs/{id}` for its
+    progress. Answers already given are free: they come from the response cache."""
     return runs.create_run(job_id)
 
 

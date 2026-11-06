@@ -467,7 +467,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Queue a run of every task with every model on the rows in the job's scope. It makes a new\ndataset (`dataset_id`), created right away with those rows, whose answer columns fill in as the\nrun works through them in the background: poll `GET /v1/runs/{id}` for its progress. Answers\nalready given are free: they come from the response cache.",
+        "description": "Queue a run of every task with every model on the rows in the job's scope. It makes a new\ndataset (`dataset_id`), created right away with every row; the answer columns of the rows in\nscope fill in as the run works through them in the background: poll `GET /v1/runs/{id}` for its\nprogress. Answers already given are free: they come from the response cache.",
         "operationId": "createRun",
         "parameters": [
           {
@@ -1442,7 +1442,8 @@
           },
           "row_count": {
             "type": "integer",
-            "title": "Row Count"
+            "title": "Row Count",
+            "description": "Rows it asks about: the rows in its scope."
           },
           "next_chunk": {
             "type": "integer",

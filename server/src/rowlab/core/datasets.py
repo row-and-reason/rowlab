@@ -1,8 +1,9 @@
 """Datasets: files ingested once into Parquet with a stable `__row_id`, then explored with DuckDB.
 
-A run makes a new dataset from the rows it runs on. While the run is under way, that dataset is read
-from its rows (`rows.parquet`, the parent's rows in the run's scope) joined with the answers written so
-far (`parts/*.parquet`, one file per chunk). When the run finishes, the two are written out once as
+A run makes a new dataset: every row of the parent, with the run's answer columns added, empty for rows
+outside the run's scope. While the run is under way, that dataset is read from its rows (`rows.parquet`,
+a copy of the parent's) joined with the answers written so far (`parts/*.parquet`, one file per chunk);
+`asked.parquet` lists the rows the run asks about. When the run finishes, the two are written out once as
 `data.parquet`, like any other dataset.
 """
 
@@ -222,9 +223,10 @@ def _ingest(path: Path, *, name: str, source: str) -> Dataset:
     return _register(dataset_id, name=name_without_extension(name), source=source)
 
 
-def write_run_rows(parent_id: str, scope: Scope) -> str:
-    """Start the dataset a run makes: copy the parent's rows in the run's scope, so it doesn't depend
-    on the parent. Returns its id; it is recorded once the run's first (empty) part is written."""
+def write_run_rows(parent_id: str, scope: Scope) -> tuple[str, int]:
+    """Start the dataset a run makes: copy the parent's rows, so it doesn't depend on the parent, and
+    list the ones in the run's scope. Returns its id and how many rows the run asks about; it is
+    recorded once the run's first (empty) part is written."""
     types = _column_types(parent_id)
     where, params = _where(scope, types)
     limit = f"LIMIT {int(scope.limit)}" if scope.limit else ""
@@ -234,15 +236,22 @@ def write_run_rows(parent_id: str, scope: Scope) -> str:
     try:
         with duckdb.connect() as con:
             con.execute(
-                f"COPY (SELECT * FROM {dataset_source(parent_id)} AS t WHERE {where} "
+                f"COPY (SELECT * FROM {dataset_source(parent_id)}) "
+                f"TO {sql_string(directory / 'rows.parquet')} (FORMAT parquet)"
+            )
+            con.execute(
+                f"COPY (SELECT {ROW_ID} FROM {dataset_source(parent_id)} AS t WHERE {where} "
                 f"ORDER BY {_order(scope.sort, types)} {limit}) "
-                f"TO {sql_string(directory / 'rows.parquet')} (FORMAT parquet)",
+                f"TO {sql_string(directory / 'asked.parquet')} (FORMAT parquet)",
                 params,
             )
+            asked = con.execute(
+                f"SELECT count(*) FROM read_parquet({sql_string(directory / 'asked.parquet')})"
+            ).fetchone()[0]
     except BaseException:
         shutil.rmtree(directory)
         raise
-    return dataset_id
+    return dataset_id, asked
 
 
 def register_run_dataset(dataset_id: str, parent_id: str, number: int) -> Dataset:
@@ -267,6 +276,7 @@ def finish_run_dataset(dataset_id: str) -> None:
         )
     os.replace(temporary, directory / "data.parquet")
     (directory / "rows.parquet").unlink()
+    (directory / "asked.parquet").unlink()
     shutil.rmtree(run_parts_dir(dataset_id))
     with db.connect() as conn:
         conn.execute(
@@ -276,11 +286,14 @@ def finish_run_dataset(dataset_id: str) -> None:
 
 
 def read_run_rows(dataset_id: str, *, offset: int, limit: int) -> list[dict[str, Any]]:
-    """Rows of a dataset a run is making, by `__row_id`, without their answers."""
-    rows_file = sql_string(_dataset_dir(dataset_id) / "rows.parquet")
+    """The rows a run asks about, by `__row_id`, without their answers."""
+    directory = _dataset_dir(dataset_id)
+    rows_file = sql_string(directory / "rows.parquet")
+    asked_file = sql_string(directory / "asked.parquet")
     with duckdb.connect() as con:
         rows = con.execute(
-            f"SELECT to_json(t) FROM read_parquet({rows_file}) AS t ORDER BY {ROW_ID} "
+            f"SELECT to_json(t) FROM read_parquet({rows_file}) AS t "
+            f"SEMI JOIN read_parquet({asked_file}) AS a USING ({ROW_ID}) ORDER BY {ROW_ID} "
             "LIMIT ? OFFSET ?",
             [limit, offset],
         ).fetchall()

@@ -1,9 +1,17 @@
 "use client";
 
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
-import { KeyRoundIcon, MoonIcon, PlusIcon, SunIcon, Trash2Icon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  KeyRoundIcon,
+  MoonIcon,
+  PlusIcon,
+  SunIcon,
+  Trash2Icon,
+} from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
+import { useMemo, useState } from "react";
 
 import { PaneHeader } from "@/components/pane";
 import { TooltipButton } from "@/components/tooltip-button";
@@ -18,11 +26,14 @@ import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/comp
 import { Spinner } from "@/components/ui/spinner";
 import { ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
 import type { Dataset, Settings } from "@/lib/api/client";
+import { datasetTree } from "@/lib/dataset-tree";
 import { formatNumber } from "@/lib/format";
 import { isActive } from "@/lib/runs";
 import { useSlideReorder } from "@/lib/use-slide-reorder";
 
 type DatasetRun = NonNullable<Dataset["run"]>;
+
+const MAX_INDENT = 3;
 
 /** The left column: every dataset, added from a file or made by a run, and app-wide settings. */
 export function DatasetsPanel({
@@ -41,8 +52,18 @@ export function DatasetsPanel({
   onKey: () => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
-  // The newest dataset comes first; a run's dataset slides in at the top.
-  const slideRef = useSlideReorder(datasets?.map((d) => d.id) ?? []);
+  const [collapsed, setCollapsed] = useState(new Set<string>());
+  const rows = useMemo(() => datasetTree(datasets ?? [], collapsed), [datasets, collapsed]);
+  // A run brings its dataset's family to the top: it slides there.
+  const slideRef = useSlideReorder(rows.map((r) => r.dataset.id));
+
+  function toggle(id: string) {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -64,15 +85,36 @@ export function DatasetsPanel({
           <Spinner className="m-2" />
         ) : (
           <ItemGroup className="relative gap-0.5">
-            {datasets.map((dataset) => (
-              <div key={dataset.id} ref={slideRef(dataset.id)}>
+            {rows.map(({ dataset, depth, hasChildren, open }) => (
+              <div
+                key={dataset.id}
+                ref={slideRef(dataset.id)}
+                className="flex items-center gap-0.5"
+                // Deep chains stop indenting, so names stay readable in a narrow column.
+                style={{ paddingLeft: Math.min(depth, MAX_INDENT) * 12 }}
+              >
+                {hasChildren ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={open ? "Hide what was made from it" : "Show what was made from it"}
+                    aria-expanded={open}
+                    onClick={() => toggle(dataset.id)}
+                  >
+                    <ChevronRightIcon
+                      className={open ? "rotate-90 transition-transform" : "transition-transform"}
+                    />
+                  </Button>
+                ) : (
+                  <span className="w-6 shrink-0" />
+                )}
                 <ContextMenu>
                   <ContextMenuTrigger
                     render={
                       <Item
                         size="xs"
                         variant={dataset.id === selectedId ? "muted" : "default"}
-                        className="relative overflow-hidden"
+                        className="relative min-w-0 flex-1 overflow-hidden"
                         render={<Link href={`/?dataset=${dataset.id}`} />}
                       />
                     }
@@ -83,7 +125,7 @@ export function DatasetsPanel({
                         {dataset.name}
                       </ItemTitle>
                       <ItemDescription className="truncate text-xs">
-                        {describe(dataset, datasets)}
+                        {describe(dataset)}
                       </ItemDescription>
                     </ItemContent>
                   </ContextMenuTrigger>
@@ -127,15 +169,14 @@ export function DatasetsPanel({
   );
 }
 
-/** E.g. "600 rows · 12 columns", or "Run #1 of titanic · stopped" for one a run made. */
-function describe(dataset: Dataset, datasets: Dataset[]): string {
+/** E.g. "600 rows · 12 columns", or "Run #1 · stopped" for one a run made. */
+function describe(dataset: Dataset): string {
   if (!dataset.run) {
     return `${formatNumber(dataset.row_count)} rows · ${dataset.columns.length - 1} columns`;
   }
-  const parent = datasets.find((d) => d.id === dataset.parent_id)?.name ?? "a deleted dataset";
   const status =
     dataset.run.status === "done" ? `${formatNumber(dataset.row_count)} rows` : dataset.run.status;
-  return `Run #${dataset.run.number} of ${parent} · ${status}`;
+  return `Run #${dataset.run.number} · ${status}`;
 }
 
 /** A thin bar along the top edge of a dataset a run is making: how many model calls are done. */

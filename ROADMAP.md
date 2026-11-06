@@ -29,22 +29,27 @@ resumed without paying twice, shows all work and its live progress, and writes t
 ## Workflow: a loop
 
 Labeling a dataset never changes it; a run makes a new dataset with the result columns added, which
-appears at the top of the dataset list straight away and fills in as the run goes. Pick it to filter on the new labels and label again, e.g. a
-cheap yes/no filter first, then an LLM extraction on the "yes" rows only.
+appears under its parent in the dataset list straight away and fills in as the run goes. Pick it to filter
+on the new labels and label again, e.g. a cheap yes/no filter first, then an LLM extraction on the "yes"
+rows only.
 
-- A produced dataset holds **only the rows the run processed** (the job's scope), with the
-  parent's columns plus the result columns. `__row_id` is kept from the parent, so every row can be traced
-  back to the original file.
-- It records its parent dataset and the run that made it, shown in the list ("Run #1 of customers") and in
-  its Lineage tab: what it was made from, how (scope, tasks, models, costs), and what was made from it.
-  Its rows are copied when the run starts, so it doesn't depend on its parent.
+- A run's dataset holds **every row of its parent**, with the parent's columns plus the result columns.
+  Only the rows in the job's scope are asked; the others keep empty result columns. So each step is the
+  complete data with every label so far, and the last one is the one to export. `__row_id` is kept from
+  the parent, so every row can be traced back to the original file.
+- It records its parent dataset and the run that made it: it sits under its parent in the dataset list,
+  and its Lineage tab shows what it was made from and how (scope, tasks, models, costs). Its rows are
+  copied when the run starts, so it doesn't depend on its parent; each run is a full copy, which a cheaper
+  storage model can replace later if needed.
 
 ## UI layout
 
 One page with three resizable columns (widths are remembered):
 
-- **Datasets** — every dataset, newest first: added files, and datasets made by runs, with a thin live
-  progress bar while a run is making them, plus "Add data".
+- **Datasets** — every dataset as a tree: added files at the root, and each run's dataset under the one
+  it ran on, with a thin live progress bar while a run is making it, plus "Add data". Families go by their
+  latest activity, so a run brings its family to the top; a dataset folds away what was made from it,
+  except while a run is still making one. Indentation stops after three levels.
 - **Rows** — the selected dataset's data: the rows table (search, filters, sort, limit), a Columns tab
   with statistics for every column and nested field, and a Lineage tab. Columns are dragged from here
   into a task's prompt. The search, filters, sort and limit are the next run's **scope**: the table
@@ -132,12 +137,12 @@ normalization. An optional reason column is a candidate too.
 ### 4. Runs: start, stop, resume ✅
 
 - `POST /v1/jobs/{id}/runs` queues a run and returns at once with the dataset it makes (`dataset_id`):
-  the rows in scope are copied into it (`rows.parquet`), named `<parent>-run<n>`, with empty answer
-  columns. The run keeps a frozen copy of its scope and tasks and is numbered per parent (#1, #2, …).
+  every row of the parent is copied into it (`rows.parquet`) and the rows in scope listed
+  (`asked.parquet`); it is named `<parent>-run<n>`, with empty answer columns. The run keeps a frozen copy of its scope and tasks and is numbered per parent (#1, #2, …).
   `GET /v1/runs/{id}` returns its status (`queued`, `running`, `stopping`, `stopped`, `done`, `failed`),
   progress and cost per task and model; each dataset carries its run's status and progress too.
 - One runner thread in the server works through queued runs one at a time, oldest first, with 16 model
-  calls in flight. Rows are split into fixed chunks of 500 by `__row_id`. Each finished chunk's answers
+  calls in flight. The rows in scope are split into fixed chunks of 500 by `__row_id`. Each finished chunk's answers
   are written to its own Parquet part file (`datasets/<id>/parts/part-<n>.parquet`, written to a temporary
   file and renamed), and SQLite only records the next chunk to do. Progress is saved about twice a second.
   Until the run is done the dataset is read as its rows joined with the parts written so far, so search,
@@ -153,13 +158,13 @@ normalization. An optional reason column is a candidate too.
   Deleting a dataset deletes the run that makes it; datasets made from it stay.
 - UI: Run opens the new dataset. Its rows fill in as chunks finish; its toolbar has Stop or Resume; its
   Lineage tab shows what it was made from, the run's status, progress bar, answers per second and time
-  left, its settings and costs, "Edit and run again" (puts its scope and tasks back on the parent), and
-  what has been made from it.
+  left, its settings and costs, and "Edit and run again" (puts its scope and tasks back on the parent).
 
 ### 5. Live progress in the dataset feed ✅
 
-- The dataset list is newest first, so a run's dataset slides in at the top. While a run is making it,
-  a thin progress bar shows on top of it, refreshed every second while any run is active.
+- In the dataset list, a run brings its family to the top, sliding there, with its dataset under the one
+  it ran on. While a run is making it, a thin progress bar shows on top of it, refreshed every second
+  while any run is active.
 - A dataset being made shows its rows filling in, and its Lineage tab the progress, answers per second,
   time left, cost so far and failed answers per task and model.
 

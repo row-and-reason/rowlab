@@ -162,9 +162,9 @@ export interface paths {
         /**
          * Create Run
          * @description Queue a run of every task with every model on the rows in the job's scope. It makes a new
-         *     dataset (`dataset_id`), created right away with those rows, whose answer columns fill in as the
-         *     run works through them in the background: poll `GET /v1/runs/{id}` for its progress. Answers
-         *     already given are free: they come from the response cache.
+         *     dataset (`dataset_id`), created right away with every row; the answer columns of the rows in
+         *     scope fill in as the run works through them in the background: poll `GET /v1/runs/{id}` for its
+         *     progress. Answers already given are free: they come from the response cache.
          */
         post: operations["createRun"];
         delete?: never;
@@ -616,7 +616,10 @@ export interface components {
              * @description Per task and model, so far.
              */
             costs: components["schemas"]["TaskModelCost"][];
-            /** Row Count */
+            /**
+             * Row Count
+             * @description Rows it asks about: the rows in its scope.
+             */
             row_count: number;
             /**
              * Next Chunk
