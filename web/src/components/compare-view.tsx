@@ -37,6 +37,7 @@ import {
 import { api, type Comparison, type Dataset } from "@/lib/api/client";
 import { columnLabel, errorMessage, formatNumber } from "@/lib/format";
 import { ALL_ROWS, type WhereFilter } from "@/lib/sql";
+import { reviewedColumn } from "@/components/row-review";
 
 const NO_REFERENCE = "none";
 const NUMERIC = /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|FLOAT|DOUBLE|DECIMAL.*|DATE)$/;
@@ -49,45 +50,63 @@ const NUMERIC = /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|FLOAT|DOUBLE|DECIMAL.
 export function CompareView({
   dataset,
   onFilter,
+  sql,
+  version,
+  onReview,
 }: {
   dataset: Dataset;
-  onFilter: (filters: WhereFilter[]) => void;
+  onFilter: (filters: WhereFilter[], sql: string) => void;
+  sql: string;
+  version: string;
+  onReview: () => void;
 }) {
   const choices = dataset.columns.filter((c) => c.name !== "__row_id");
   const [columns, setColumns] = useState<string[]>([]);
   const [reference, setReference] = useState<string | null>(null);
   const [tolerance, setTolerance] = useState("");
+  const [scope, setScope] = useState("current");
+  const query = scope === "all" ? ALL_ROWS : sql;
   const anchor = useComboboxAnchor();
 
   // To start with: the answers of the run that made this dataset, if it asked several models.
   useEffect(() => {
     if (!dataset.run) return;
     api
-      .GET("/v1/runs/{run_id}", { params: { path: { run_id: dataset.run.id } } })
+      .GET("/v1/runs/{run_id}", {
+        params: { path: { run_id: dataset.run.id } },
+      })
       .then(({ data }) => {
         if (data) setColumns((picked) => (picked.length ? picked : modelGroup(data.columns)));
       });
   }, [dataset.run]);
 
+  const reviewReference = columns[0] ? reviewedColumn(columns[0]) : undefined;
+  const suggested = choices.some((c) => c.name === reviewReference) ? reviewReference : undefined;
+  const selectedReference = reference === NO_REFERENCE ? null : (reference ?? suggested ?? null);
+
   const types = new Map(dataset.columns.map((c) => [c.name, c.type]));
-  const compared = reference ? [...columns, reference] : columns;
+  const compared = selectedReference ? [...columns, selectedReference] : columns;
   const numeric = compared.length > 0 && compared.every((c) => NUMERIC.test(types.get(c) ?? ""));
-  const enough = columns.length >= 2 || (columns.length === 1 && !!reference);
+  const enough = columns.length >= 2 || (columns.length === 1 && !!selectedReference);
   const request = useMemo(
     () =>
       enough
         ? {
-            // Every row, whatever the Rows tab shows.
-            sql: ALL_ROWS,
+            sql: query,
             columns,
-            reference,
+            reference: selectedReference === NO_REFERENCE ? null : selectedReference,
             tolerance: numeric && tolerance !== "" ? Number(tolerance) : null,
           }
         : undefined,
-    [enough, columns, reference, numeric, tolerance],
+    [enough, columns, selectedReference, numeric, tolerance, query],
   );
 
-  const [result, setResult] = useState<{ comparison?: Comparison; error?: string }>();
+  const key = JSON.stringify([request, version]);
+  const [result, setResult] = useState<{
+    key: string;
+    comparison?: Comparison;
+    error?: string;
+  }>();
   useEffect(() => {
     if (!request) return;
     let current = true;
@@ -97,22 +116,60 @@ export function CompareView({
         body: request,
       })
       .then(({ data, error }) => {
-        if (current) setResult(error ? { error: errorMessage(error) } : { comparison: data });
+        if (current)
+          setResult(error ? { key, error: errorMessage(error) } : { key, comparison: data });
+      })
+      .catch(() => {
+        if (current)
+          setResult({
+            key,
+            error: "Could not reach rowlab. Reopen Compare to retry.",
+          });
       });
     return () => {
       current = false;
     };
-  }, [dataset.id, request]);
+  }, [dataset.id, request, key]);
 
-  const comparison = request ? result?.comparison : undefined;
+  const comparison = request && result?.key === key ? result.comparison : undefined;
   return (
     <div className="flex flex-col gap-5 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          items={[
+            { value: "current", label: "Current rows (same scope as Run)" },
+            { value: "all", label: "Whole dataset" },
+          ]}
+          value={scope}
+          onValueChange={(value) => setScope(value ?? "current")}
+        >
+          <SelectTrigger aria-label="Comparison scope">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="current">Current rows (same scope as Run)</SelectItem>
+            <SelectItem value="all">Whole dataset</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onReview}
+          disabled={!!dataset.run && ["queued", "running", "stopping"].includes(dataset.run.status)}
+        >
+          Review a sample
+        </Button>
+      </div>
+      <FieldDescription>
+        Agreement shows consistency, not correctness. Review a random sample and choose its reviewed
+        column as a reference to check quality.
+      </FieldDescription>
       <FieldGroup className="gap-3">
         <Field>
           <FieldLabel htmlFor="compare-columns">Columns</FieldLabel>
           <Combobox
             multiple
-            items={choices.map((c) => c.name)}
+            items={choices.filter((c) => c.name !== selectedReference).map((c) => c.name)}
             value={columns}
             onValueChange={(picked: string[], details) => {
               if (details.reason !== "escape-key") setColumns(picked);
@@ -152,21 +209,25 @@ export function CompareView({
             <Select
               items={[
                 { value: NO_REFERENCE, label: "None" },
-                ...choices.map((c) => ({ value: c.name, label: columnLabel(c.name) })),
+                ...choices
+                  .filter((c) => !columns.includes(c.name))
+                  .map((c) => ({ value: c.name, label: columnLabel(c.name) })),
               ]}
-              value={reference ?? NO_REFERENCE}
-              onValueChange={(value) => setReference(value === NO_REFERENCE ? null : value)}
+              value={selectedReference ?? NO_REFERENCE}
+              onValueChange={(value) => setReference(value ?? NO_REFERENCE)}
             >
               <SelectTrigger id="compare-reference" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_REFERENCE}>None</SelectItem>
-                {choices.map((c) => (
-                  <SelectItem key={c.name} value={c.name}>
-                    {columnLabel(c.name)}
-                  </SelectItem>
-                ))}
+                {choices
+                  .filter((c) => !columns.includes(c.name))
+                  .map((c) => (
+                    <SelectItem key={c.name} value={c.name}>
+                      {columnLabel(c.name)}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
             <FieldDescription>Labels you trust, to measure the others against.</FieldDescription>
@@ -192,14 +253,14 @@ export function CompareView({
         <p className="text-sm text-muted-foreground">
           Pick two or more columns, or one and a reference.
         </p>
-      ) : result?.error ? (
+      ) : result?.key === key && result.error ? (
         <Alert variant="destructive">
           <AlertDescription>{result.error}</AlertDescription>
         </Alert>
       ) : !comparison ? (
         <Spinner />
       ) : (
-        <Results comparison={comparison} onFilter={onFilter} />
+        <Results comparison={comparison} onFilter={(filters) => onFilter(filters, query)} />
       )}
     </div>
   );
@@ -255,6 +316,7 @@ function Results({
               <TableRow>
                 <TableHead>Column</TableHead>
                 <TableHead className="text-right">Accuracy</TableHead>
+                <TableHead className="text-right">Reviewed</TableHead>
                 <TableHead className="text-right">Right</TableHead>
                 <TableHead className="text-right">Wrong</TableHead>
               </TableRow>
@@ -266,6 +328,7 @@ function Results({
                   <TableCell className="text-right">
                     {r.accuracy === null ? "–" : percent(r.accuracy)}
                   </TableCell>
+                  <TableCell className="text-right">{formatNumber(r.compared)}</TableCell>
                   <TableCell className="text-right">{formatNumber(r.correct)}</TableCell>
                   <TableCell className="text-right">
                     {count(r.compared - r.correct, {
@@ -412,7 +475,7 @@ function modelGroup(runColumns: string[]): string[] {
     const base = column.split("__")[0];
     groups.set(base, [...(groups.get(base) ?? []), column]);
   }
-  return [...groups.values()].find((g) => g.length > 1) ?? [];
+  return [...groups.values()].find((g) => g.length > 1) ?? runColumns.slice(0, 1);
 }
 
 function percent(share: number): string {

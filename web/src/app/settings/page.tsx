@@ -57,13 +57,14 @@ function SettingsView() {
 
   return (
     <main className="flex min-h-0 flex-1">
-      <nav className="flex w-56 shrink-0 flex-col border-r">
+      <nav className="flex w-32 shrink-0 flex-col border-r sm:w-56">
         <PaneHeader>
           <TooltipButton
             label="Back"
             keys={["Esc"]}
             variant="ghost"
             size="icon-sm"
+            nativeButton={false}
             render={<Link href={back} />}
           >
             <ArrowLeftIcon />
@@ -97,7 +98,14 @@ function SettingsView() {
                 <FieldDescription>
                   Decision models and hundreds of LLMs, through one key.
                 </FieldDescription>
-                <OpenRouterKey settings={settings} onSaved={setSettings} />
+                <OpenRouterKey
+                  settings={settings}
+                  returnAfterSave={!!params.get("from")}
+                  onSaved={(saved) => {
+                    setSettings(saved);
+                    if (params.get("from")) router.push(back);
+                  }}
+                />
               </FieldSet>
             ) : (
               <FieldSet>
@@ -117,9 +125,11 @@ function SettingsView() {
 function OpenRouterKey({
   settings,
   onSaved,
+  returnAfterSave,
 }: {
   settings: Settings | undefined;
   onSaved: (settings: Settings) => void;
+  returnAfterSave: boolean;
 }) {
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -128,15 +138,22 @@ function OpenRouterKey({
   async function save() {
     setSaving(true);
     setError(undefined);
-    const { data, error } = await api.PUT("/v1/settings/openrouter-key", { body: { key } });
-    setSaving(false);
-    if (error) {
-      setError(errorMessage(error));
-      return;
+    try {
+      const { data, error } = await api.PUT("/v1/settings/openrouter-key", {
+        body: { key },
+      });
+      if (error) {
+        setError(errorMessage(error));
+        return;
+      }
+      setKey("");
+      onSaved(data);
+      toast.success("OpenRouter key saved");
+    } catch {
+      setError("Could not connect to rowlab. Check the connection and try again.");
+    } finally {
+      setSaving(false);
     }
-    setKey("");
-    onSaved(data);
-    toast.success("OpenRouter key saved");
   }
 
   if (settings?.openrouter_key === "environment") {
@@ -170,7 +187,7 @@ function OpenRouterKey({
           />
           <Button type="submit" disabled={saving || !key.trim()}>
             {saving && <Spinner data-icon="inline-start" />}
-            Save
+            {returnAfterSave ? "Save & return" : "Save"}
           </Button>
         </div>
         {error ? (

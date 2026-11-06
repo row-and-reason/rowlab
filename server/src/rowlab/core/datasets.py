@@ -94,6 +94,32 @@ class ColumnProfile(BaseModel):
     null_percentage: float | None
 
 
+class DatasetUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+def rename_dataset(dataset_id: str, name: str) -> Dataset:
+    get_dataset(dataset_id)
+    name = validate_name(name)
+    with db.connect() as conn:
+        conn.execute("UPDATE datasets SET name = ? WHERE id = ?", (name, dataset_id))
+    return get_dataset(dataset_id)
+
+
+def validate_name(name: str) -> str:
+    name = name.strip()
+    if (
+        not name
+        or len(name) > 120
+        or name in (".", "..")
+        or any(c in "/\\" or ord(c) < 32 for c in name)
+    ):
+        raise InvalidRequest(
+            "Use a name of 1–120 characters, without slashes or control characters."
+        )
+    return name
+
+
 def create_dataset(source: str, connection_id: str | None = None) -> Dataset:
     """Ingest a local file path, a public http(s) URL, or an `s3://bucket/key` object, read with the
     given connection or else the environment's AWS credentials."""
@@ -246,7 +272,7 @@ def write_run_rows(parent_id: str, asked: list[int]) -> str:
         with storage.connect() as con:
             storage.write(
                 con,
-                f"SELECT * FROM {dataset_source(parent_id)}",
+                f"SELECT * FROM {dataset_source(parent_id, include_reviews=False)}",
                 storage.location(dataset_id, "rows.parquet"),
             )
             storage.write(
@@ -255,6 +281,13 @@ def write_run_rows(parent_id: str, asked: list[int]) -> str:
                 storage.location(dataset_id, "asked.parquet"),
                 [asked],
             )
+            reviews = storage.location(parent_id, "reviews.parquet")
+            if storage.exists(reviews):
+                storage.write(
+                    con,
+                    f"SELECT * FROM read_parquet({sql_string(reviews)})",
+                    storage.location(dataset_id, "reviews.parquet"),
+                )
     except BaseException:
         storage.delete_dataset(dataset_id)
         raise
@@ -287,7 +320,11 @@ def finish_run_dataset(dataset_id: str) -> None:
     stay, so failed answers can be asked again later (see `reopen_run_dataset`)."""
     data = storage.location(dataset_id, "data.parquet")
     with storage.connect() as con:
-        storage.write(con, f"SELECT * FROM {dataset_source(dataset_id)} ORDER BY {ROW_ID}", data)
+        storage.write(
+            con,
+            f"SELECT * FROM {dataset_source(dataset_id, include_reviews=False)} ORDER BY {ROW_ID}",
+            data,
+        )
     with db.connect() as conn:
         conn.execute(
             "UPDATE datasets SET size_bytes = ? WHERE id = ?", (storage.size(data), dataset_id)
@@ -339,7 +376,7 @@ def _register(
     if not storage.exists(file):
         file = storage.location(dataset_id, "rows.parquet")
     with storage.connect() as con:
-        source_sql = dataset_source(dataset_id)
+        source_sql = dataset_source(dataset_id, include_reviews=False)
         columns = [
             Column(name=r[0], type=r[1])
             for r in con.execute(f"DESCRIBE SELECT * FROM {source_sql}").fetchall()
@@ -452,22 +489,41 @@ def _from_row(row: dict[str, Any]) -> Dataset:
             total=row["run_total"],
             failed=sum(cost["failed"] for cost in json.loads(row["run_costs"])),
         )
-    return Dataset(**{**row, "columns": json.loads(row["columns"]), "run": run})
+    columns = json.loads(row["columns"])
+    reviews = storage.location(row["id"], "reviews.parquet")
+    if storage.exists(reviews):
+        with storage.connect() as con:
+            columns.extend(
+                {"name": r[0], "type": r[1]}
+                for r in con.execute(
+                    f"DESCRIBE SELECT * FROM read_parquet({sql_string(reviews)})"
+                ).fetchall()
+                if r[0] != ROW_ID
+            )
+    return Dataset(**{**row, "columns": columns, "run": run})
 
 
-def dataset_source(dataset_id: str) -> str:
+def dataset_source(dataset_id: str, *, include_reviews: bool = True) -> str:
     """A DuckDB table expression for a dataset's rows, including one a run is still making. A run's
     answer columns come right after `__row_id`, so the newest answers are first."""
     data = storage.location(dataset_id, "data.parquet")
     if storage.exists(data):
-        return f"read_parquet({sql_string(data)})"
-    rows = sql_string(storage.location(dataset_id, "rows.parquet"))
-    parts = sql_string(storage.location(dataset_id, "parts", "*.parquet"))
-    return (
-        f"(SELECT {ROW_ID}, a.* EXCLUDE ({ROW_ID}, {FAILED}), r.* EXCLUDE ({ROW_ID}) "
-        f"FROM read_parquet({rows}) AS r "
-        f"LEFT JOIN read_parquet({parts}) AS a USING ({ROW_ID}))"
-    )
+        source = f"read_parquet({sql_string(data)})"
+    else:
+        rows = sql_string(storage.location(dataset_id, "rows.parquet"))
+        parts = sql_string(storage.location(dataset_id, "parts", "*.parquet"))
+        source = (
+            f"(SELECT {ROW_ID}, a.* EXCLUDE ({ROW_ID}, {FAILED}), r.* EXCLUDE ({ROW_ID}) "
+            f"FROM read_parquet({rows}) AS r "
+            f"LEFT JOIN read_parquet({parts}) AS a USING ({ROW_ID}))"
+        )
+    reviews = storage.location(dataset_id, "reviews.parquet")
+    if include_reviews and storage.exists(reviews):
+        source = (
+            f"(SELECT d.*, r.* EXCLUDE ({ROW_ID}) FROM {source} AS d "
+            f"LEFT JOIN read_parquet({sql_string(reviews)}) AS r USING ({ROW_ID}))"
+        )
+    return source
 
 
 def sql_ident(name: str) -> str:

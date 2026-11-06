@@ -63,6 +63,9 @@ class RunRequest(BaseModel):
         "by default.",
     )
     tasks: list[Task]
+    name: str | None = Field(
+        None, max_length=120, description="A descriptive name for the result dataset."
+    )
 
 
 class Run(BaseModel):
@@ -119,6 +122,8 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
         # An empty part gives the answer columns their types before any chunk is written.
         _write_part(made_id, request.tasks, "part-schema", {})
         datasets.register_run_dataset(made_id, dataset_id)
+        if request.name is not None:
+            datasets.rename_dataset(made_id, request.name)
         run_id = uuid.uuid4().hex
         with db.connect() as conn:
             conn.execute(
@@ -145,6 +150,8 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
 
 def check(dataset_id: str, request: RunRequest) -> None:
     """Raise InvalidRequest, naming the task, if the run can't go as configured."""
+    if request.name is not None:
+        datasets.validate_name(request.name)
     if not request.tasks:
         raise InvalidRequest("Add a task.")
     for task in request.tasks:
@@ -193,14 +200,15 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
     problem = None
     try:
         check(dataset_id, request)
-        if settings.openrouter_key() is None:
-            raise InvalidRequest("Set your OpenRouter API key first.")
         if total == 0:
             raise InvalidRequest("The query picks no rows.")
     except InvalidRequest as e:
         problem = str(e)
     if problem or not rows:
         return Estimate(rows=total, calls=calls, cost=0, problem=problem)
+
+    if settings.openrouter_key() is None:
+        problem = "Set your OpenRouter API key first."
 
     keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
     prices = {m.id: m for m in openrouter.models()}
@@ -227,7 +235,7 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
                 (prompt_tokens + instructions) * prices[model].prompt_price
                 + answer_tokens * prices[model].completion_price
             )
-    return Estimate(rows=total, calls=calls, cost=cost, problem=None)
+    return Estimate(rows=total, calls=calls, cost=cost, problem=problem)
 
 
 def get_run(run_id: str) -> Run:

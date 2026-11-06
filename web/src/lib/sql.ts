@@ -21,12 +21,20 @@ export type View = {
   filters: ViewFilter[];
   sort: { column: string; desc: boolean }[];
   limit: number | null;
+  sample?: boolean;
   sql: string | null;
 };
 
 export const ALL_ROWS = "SELECT * FROM data";
 
-const OPERATORS = { eq: "=", ne: "IS DISTINCT FROM", lt: "<", lte: "<=", gt: ">", gte: ">=" };
+const OPERATORS = {
+  eq: "=",
+  ne: "IS DISTINCT FROM",
+  lt: "<",
+  lte: "<=",
+  gt: ">",
+  gte: ">=",
+};
 
 /** The view as one DuckDB SELECT over `data`, e.g. `SELECT * FROM data WHERE … LIMIT 20`. */
 export function viewSql(view: View, columns: Column[]): string {
@@ -61,6 +69,7 @@ export function viewSql(view: View, columns: Column[]): string {
     ...view.sort.map((s) => `${ident(s.column)} ${s.desc ? "DESC" : "ASC"} NULLS LAST`),
     "__row_id",
   ];
+  if (view.sample && view.limit) order.unshift("hash(__row_id, 1)");
   return [
     ALL_ROWS,
     where.length ? `WHERE ${where.join(" AND ")}` : "",

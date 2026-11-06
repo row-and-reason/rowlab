@@ -3,13 +3,10 @@
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
 import {
   ChevronRightIcon,
-  ChevronUpIcon,
-  CircleUserIcon,
   DownloadIcon,
   KeyRoundIcon,
-  LogOutIcon,
   MoonIcon,
-  PlugIcon,
+  PencilIcon,
   PlusIcon,
   SettingsIcon,
   SunIcon,
@@ -32,7 +29,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -59,6 +55,8 @@ export function DatasetsPanel({
   onExport,
   onDelete,
   onSettings,
+  onRename,
+  onSelected,
 }: {
   datasets: Dataset[] | null;
   selectedId: string | null;
@@ -67,6 +65,8 @@ export function DatasetsPanel({
   onExport: (dataset: Dataset) => void;
   onDelete: (dataset: Dataset) => void;
   onSettings: (section: Section) => void;
+  onRename: (dataset: Dataset) => void;
+  onSelected?: () => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(new Set<string>());
@@ -134,7 +134,7 @@ export function DatasetsPanel({
                         size="xs"
                         variant={dataset.id === selectedId ? "muted" : "default"}
                         className="relative min-w-0 flex-1 overflow-hidden"
-                        render={<Link href={`/?dataset=${dataset.id}`} />}
+                        render={<Link href={`/?dataset=${dataset.id}`} onClick={onSelected} />}
                       />
                     }
                   >
@@ -149,6 +149,10 @@ export function DatasetsPanel({
                     </ItemContent>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
+                    <ContextMenuItem onClick={() => onRename(dataset)}>
+                      <PencilIcon />
+                      Rename…
+                    </ContextMenuItem>
                     <ContextMenuItem
                       disabled={!!dataset.run && isActive(dataset.run)}
                       onClick={() => onExport(dataset)}
@@ -169,12 +173,10 @@ export function DatasetsPanel({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 border-t p-2">
-        {/* Will show who is signed in, once there are accounts. */}
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
-            <CircleUserIcon data-icon="inline-start" />
-            Your account
-            <ChevronUpIcon data-icon="inline-end" />
+            <SettingsIcon data-icon="inline-start" />
+            Settings
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-64">
             {settings && !settings.openrouter_key && (
@@ -188,16 +190,8 @@ export function DatasetsPanel({
               Settings…
               <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
             </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              <PlugIcon />
-              API keys & MCP connections
-              <DropdownMenuShortcut>Soon</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled>
-              <LogOutIcon />
-              Log out
-              <DropdownMenuShortcut>Soon</DropdownMenuShortcut>
+            <DropdownMenuItem onClick={() => onSettings("storage")}>
+              Storage connections…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

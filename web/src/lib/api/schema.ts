@@ -100,6 +100,28 @@ export interface paths {
         delete: operations["deleteDataset"];
         options?: never;
         head?: never;
+        /** Rename Dataset */
+        patch: operations["renameDataset"];
+        trace?: never;
+    };
+    "/v1/datasets/{dataset_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save Review
+         * @description Save a human label in a separate reviewed_<answer> column, preserving model answers.
+         *     Reviewed columns work in queries, comparisons, prompts and exports. Null clears a label.
+         */
+        put: operations["saveReview"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -157,7 +179,7 @@ export interface paths {
          * @description How often two or more columns give the same value in each row: several models' answers,
          *     a model against labels someone already has, or any columns at all. With a `reference`, also
          *     each column's accuracy against it. Every count comes with the filter for its rows, to use in a
-         *     scope's `filters`: to see them (`query`) or to ask about them again (`runs`).
+         *     query's WHERE clause: to see them (`query`) or to ask about them again (`runs`).
          */
         post: operations["compareColumns"];
         delete?: never;
@@ -229,7 +251,7 @@ export interface paths {
          *     response cache.
          *
          *     A task needs only its `template` and `type`; the result column and models default to ones that
-         *     suit the type (see `GET /v1/task-types`).
+         *     suit the type (see `GET /v1/utils/task-types`).
          */
         post: operations["createRun"];
         delete?: never;
@@ -639,6 +661,11 @@ export interface components {
              */
             total: number;
         };
+        /** DatasetUpdate */
+        DatasetUpdate: {
+            /** Name */
+            name: string;
+        };
         /** Estimate */
         Estimate: {
             /**
@@ -952,6 +979,21 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** ReviewRequest */
+        ReviewRequest: {
+            /** Row Id */
+            row_id: number;
+            /**
+             * Column
+             * @description The answer column being reviewed. Its type is preserved.
+             */
+            column: string;
+            /**
+             * Value
+             * @description The reviewed value, or null to clear it.
+             */
+            value: unknown;
+        };
         /** Rows */
         Rows: {
             /** Rows */
@@ -1039,6 +1081,11 @@ export interface components {
             sql: string;
             /** Tasks */
             tasks: components["schemas"]["Task-Input"][];
+            /**
+             * Name
+             * @description A descriptive name for the result dataset.
+             */
+            name?: string | null;
         };
         /**
          * RunRequest
@@ -1053,6 +1100,11 @@ export interface components {
             sql: string;
             /** Tasks */
             tasks: components["schemas"]["Task-Output"][];
+            /**
+             * Name
+             * @description A descriptive name for the result dataset.
+             */
+            name?: string | null;
         };
         /** Settings */
         Settings: {
@@ -1556,6 +1608,76 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renameDataset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dataset"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    saveReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Column"];
+                };
             };
             /** @description Validation Error */
             422: {

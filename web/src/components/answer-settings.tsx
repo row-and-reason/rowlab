@@ -38,7 +38,7 @@ import type {
   Task,
   TaskTypes,
 } from "@/lib/api/client";
-import { useModels } from "@/lib/catalog";
+import { useModelCatalog } from "@/lib/catalog";
 import { formatNumber } from "@/lib/format";
 
 const DEFAULT_LEVELS: Option[] = ["1", "2", "3", "4", "5"].map((name) => ({
@@ -49,7 +49,12 @@ const EMPTY_OPTIONS: Option[] = [
   { name: "", description: "" },
   { name: "", description: "" },
 ];
-const EMPTY_FIELD: ExtractField = { name: "", type: "text", description: "", fields: [] };
+const EMPTY_FIELD: ExtractField = {
+  name: "",
+  type: "text",
+  description: "",
+  fields: [],
+};
 
 /**
  * The task with a different answer type. Options carry over unless their meaning changes, and a
@@ -194,7 +199,7 @@ function columnsDescription(task: Task): string {
     pick_any: "true or false",
     scale: "the level's name",
   }[task.type];
-  return `Each model writes its own columns: ${answer} (${value}) and its _proba column, how likely it is right${reason}.`;
+  return `Each model writes its own columns: ${answer} (${value}) and its _proba column, the model's confidence${reason}. Check quality against reviewed labels.`;
 }
 
 /** Fields to extract: a name and a type each; items hold fields of their own, one level deep. */
@@ -381,7 +386,8 @@ export function ModelPicker({
   value: string[];
   onChange: (models: string[]) => void;
 }) {
-  const models = useModels();
+  const catalog = useModelCatalog();
+  const models = catalog.models;
   const anchor = useComboboxAnchor();
 
   const groups = KINDS.map((k) => ({
@@ -405,6 +411,15 @@ export function ModelPicker({
   return (
     <Field>
       <FieldLabel htmlFor={id}>Models</FieldLabel>
+      {catalog.loading && <FieldDescription>Loading the model catalog…</FieldDescription>}
+      {catalog.error && (
+        <FieldDescription>
+          {catalog.error}{" "}
+          <Button size="xs" variant="outline" onClick={catalog.retry}>
+            Retry model catalog
+          </Button>
+        </FieldDescription>
+      )}
       <Combobox
         multiple
         items={groups}
@@ -451,7 +466,8 @@ export function ModelPicker({
       </Combobox>
       <FieldDescription>
         Pick several to compare them. Decision models are fast and cheap; language models cost more
-        and are slower, but can reason through harder questions.
+        and are slower, but can reason through harder questions. Prices are USD per million tokens;
+        language models list input and output separately.
       </FieldDescription>
     </Field>
   );

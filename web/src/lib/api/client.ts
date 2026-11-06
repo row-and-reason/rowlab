@@ -31,8 +31,17 @@ export const api = createClient<paths>({ baseUrl });
 export type ExportFormat = components["schemas"]["ExportRequest"]["format"];
 
 /** `GET /v1/datasets/{id}/export` is a file download, so the browser fetches it, not the client. */
-export function downloadUrl(datasetId: string, format: ExportFormat, includeRowId: boolean) {
-  const query = new URLSearchParams({ format, include_row_id: String(includeRowId) });
+export function downloadUrl(
+  datasetId: string,
+  format: ExportFormat,
+  includeRowId: boolean,
+  sql?: string,
+) {
+  const query = new URLSearchParams({
+    format,
+    include_row_id: String(includeRowId),
+  });
+  if (sql) query.set("sql", sql);
   return `${baseUrl}/v1/datasets/${datasetId}/export?${query}`;
 }
 

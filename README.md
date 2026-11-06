@@ -7,8 +7,8 @@ columns, and run it through a decision model (yes/no, choice, score — e.g. Typ
 classify rows, extract typed fields, or write new text such as summaries and translations. Get the
 original data back with new columns added, as a new dataset you can filter and label again.
 
-**Status:** pre-alpha. Datasets can be loaded, explored, labeled and exported; every run makes a new
-dataset.
+**Status:** pre-alpha. Datasets can be loaded, explored, labeled, reviewed, compared and exported;
+every model run makes a new dataset.
 Domain: [rowlab.dev](https://rowlab.dev)
 
 ## Principles
@@ -22,6 +22,28 @@ Domain: [rowlab.dev](https://rowlab.dev)
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for the milestones to MVP.
+
+## Try, review, then scale
+
+A new draft starts on a fixed random sample of 20 rows. **Scope**, beside Run, chooses a random sample,
+the first rows in table order, or all matching rows; search and filters apply before sampling. The
+table shows the run's exact scope, while Display only changes presentation and page size. Name the
+result before running, or rename any dataset from its menu.
+
+Open **Review rows** (R), click a row number, or double-click a row to inspect its full source text and
+answers. Save a reviewed label and move to the next row with ⌘↵ (Ctrl↵ on Windows/Linux); Alt←/Alt→ moves
+between rows. Model answers can be hidden in both the inspector and table for independent review.
+Unsubmitted review entries stay in this browser, like task drafts.
+
+Human labels live in separate `reviewed_<answer>` columns, preserving the source and model answers.
+They persist in a Parquet sidecar and are copied into subsequent runs. **Compare** suggests the
+reviewed column as a reference and shows the reviewed count beside accuracy; it can compare the current
+scope or the whole dataset. Model confidence and model agreement are not verified accuracy.
+
+Completed runs offer review, comparison, export and reuse of their settings. Results retain every
+original row; rows outside a run's scope have empty new answers. Export explicitly chooses the whole
+dataset or the current scope, including reviewed labels. On narrow screens, switch between data and
+run configuration instead of squeezing three panes together.
 
 ## Stack
 

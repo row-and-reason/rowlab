@@ -6,7 +6,7 @@ import type { Task } from "@/lib/api/client";
 import type { View } from "@/lib/sql";
 
 /** What the next run of a dataset will be: which rows (the view) and what to ask (the tasks). */
-export type Draft = { view: View; tasks: Task[] };
+export type Draft = { view: View; tasks: Task[]; name?: string };
 
 // Drafts live in this browser only: the server only ever sees runs.
 const key = (datasetId: string) => `rowlab.draft.${datasetId}`;
@@ -33,7 +33,10 @@ export function useDraft(datasetId: string, initial: () => Draft) {
   const update = useCallback(
     (changes: Partial<Draft> | ((draft: Draft) => Partial<Draft>)) => {
       setDraft((draft) => {
-        const next = { ...draft, ...(typeof changes === "function" ? changes(draft) : changes) };
+        const next = {
+          ...draft,
+          ...(typeof changes === "function" ? changes(draft) : changes),
+        };
         saveDraft(datasetId, next);
         return next;
       });

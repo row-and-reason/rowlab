@@ -4,12 +4,13 @@ from fastapi import APIRouter, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from rowlab.core import compare, datasets, exports, prompts, sql
+from rowlab.core import compare, datasets, exports, prompts, reviews, sql
 from rowlab.core.compare import CompareRequest, Comparison
-from rowlab.core.datasets import ColumnProfile, Dataset
+from rowlab.core.datasets import Column, ColumnProfile, Dataset, DatasetUpdate
 from rowlab.core.errors import InvalidRequest
 from rowlab.core.exports import ExportFormat, ExportRequest, ExportResult
 from rowlab.core.prompts import RenderRequest, RenderResult
+from rowlab.core.reviews import ReviewRequest
 from rowlab.core.sql import QueryRequest, QueryResult
 
 router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
@@ -54,6 +55,18 @@ def delete_dataset(dataset_id: str) -> None:
     datasets.delete_dataset(dataset_id)
 
 
+@router.patch("/{dataset_id}", operation_id="renameDataset")
+def rename_dataset(dataset_id: str, request: DatasetUpdate) -> Dataset:
+    return datasets.rename_dataset(dataset_id, request.name)
+
+
+@router.put("/{dataset_id}/reviews", operation_id="saveReview")
+def save_review(dataset_id: str, request: ReviewRequest) -> Column:
+    """Save a human label in a separate reviewed_<answer> column, preserving model answers.
+    Reviewed columns work in queries, comparisons, prompts and exports. Null clears a label."""
+    return reviews.save_review(dataset_id, request)
+
+
 @router.get("/{dataset_id}/profile", operation_id="getDatasetProfile")
 def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
     return datasets.profile_dataset(dataset_id)
@@ -73,7 +86,7 @@ def compare_columns(dataset_id: str, request: CompareRequest) -> Comparison:
     """How often two or more columns give the same value in each row: several models' answers,
     a model against labels someone already has, or any columns at all. With a `reference`, also
     each column's accuracy against it. Every count comes with the filter for its rows, to use in a
-    scope's `filters`: to see them (`query`) or to ask about them again (`runs`)."""
+    query's WHERE clause: to see them (`query`) or to ask about them again (`runs`)."""
     return compare.compare(dataset_id, request)
 
 

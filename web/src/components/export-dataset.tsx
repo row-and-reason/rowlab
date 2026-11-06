@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { api, type Dataset, downloadUrl, type ExportFormat } from "@/lib/api/client";
 import { errorMessage, formatBytes } from "@/lib/format";
 
@@ -64,10 +65,12 @@ export function ExportDataset({
   dataset,
   open,
   onOpenChange,
+  sql,
 }: {
   dataset: Dataset;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  sql?: string;
 }) {
   const [destination, setDestination] = useState<Destination>();
   const [format, setFormat] = useState<ExportFormat>("csv");
@@ -75,25 +78,61 @@ export function ExportDataset({
   const [path, setPath] = useState("");
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [scope, setScope] = useState("all");
+  const [error, setError] = useState<string>();
+  const query = scope === "current" ? sql : undefined;
+
+  async function download() {
+    setSaving(true);
+    setError(undefined);
+    try {
+      const response = await fetch(downloadUrl(dataset.id, format, includeRowId, query));
+      if (!response.ok) {
+        setError(errorMessage(await response.json()));
+        return;
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${dataset.name}.${format}`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`Downloaded ${dataset.name}.${format}`);
+      onOpenChange(false);
+    } catch {
+      setError("Could not download the dataset. Check the connection and try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
-    const { data, error } = await api.POST("/v1/datasets/{dataset_id}/export", {
-      params: { path: { dataset_id: dataset.id } },
-      body: {
-        format,
-        path: path.trim(),
-        include_row_id: includeRowId,
-        connection_id: connectionId,
-      },
-    });
-    setSaving(false);
-    if (error) {
-      toast.error(errorMessage(error));
-      return;
+    setError(undefined);
+    try {
+      const { data, error } = await api.POST("/v1/datasets/{dataset_id}/export", {
+        params: { path: { dataset_id: dataset.id } },
+        body: {
+          format,
+          path: path.trim(),
+          include_row_id: includeRowId,
+          connection_id: connectionId,
+          sql: query,
+        },
+      });
+      if (error) {
+        setError(errorMessage(error));
+        return;
+      }
+      toast.success(`Saved ${data.path} (${formatBytes(data.size_bytes)})`);
+      onOpenChange(false);
+    } catch {
+      setError("Could not export the dataset. Check the connection and try again.");
+    } finally {
+      setSaving(false);
     }
-    toast.success(`Saved ${data.path} (${formatBytes(data.size_bytes)})`);
-    onOpenChange(false);
   }
 
   const picked = DESTINATIONS.find((d) => d.kind === destination);
@@ -117,7 +156,8 @@ export function ExportDataset({
             {picked ? `${picked.title}: ${dataset.name}` : `Export ${dataset.name}`}
           </DialogTitle>
           <DialogDescription>
-            Every row and column. In CSV, nested values are written as JSON.
+            Choose the rows to export. All columns, including reviewed labels, are included. In CSV,
+            nested values are JSON.
           </DialogDescription>
         </DialogHeader>
 
@@ -154,6 +194,41 @@ export function ExportDataset({
             }}
           >
             <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="export-scope">Rows</FieldLabel>
+                <Select
+                  items={[
+                    {
+                      value: "all",
+                      label: `Whole dataset (${dataset.row_count.toLocaleString()} rows)`,
+                    },
+                    ...(sql
+                      ? [
+                          {
+                            value: "current",
+                            label: "Current rows (search, filters and sample)",
+                          },
+                        ]
+                      : []),
+                  ]}
+                  value={scope}
+                  onValueChange={(value) => setScope(value ?? "all")}
+                >
+                  <SelectTrigger id="export-scope" className="w-full" disabled={saving}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      Whole dataset ({dataset.row_count.toLocaleString()} rows)
+                    </SelectItem>
+                    {sql && (
+                      <SelectItem value="current">
+                        Current rows (search, filters and sample)
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </Field>
               {destination === "s3" && (
                 <ConnectionSelect
                   id="export-connection"
@@ -191,11 +266,8 @@ export function ExportDataset({
                 </FieldLabel>
               </Field>
               {destination === "download" ? (
-                <Button
-                  render={<a href={downloadUrl(dataset.id, format, includeRowId)} download />}
-                  onClick={() => onOpenChange(false)}
-                >
-                  <DownloadIcon data-icon="inline-start" />
+                <Button type="button" disabled={saving} onClick={() => void download()}>
+                  {saving ? <Spinner /> : <DownloadIcon data-icon="inline-start" />}
                   Download {dataset.name}.{format}
                 </Button>
               ) : (
@@ -222,6 +294,11 @@ export function ExportDataset({
                 </Field>
               )}
             </FieldGroup>
+            {error && (
+              <Alert variant="destructive" className="mt-3">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
           </form>
         )}
       </DialogContent>
