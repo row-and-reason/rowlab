@@ -1,20 +1,14 @@
 # Python
 __pycache__/
-*.pyc
 .venv/
 dist/
 .pytest_cache/
 .ruff_cache/
+# Bundled web UI, copied in by `make build`
 server/src/rowlab/static/
 
-# Node
+# Node (Next.js build output is ignored in web/.gitignore)
 node_modules/
-web/.next/
-web/out/
-
-# Local data
-rowlab-data/
-*.db
 
 .DS_Store
 .env

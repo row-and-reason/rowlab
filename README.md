@@ -16,29 +16,30 @@ with new columns added.
 - **Paid calls are never repeated.** Per-row results are stored as they complete, and responses are cached
   by `hash(model + params + questions + rendered prompt)`.
 
-## Milestone 1 — upload, explore, compose
+## Roadmap
 
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/v1/datasets` | Upload a file or pass `{path\|url}` → ingested dataset |
-| `GET` | `/v1/datasets` | List datasets |
-| `GET` | `/v1/datasets/{id}` | Metadata + schema |
-| `DELETE` | `/v1/datasets/{id}` | Delete |
-| `GET` | `/v1/datasets/{id}/profile` | Column stats + top values |
-| `POST` | `/v1/datasets/{id}/query` | Filters, search, sort, paging |
-| `POST` | `/v1/datasets/{id}/render` | Template + rows → rendered text, token counts, warnings |
-
-UI: upload button, sortable/filterable table, prompt editor with drag-in column chips and a live
-per-row preview.
-
-**Next (M2):** runs with decision-model and LLM backends, sample runs, resume, cache, export.
-**Later:** MCP server (`rowlab mcp` and `/mcp`), reading from and exporting to `s3://` URLs.
+See [ROADMAP.md](ROADMAP.md) for the milestones to MVP.
 
 ## Stack
 
 - `server/` — Python: FastAPI, Pydantic, DuckDB, SQLite (`sqlite3`), packaged with `uv`
 - `web/` — Next.js static export, TanStack Table, TipTap, shadcn; API client generated from `openapi.json`
 - The MCP server will live in the same Python package and call the same `core/` logic as the API
+
+## Development
+
+Requires [uv](https://docs.astral.sh/uv/) and [pnpm](https://pnpm.io/).
+
+```sh
+cd server && uv sync && cd ../web && pnpm install && cd ..
+make dev          # API on :8000 (docs at /docs), web on :3000
+make test         # server tests
+make lint         # ruff, eslint, tsc
+make gen-client   # after any API change: regenerate openapi.json + web/src/lib/api/schema.ts
+make build        # web static export bundled into the Python wheel → server/dist/
+```
+
+Run the built package as a user would: `uvx --from server/dist/rowlab-*.whl rowlab serve`.
 
 ## Non-goals
 
