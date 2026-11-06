@@ -2,7 +2,7 @@
 
 AI labeling, filtering, verification and analysis for tabular data.
 
-Load a CSV, JSON, JSONL or Parquet file from disk or a URL, explore it, compose a per-row prompt from its
+Load a CSV, JSON, JSONL or Parquet file from disk, a URL or S3, explore it, compose a per-row prompt from its
 columns, and run it through a decision model (yes/no, choice, score — e.g. TypeSafe Jev) or a classic LLM:
 classify rows, extract typed fields, or write new text such as summaries and translations. Get the
 original data back with new columns added, as a new dataset you can filter and label again.

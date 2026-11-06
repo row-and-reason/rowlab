@@ -38,7 +38,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { api, type Dataset, type Filter, type QueryResult, type Scope } from "@/lib/api/client";
-import { columnLabel, errorMessage, formatCell, formatNumber } from "@/lib/format";
+import {
+  columnLabel,
+  describeComparison,
+  errorMessage,
+  formatCell,
+  formatNumber,
+} from "@/lib/format";
 
 type Row = Record<string, unknown>;
 
@@ -183,8 +189,14 @@ export function DatasetExplorer({
         />
         {filters.map((f, i) => (
           <Badge key={i} variant="secondary" className="h-7 gap-1 pr-0.5">
-            {columnLabel(f.column)} {opLabel(f.op)}{" "}
-            {takesValue(f.op) && <code>{String(f.value)}</code>}
+            {f.columns.length ? (
+              describeComparison(f)
+            ) : (
+              <>
+                {columnLabel(f.column)} {opLabel(f.op)}{" "}
+                {takesValue(f.op) && <code>{String(f.value)}</code>}
+              </>
+            )}
             <Button
               variant="ghost"
               size="icon-xs"
@@ -336,7 +348,13 @@ function FilterButton({ dataset, onAdd }: { dataset: Dataset; onAdd: (filter: Fi
           onSubmit={(e) => {
             e.preventDefault();
             if (!column) return;
-            onAdd({ column, op, value: takesValue(op) ? value : null });
+            onAdd({
+              column,
+              op,
+              value: takesValue(op) ? value : null,
+              columns: [],
+              tolerance: null,
+            });
             setValue("");
             setOpen(false);
           }}

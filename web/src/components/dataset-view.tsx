@@ -13,6 +13,7 @@ import { toast } from "sonner";
 
 import { withFittingModels, withPreset } from "@/components/answer-settings";
 import { ColumnProfiles } from "@/components/column-profiles";
+import { CompareView } from "@/components/compare-view";
 import { DatasetExplorer } from "@/components/dataset-explorer";
 import { JobEditor } from "@/components/job-editor";
 import { Lineage } from "@/components/lineage";
@@ -33,6 +34,7 @@ import {
   api,
   type Dataset,
   type Estimate,
+  type Filter,
   type Job,
   type Preset,
   type Scope,
@@ -43,7 +45,7 @@ import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format
 import { isActive } from "@/lib/runs";
 import { useJob } from "@/lib/use-job";
 
-export const TABS = ["rows", "columns", "lineage"] as const;
+export const TABS = ["rows", "columns", "compare", "lineage"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** What the command palette and shortcuts can do with the selected dataset's job. */
@@ -88,6 +90,14 @@ export function DatasetPanels({
     [update],
   );
   const run = dataset.run;
+
+  // Shows the rows behind a comparison's count: all of them, so without the row limit.
+  function showRows(filters: Filter[]) {
+    update((job) => ({
+      scope: { ...job.scope, filters: [...job.scope.filters, ...filters], limit: null },
+    }));
+    onTabChange("rows");
+  }
   // A dataset still being made can't be run on yet: its answers aren't all in.
   const making = !!run && isActive(run);
 
@@ -205,6 +215,7 @@ export function DatasetPanels({
               <TabsList>
                 <TabsTrigger value="rows">Rows</TabsTrigger>
                 <TabsTrigger value="columns">Columns</TabsTrigger>
+                <TabsTrigger value="compare">Compare</TabsTrigger>
                 <TabsTrigger value="lineage">Lineage</TabsTrigger>
               </TabsList>
               <DropdownMenu>
@@ -241,6 +252,10 @@ export function DatasetPanels({
           </TabsContent>
           <TabsContent value="columns" className="min-h-0 flex-1 overflow-auto p-3">
             <ColumnProfiles datasetId={dataset.id} />
+          </TabsContent>
+          {/* Kept mounted, so the columns picked stay picked while looking at their rows. */}
+          <TabsContent value="compare" keepMounted className="min-h-0 flex-1 overflow-auto">
+            <CompareView dataset={dataset} onFilter={showRows} />
           </TabsContent>
           <TabsContent value="lineage" className="min-h-0 flex-1 overflow-auto">
             <Lineage dataset={dataset} datasets={datasets} onOpenDataset={onOpenDataset} />

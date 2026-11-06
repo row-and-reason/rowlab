@@ -4,11 +4,12 @@ import type { components, paths } from "./schema";
 
 export type Dataset = components["schemas"]["Dataset"];
 export type ColumnProfile = components["schemas"]["ColumnProfile"];
-export type Filter = components["schemas"]["Filter"];
+// As returned, with every field; the API accepts the same shape.
+export type Filter = components["schemas"]["Filter-Output"];
 export type Sort = components["schemas"]["Sort"];
 export type QueryResult = components["schemas"]["QueryResult"];
 export type RenderResult = components["schemas"]["RenderResult"];
-export type Scope = components["schemas"]["Scope"];
+export type Scope = components["schemas"]["Scope-Output"];
 export type Job = components["schemas"]["Job"];
 // What the editor changes: the job as returned, which always has every field.
 export type JobConfig = Pick<Job, "scope" | "tasks">;
@@ -23,6 +24,8 @@ export type FieldType = ExtractField["type"];
 export type TaskTypes = components["schemas"]["TaskTypes"];
 export type Preset = TaskTypes["presets"][number];
 export type Estimate = components["schemas"]["Estimate"];
+export type Connection = components["schemas"]["Connection"];
+export type Comparison = components["schemas"]["Comparison"];
 
 // Empty in production: the UI is served by the API server itself.
 // In development, `make dev` points this at the separately running API.
@@ -39,9 +42,14 @@ export function downloadUrl(datasetId: string, format: ExportFormat, includeRowI
 }
 
 /** `POST /v1/datasets` takes multipart form data, which the generated types can't express. */
-export function createDataset(input: { file: File } | { source: string }) {
+export function createDataset(
+  input: { file: File } | { source: string; connectionId?: string | null },
+) {
   const form = new FormData();
   if ("file" in input) form.append("file", input.file);
-  else form.append("source", input.source);
+  else {
+    form.append("source", input.source);
+    if (input.connectionId) form.append("connection_id", input.connectionId);
+  }
   return api.POST("/v1/datasets", { body: {}, bodySerializer: () => form });
 }

@@ -352,7 +352,15 @@ def test_a_new_job_on_a_made_dataset_starts_on_the_answered_rows(client, job, ap
     made = client.post(f"/v1/datasets/{finished['dataset_id']}/jobs", json={}).json()
     assert made["scope"] == {
         "search": "",
-        "filters": [{"column": "negative__jev-1.14", "op": "is_not_null", "value": None}],
+        "filters": [
+            {
+                "column": "negative__jev-1.14",
+                "op": "is_not_null",
+                "value": None,
+                "columns": [],
+                "tolerance": None,
+            }
+        ],
         "sort": [],
         "limit": None,
     }

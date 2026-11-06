@@ -20,6 +20,7 @@ import {
   FieldLabel,
   FieldSeparator,
 } from "@/components/ui/field";
+import { ConnectionSelect } from "@/components/connection-select";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -51,13 +52,20 @@ export function ExportDataset({
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [includeRowId, setIncludeRowId] = useState(false);
   const [path, setPath] = useState("");
+  const [connectionId, setConnectionId] = useState<string | null>(null);
+  const toS3 = path.trim().startsWith("s3://");
   const [saving, setSaving] = useState(false);
 
   async function save() {
     setSaving(true);
     const { data, error } = await api.POST("/v1/datasets/{dataset_id}/export", {
       params: { path: { dataset_id: dataset.id } },
-      body: { format, path: path.trim(), include_row_id: includeRowId },
+      body: {
+        format,
+        path: path.trim(),
+        include_row_id: includeRowId,
+        connection_id: toS3 ? connectionId : null,
+      },
     });
     setSaving(false);
     if (error) {
@@ -116,11 +124,11 @@ export function ExportDataset({
           </Button>
           <FieldSeparator>or</FieldSeparator>
           <Field>
-            <FieldLabel htmlFor="export-path">Save to a path on this machine</FieldLabel>
+            <FieldLabel htmlFor="export-path">Save to a path or S3</FieldLabel>
             <div className="flex gap-2">
               <Input
                 id="export-path"
-                placeholder={`~/Downloads or ~/data/${dataset.name}.${format}`}
+                placeholder={`~/Downloads, ~/data/${dataset.name}.${format} or s3://bucket/folder/`}
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
                 onKeyDown={(e) => {
@@ -133,9 +141,17 @@ export function ExportDataset({
               </Button>
             </div>
             <FieldDescription>
-              A folder, or a file name. An existing file is replaced.
+              A folder or file name on this machine, or an s3:// path (ending in / for a folder). An
+              existing file is replaced.
             </FieldDescription>
           </Field>
+          {toS3 && (
+            <ConnectionSelect
+              id="export-connection"
+              value={connectionId}
+              onChange={setConnectionId}
+            />
+          )}
         </FieldGroup>
       </DialogContent>
     </Dialog>

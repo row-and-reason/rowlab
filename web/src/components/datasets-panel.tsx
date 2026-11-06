@@ -100,6 +100,8 @@ export function DatasetsPanel({
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {datasets === null ? (
           <Spinner className="m-2" />
+        ) : datasets.length === 0 ? (
+          <p className="px-2 py-1 text-sm text-muted-foreground">No datasets yet.</p>
         ) : (
           <ItemGroup className="relative gap-0.5">
             {rows.map(({ dataset, depth, hasChildren, open }) => (

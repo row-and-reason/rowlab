@@ -22,6 +22,7 @@ import {
 import { api, type Dataset, type Run, type Scope, type TaskTypes } from "@/lib/api/client";
 import {
   columnLabel,
+  describeComparison,
   errorMessage,
   formatAgo,
   formatDuration,
@@ -274,7 +275,9 @@ function describeScope(scope: Scope): string {
   const parts = [
     scope.search && `“${scope.search}”`,
     ...scope.filters.map((f) =>
-      [columnLabel(f.column), f.op.replaceAll("_", " "), f.value ?? ""].join(" ").trim(),
+      f.columns.length
+        ? describeComparison(f)
+        : [columnLabel(f.column), f.op.replaceAll("_", " "), f.value ?? ""].join(" ").trim(),
     ),
     ...scope.sort.map((s) => `${columnLabel(s.column)}, ${s.desc ? "high to low" : "low to high"}`),
     scope.limit && `first ${formatNumber(scope.limit)} rows`,

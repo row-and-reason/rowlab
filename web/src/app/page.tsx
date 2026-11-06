@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  CloudIcon,
   DatabaseIcon,
   DownloadIcon,
+  GlobeIcon,
   ListChecksIcon,
   ListRestartIcon,
   MoonIcon,
@@ -12,6 +14,7 @@ import {
   SearchIcon,
   SettingsIcon,
   TableIcon,
+  UploadIcon,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -20,7 +23,7 @@ import { browser } from "react-dom";
 import { useDefaultLayout } from "react-resizable-panels";
 import { toast } from "sonner";
 
-import { AddDataset } from "@/components/add-dataset";
+import { AddDataset, type SourceKind } from "@/components/add-dataset";
 import { DatasetPanels, TABS, type JobActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
 import { ExportDataset } from "@/components/export-dataset";
@@ -46,8 +49,10 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import { Button } from "@/components/ui/button";
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -82,7 +87,8 @@ function Workspace() {
   const tab: Tab = TABS.find((t) => t === params.get("tab")) ?? "rows";
   const [datasets, setDatasets] = useState<Dataset[] | null>(null);
   const [settings, setSettings] = useState<Settings>();
-  const [adding, setAdding] = useState(false);
+  // Open with "add data" at its first step, or at a source's step when that's already picked.
+  const [adding, setAdding] = useState<SourceKind | "choose">();
   const openSettings = useCallback(
     (section: Section) => router.push(settingsUrl(params, section)),
     [router, params],
@@ -180,7 +186,7 @@ function Workspace() {
             datasets={datasets}
             selectedId={selectedId}
             settings={settings}
-            onAdd={() => setAdding(true)}
+            onAdd={() => setAdding("choose")}
             onExport={setExporting}
             onDelete={setDeleting}
             onSettings={openSettings}
@@ -209,6 +215,33 @@ function Workspace() {
                 </PaneHeader>
                 {datasets === null ? (
                   <Spinner className="m-3" />
+                ) : datasets.length === 0 ? (
+                  <Empty className="flex-1">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <DatabaseIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>Add your first dataset</EmptyTitle>
+                      <EmptyDescription>
+                        A CSV, TSV, JSON, JSONL or Parquet file, from this computer, S3 or the web.
+                        Then ask questions about each of its rows.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent className="flex-row justify-center">
+                      <Button size="sm" onClick={() => setAdding("file")}>
+                        <UploadIcon data-icon="inline-start" />
+                        Upload a file
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setAdding("s3")}>
+                        <CloudIcon data-icon="inline-start" />
+                        From S3
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setAdding("web")}>
+                        <GlobeIcon data-icon="inline-start" />
+                        From the web
+                      </Button>
+                    </EmptyContent>
+                  </Empty>
                 ) : (
                   <Empty className="flex-1">
                     <EmptyHeader>
@@ -217,13 +250,7 @@ function Workspace() {
                       </EmptyMedia>
                       <EmptyTitle>{selectedId ? "Dataset not found" : "Pick a dataset"}</EmptyTitle>
                       <EmptyDescription>
-                        {datasets.length ? (
-                          <>
-                            Choose one on the left, or press <Keys keys={["⌘", "K"]} />.
-                          </>
-                        ) : (
-                          "Add a CSV, TSV, JSON, JSONL or Parquet file to get started."
-                        )}
+                        Choose one on the left, or press <Keys keys={["⌘", "K"]} />.
                       </EmptyDescription>
                     </EmptyHeader>
                   </Empty>
@@ -242,7 +269,9 @@ function Workspace() {
                       <ListChecksIcon />
                     </EmptyMedia>
                     <EmptyDescription>
-                      Pick a dataset to ask questions about each of its rows.
+                      {datasets?.length === 0
+                        ? "Once there's a dataset, its tasks go here."
+                        : "Pick a dataset to ask questions about each of its rows."}
                     </EmptyDescription>
                   </EmptyHeader>
                 </Empty>
@@ -304,7 +333,7 @@ function Workspace() {
                   )}
                 </>
               )}
-              <CommandItem onSelect={() => command(() => setAdding(true))}>
+              <CommandItem onSelect={() => command(() => setAdding("choose"))}>
                 <PlusIcon />
                 Add data
               </CommandItem>
@@ -342,8 +371,11 @@ function Workspace() {
       </CommandDialog>
 
       <AddDataset
-        open={adding}
-        onOpenChange={setAdding}
+        // A new start each time it opens, at the step it was opened for.
+        key={adding ?? "closed"}
+        open={!!adding}
+        startAt={adding === "choose" ? undefined : adding}
+        onOpenChange={(open) => !open && setAdding(undefined)}
         onAdded={(dataset) => {
           load();
           select(dataset.id);

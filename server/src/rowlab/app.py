@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from rowlab import __version__
-from rowlab.api import datasets, jobs, runs, settings, tasks
+from rowlab.api import connections, datasets, jobs, runs, settings, tasks
 from rowlab.core import runs as runs_core
 from rowlab.core.errors import InvalidRequest, NotFound
 from rowlab.core.providers.openrouter import OpenRouterError
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     def health() -> Health:
         return Health(status="ok", version=__version__)
 
+    app.include_router(connections.router)
     app.include_router(datasets.router)
     app.include_router(jobs.router)
     app.include_router(runs.router)

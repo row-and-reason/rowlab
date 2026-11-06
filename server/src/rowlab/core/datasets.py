@@ -25,10 +25,10 @@ from urllib.request import Request, urlopen
 
 import duckdb
 import duckdb.sqltypes
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from rowlab import __version__
-from rowlab.core import db
+from rowlab.core import connections, db
 from rowlab.core.errors import InvalidRequest, NotFound
 
 ROW_ID = "__row_id"
@@ -95,9 +95,36 @@ class ColumnProfile(BaseModel):
 
 
 class Filter(BaseModel):
-    column: str
-    op: Literal["eq", "ne", "lt", "lte", "gt", "gte", "contains", "is_null", "is_not_null"]
+    """A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare."""
+
+    # Responses always include every field, so the API schema marks them required there.
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    column: str = Field("", description="The column, for every op but `agree` and `disagree`.")
+    op: Literal[
+        "eq",
+        "ne",
+        "lt",
+        "lte",
+        "gt",
+        "gte",
+        "contains",
+        "is_null",
+        "is_not_null",
+        "agree",
+        "disagree",
+    ]
     value: str | int | float | bool | None = None
+    columns: list[str] = Field(
+        [],
+        description="For `agree` (every column has a value, all the same) and `disagree` (at "
+        "least two values differ): two or more columns.",
+    )
+    tolerance: float | None = Field(
+        None,
+        description="For `agree` and `disagree` on number or date columns: how far apart values "
+        "may be and still count as the same (in days for dates).",
+    )
 
 
 class Sort(BaseModel):
@@ -130,20 +157,28 @@ class QueryResult(BaseModel):
     rows: list[dict[str, Any]]
 
 
-def create_dataset(source: str) -> Dataset:
-    """Ingest a local file path or a public http(s) URL."""
+def create_dataset(source: str, connection_id: str | None = None) -> Dataset:
+    """Ingest a local file path, a public http(s) URL, or an `s3://bucket/key` object, read with the
+    given connection or else the environment's AWS credentials."""
+    if connections.is_s3(source):
+        name = source.rstrip("/").rsplit("/", 1)[-1]
+        return _ingest(
+            source, name=name, source=source, readers=_S3_READERS, connection_id=connection_id
+        )
+    if connection_id:
+        raise InvalidRequest("A connection is only for s3:// sources.")
     if source.startswith(("http://", "https://")):
         return _download_dataset(source)
     path = Path(source).expanduser().resolve()
     if not path.is_file():
         raise InvalidRequest(f"File not found: {path}")
-    return _ingest(path, name=path.name, source=str(path))
+    return _ingest_file(path, name=path.name, source=str(path))
 
 
 def upload_dataset(file: BinaryIO, filename: str) -> Dataset:
     name = Path(filename).name
     with _temp_copy(file, name) as path:
-        return _ingest(path, name=name, source=f"upload:{name}")
+        return _ingest_file(path, name=name, source=f"upload:{name}")
 
 
 def detect_format(path: Path) -> tuple[Format, bool]:
@@ -181,7 +216,7 @@ def _download_dataset(url: str) -> Dataset:
     request = Request(url, headers={"User-Agent": f"rowlab/{__version__}"})
     try:
         with urlopen(request, timeout=60) as response, _temp_copy(response, name) as path:
-            return _ingest(path, name=name, source=url)
+            return _ingest_file(path, name=name, source=url)
     except HTTPError as e:
         raise InvalidRequest(f"Could not download {url}: HTTP {e.code} {e.reason}") from e
     except (URLError, TimeoutError) as e:
@@ -200,18 +235,51 @@ def _temp_copy(file: BinaryIO, filename: str) -> Iterator[Path]:
         yield path
 
 
-def _ingest(path: Path, *, name: str, source: str) -> Dataset:
-    """Copy a local file into `datasets/{id}/data.parquet` with a `__row_id`, and record it."""
+# Objects in S3 are read where they are, so their content can't be looked at first: each reader is tried
+# in turn, the strictest first. DuckDB decompresses `.gz` objects by their name.
+_S3_READERS: list[tuple[Format, str]] = [
+    ("parquet", "read_parquet(?)"),
+    ("json", "read_json(?, format = 'auto')"),
+    ("csv", "read_csv(?)"),
+]
+
+
+def _ingest_file(path: Path, *, name: str, source: str) -> Dataset:
+    """Ingest a local file, read as the format its content shows."""
     fmt, gzipped = detect_format(path)
     reader = READERS[fmt].format(compression="gzip" if gzipped else "none")
+    return _ingest(str(path), name=name, source=source, readers=[(fmt, reader)])
+
+
+def _ingest(
+    location: str,
+    *,
+    name: str,
+    source: str,
+    readers: list[tuple[Format, str]],
+    connection_id: str | None = None,
+) -> Dataset:
+    """Copy a file into `datasets/{id}/data.parquet` with a `__row_id`, and record it. The first of
+    `readers` that can read it is used."""
     dataset_id = uuid.uuid4().hex
     directory = _dataset_dir(dataset_id)
     directory.mkdir(parents=True)
     try:
         with duckdb.connect() as con:
             con.execute("SET temp_directory = ?", [str(db.data_dir() / "tmp")])
-            # A table keeps the file's row order, so `rowid` becomes a stable row id.
-            con.execute(f"CREATE TABLE src AS SELECT * FROM {reader}", [str(path)])
+            if connections.is_s3(location):
+                connections.configure(con, connection_id)
+            for i, (_, reader) in enumerate(readers):
+                try:
+                    # A table keeps the file's row order, so `rowid` becomes a stable row id.
+                    con.execute(f"CREATE TABLE src AS SELECT * FROM {reader}", [location])
+                    break
+                except duckdb.HTTPException:
+                    raise
+                except duckdb.Error as e:
+                    if i == len(readers) - 1:
+                        formats = " or ".join(fmt.upper() for fmt, _ in readers)
+                        raise InvalidRequest(f"Could not read {name} as {formats}: {e}") from e
             columns = [Column(name=r[0], type=r[1]) for r in con.execute("DESCRIBE src").fetchall()]
             if any(c.name == ROW_ID for c in columns):
                 raise InvalidRequest(f"The file already has a `{ROW_ID}` column.")
@@ -221,7 +289,7 @@ def _ingest(path: Path, *, name: str, source: str) -> Dataset:
             )
     except duckdb.Error as e:
         shutil.rmtree(directory)
-        raise InvalidRequest(f"Could not read {name} as {fmt.upper()}: {e}") from e
+        raise InvalidRequest(f"Could not read {source}: {e}") from e
     except BaseException:
         shutil.rmtree(directory)
         raise
@@ -233,8 +301,8 @@ def write_run_rows(parent_id: str, scope: Scope) -> tuple[str, int]:
     """Start the dataset a run makes: copy the parent's rows, so it doesn't depend on the parent, and
     list the ones in the run's scope. Returns its id and how many rows the run asks about; it is
     recorded once the run's first (empty) part is written."""
-    types = _column_types(parent_id)
-    where, params = _where(scope, types)
+    types = column_types(parent_id)
+    where, params = where_sql(scope, types)
     limit = f"LIMIT {int(scope.limit)}" if scope.limit else ""
     dataset_id = uuid.uuid4().hex
     directory = _dataset_dir(dataset_id)
@@ -464,8 +532,8 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
 
 def query_dataset(dataset_id: str, query: Query) -> QueryResult:
     """One page of a scope's rows: matching the search and filters, in order, up to the limit."""
-    types = _column_types(dataset_id)
-    where, params = _where(query, types)
+    types = column_types(dataset_id)
+    where, params = where_sql(query, types)
     sql_from = f"FROM {dataset_source(dataset_id)} AS t WHERE {where}"
     try:
         with duckdb.connect() as con:
@@ -483,7 +551,7 @@ def query_dataset(dataset_id: str, query: Query) -> QueryResult:
 
 def sample_rows(dataset_id: str, n: int, selection: RowSelection) -> list[dict[str, Any]]:
     """Up to `n` of the selected rows, picked at random, the same ones on every call."""
-    where, params = _where(selection, _column_types(dataset_id))
+    where, params = where_sql(selection, column_types(dataset_id))
     try:
         with duckdb.connect() as con:
             # Sampling a subquery, because DuckDB samples before applying a WHERE clause.
@@ -497,7 +565,7 @@ def sample_rows(dataset_id: str, n: int, selection: RowSelection) -> list[dict[s
     return [json.loads(r[0]) for r in rows]
 
 
-def _where(selection: RowSelection, types: dict[str, str]) -> tuple[str, list[Any]]:
+def where_sql(selection: RowSelection, types: dict[str, str]) -> tuple[str, list[Any]]:
     """A SQL condition, with its parameters, for the rows a selection matches."""
     where, params = ["true"], []
     if selection.search:
@@ -507,6 +575,13 @@ def _where(selection: RowSelection, types: dict[str, str]) -> tuple[str, list[An
         )
         params += [selection.search.lower()] * len(searchable)
     for f in selection.filters:
+        if f.op in ("agree", "disagree"):
+            answered, same = agreement_sql(f.columns, types, f.tolerance)
+            if f.op == "agree":
+                where.append(f"({answered} = {len(f.columns)} AND {same})")
+            else:
+                where.append(f"({answered} >= 2 AND NOT {same})")
+            continue
         column = sql_ident(_check_column(f.column, types))
         if f.op == "is_null":
             where.append(f"{column} IS NULL")
@@ -522,6 +597,57 @@ def _where(selection: RowSelection, types: dict[str, str]) -> tuple[str, list[An
     return " AND ".join(where), params
 
 
+def agreement_sql(
+    columns: list[str], types: dict[str, str], tolerance: float | None = None
+) -> tuple[str, str]:
+    """SQL for how a row's values in `columns` compare: how many have a value, and whether those
+    values are all the same. Lists are the same when they hold the same items; with `tolerance`,
+    numbers and dates are the same when they are no further apart than that."""
+    if len(columns) < 2:
+        raise InvalidRequest("Compare two or more columns.")
+    for c in columns:
+        _check_column(c, types)
+    if tolerance is None:
+        values = [value_text_sql(c, types[c]) for c in columns]
+    else:
+        if not all(_is_number(types[c]) or types[c] == "DATE" for c in columns):
+            raise InvalidRequest("A tolerance is only for number and date columns.")
+        values = [
+            f"CAST({sql_ident(c)} - DATE '1970-01-01' AS DOUBLE)"
+            if types[c] == "DATE"
+            else f"CAST({sql_ident(c)} AS DOUBLE)"
+            for c in columns
+        ]
+    answered_values = f"list_filter([{', '.join(values)}], lambda x: x IS NOT NULL)"
+    answered = f"len({answered_values})"
+    if tolerance is None:
+        same = f"len(list_distinct({answered_values})) <= 1"
+    else:
+        spread = f"list_max({answered_values}) - list_min({answered_values})"
+        same = f"coalesce({spread}, 0) <= {float(tolerance)}"
+    return answered, same
+
+
+def value_text_sql(column: str, sql_type: str) -> str:
+    """A column's value as text, for comparing it with other columns: lists with the same items
+    compare the same, whatever their order."""
+    if sql_type.endswith("[]"):
+        return f"CAST(list_sort({sql_ident(column)}) AS VARCHAR)"
+    return f"CAST({sql_ident(column)} AS VARCHAR)"
+
+
+def _is_number(sql_type: str) -> bool:
+    return sql_type in (
+        "TINYINT",
+        "SMALLINT",
+        "INTEGER",
+        "BIGINT",
+        "HUGEINT",
+        "FLOAT",
+        "DOUBLE",
+    ) or sql_type.startswith("DECIMAL")
+
+
 def _order(sort: list[Sort], types: dict[str, str]) -> str:
     """A SQL ORDER BY list for a sort; ties go by `__row_id`."""
     order = [
@@ -531,7 +657,7 @@ def _order(sort: list[Sort], types: dict[str, str]) -> str:
     return ", ".join([*order, ROW_ID])
 
 
-def _column_types(dataset_id: str) -> dict[str, str]:
+def column_types(dataset_id: str) -> dict[str, str]:
     return {c.name: c.type for c in get_dataset(dataset_id).columns}
 
 

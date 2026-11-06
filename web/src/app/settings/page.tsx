@@ -7,9 +7,9 @@ import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { PaneHeader } from "@/components/pane";
+import { StorageConnections } from "@/components/storage-connections";
 import { TooltipButton } from "@/components/tooltip-button";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Field,
   FieldDescription,
@@ -103,14 +103,7 @@ function SettingsView() {
               <FieldSet>
                 <FieldLegend>S3-compatible</FieldLegend>
                 <FieldDescription>AWS S3, Cloudflare R2, MinIO and others.</FieldDescription>
-                <Empty className="border">
-                  <EmptyHeader>
-                    <EmptyTitle>No connections yet</EmptyTitle>
-                    <EmptyDescription>
-                      Connections are coming, to load data from and export to buckets.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
+                <StorageConnections />
               </FieldSet>
             )}
           </div>

@@ -1,3 +1,5 @@
+import type { Filter } from "@/lib/api/client";
+
 const numberFormat = new Intl.NumberFormat("en-US");
 
 export function formatNumber(n: number): string {
@@ -60,6 +62,15 @@ export function formatDuration(seconds: number): string {
   if (seconds < 90) return `${Math.max(1, Math.round(seconds))} seconds`;
   if (seconds < 90 * 60) return `${Math.round(seconds / 60)} minutes`;
   return `${Math.round(seconds / 3600)} hours`;
+}
+
+/** A filter on how columns compare, in words, e.g. "a, b and c disagree (within 0.5)". */
+export function describeComparison(filter: Filter): string {
+  const names = filter.columns.map(columnLabel);
+  const listed =
+    names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names.join("");
+  const tolerance = filter.tolerance === null ? "" : ` (within ${filter.tolerance})`;
+  return `${listed} ${filter.op}${tolerance}`;
 }
 
 /** How a column is named in the interface: the row id, `__row_id`, is just "#". */

@@ -21,6 +21,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Connections
+         * @description Connections to S3-compatible storage, by name. Secret keys are never returned.
+         */
+        get: operations["listConnections"];
+        put?: never;
+        /** Create Connection */
+        post: operations["createConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connections/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Connection
+         * @description Change a connection; leave out `secret_access_key` to keep the saved one.
+         */
+        put: operations["updateConnection"];
+        post?: never;
+        /** Delete Connection */
+        delete: operations["deleteConnection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/datasets": {
         parameters: {
             query?: never;
@@ -95,6 +137,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/datasets/{dataset_id}/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compare Columns
+         * @description How often two or more columns give the same value in each row: several models' answers,
+         *     a model against labels someone already has, or any columns at all. With a `reference`, also
+         *     each column's accuracy against it. Every count comes with the filter for its rows, to use in a
+         *     scope's `filters`: to see them (`query`) or to ask about them again (`runs`).
+         */
+        post: operations["compareColumns"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/datasets/{dataset_id}/render": {
         parameters: {
             query?: never;
@@ -131,7 +196,7 @@ export interface paths {
         put?: never;
         /**
          * Export Dataset
-         * @description Write the dataset to a file on the server, as CSV, JSONL or Parquet.
+         * @description Write the dataset as CSV, JSONL or Parquet to a file on the server, or to S3.
          */
         post: operations["exportDataset"];
         delete?: never;
@@ -363,6 +428,28 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Agreement */
+        Agreement: {
+            /** @description Every column has a value, and they are all the same. */
+            all_agree: components["schemas"]["Rows"];
+            /** @description At least two values differ. */
+            disagree: components["schemas"]["Rows"];
+            /**
+             * Partly Answered
+             * @description Some columns are empty, and the others agree.
+             */
+            partly_answered: number;
+            /**
+             * Not Answered
+             * @description Every column is empty.
+             */
+            not_answered: number;
+            /**
+             * Rate
+             * @description Of the rows that agree or disagree, the share that agree.
+             */
+            rate: number | null;
+        };
         /** Body_createDataset */
         Body_createDataset: {
             /**
@@ -372,9 +459,26 @@ export interface components {
             file?: string | null;
             /**
              * Source
-             * @description Path of a file on the server, or a public http(s) URL.
+             * @description Path of a file on the server, a public http(s) URL, or an `s3://bucket/key` object.
              */
             source?: string | null;
+            /**
+             * Connection Id
+             * @description For `s3://` sources; without one, the environment's AWS credentials.
+             */
+            connection_id?: string | null;
+        };
+        /** Cell */
+        Cell: {
+            /**
+             * Values
+             * @description The two columns' values, in the order compared.
+             */
+            values: string[];
+            /** Rows */
+            rows: number;
+            /** Filters */
+            filters: components["schemas"]["Filter-Output"][];
         };
         /** Column */
         Column: {
@@ -399,6 +503,117 @@ export interface components {
             approx_unique: number | null;
             /** Null Percentage */
             null_percentage: number | null;
+        };
+        /**
+         * CompareRequest
+         * @description Which columns to compare, on the rows the search and filters pick (all by default).
+         */
+        CompareRequest: {
+            /**
+             * Search
+             * @description Case-insensitive text match against any column.
+             * @default
+             */
+            search: string;
+            /**
+             * Filters
+             * @default []
+             */
+            filters: components["schemas"]["Filter-Input"][];
+            /**
+             * Columns
+             * @description Two or more; or one, with a reference.
+             */
+            columns: string[];
+            /**
+             * Reference
+             * @description A column to measure the others against, e.g. labels known to be right.
+             */
+            reference?: string | null;
+            /**
+             * Tolerance
+             * @description For number and date columns: how far apart values may be (days for dates).
+             */
+            tolerance?: number | null;
+        };
+        /** Comparison */
+        Comparison: {
+            /**
+             * Rows
+             * @description Rows compared: those the search and filters pick.
+             */
+            rows: number;
+            /**
+             * Columns
+             * @description The columns compared, with the reference last.
+             */
+            columns: string[];
+            agreement: components["schemas"]["Agreement"];
+            /**
+             * Pairs
+             * @description Every two of the columns.
+             */
+            pairs: components["schemas"]["Pair"][];
+            /**
+             * Values
+             * @description The most common values, and how often each column gives them.
+             */
+            values: components["schemas"]["ValueCounts"][];
+            /**
+             * Crosstab
+             * @description For exactly two columns: how often each pair of their values occurs.
+             */
+            crosstab: components["schemas"]["Cell"][] | null;
+            /**
+             * Reference
+             * @description With a reference: how often each other column matches it.
+             */
+            reference: components["schemas"]["ReferenceAccuracy"][] | null;
+        };
+        /**
+         * Connection
+         * @description A connection as the API shows it: without its secret key.
+         */
+        Connection: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Endpoint */
+            endpoint: string;
+            /** Region */
+            region: string;
+            /** Access Key Id */
+            access_key_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ConnectionInput */
+        ConnectionInput: {
+            /** Name */
+            name: string;
+            /**
+             * Endpoint
+             * @description Empty for AWS S3. Otherwise the storage's address, e.g. `https://<account>.r2.cloudflarestorage.com` or `http://localhost:9000` for MinIO.
+             * @default
+             */
+            endpoint: string;
+            /**
+             * Region
+             * @description `auto` for Cloudflare R2.
+             * @default us-east-1
+             */
+            region: string;
+            /** Access Key Id */
+            access_key_id: string;
+            /**
+             * Secret Access Key
+             * @description Required for a new connection; leave out to keep the saved one.
+             */
+            secret_access_key?: string | null;
         };
         /** Dataset */
         Dataset: {
@@ -492,9 +707,14 @@ export interface components {
             format: "csv" | "jsonl" | "parquet";
             /**
              * Path
-             * @description Where to write it on the server: a file, or a folder to put `<name>.<format>` in.
+             * @description Where to write it: a file or folder on the server, or an `s3://bucket/key`. A folder, or an `s3://` path ending in `/`, gets `<name>.<format>` in it.
              */
             path: string;
+            /**
+             * Connection Id
+             * @description For `s3://` paths; without one, the environment's AWS credentials.
+             */
+            connection_id?: string | null;
             /**
              * Include Row Id
              * @description Keep `__row_id`, rowlab's row number.
@@ -565,17 +785,65 @@ export interface components {
             /** Label */
             label: string;
         };
-        /** Filter */
-        Filter: {
-            /** Column */
+        /**
+         * Filter
+         * @description A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare.
+         */
+        "Filter-Input": {
+            /**
+             * Column
+             * @description The column, for every op but `agree` and `disagree`.
+             * @default
+             */
             column: string;
             /**
              * Op
              * @enum {string}
              */
-            op: "eq" | "ne" | "lt" | "lte" | "gt" | "gte" | "contains" | "is_null" | "is_not_null";
+            op: "eq" | "ne" | "lt" | "lte" | "gt" | "gte" | "contains" | "is_null" | "is_not_null" | "agree" | "disagree";
             /** Value */
             value?: string | number | boolean | null;
+            /**
+             * Columns
+             * @description For `agree` (every column has a value, all the same) and `disagree` (at least two values differ): two or more columns.
+             * @default []
+             */
+            columns: string[];
+            /**
+             * Tolerance
+             * @description For `agree` and `disagree` on number or date columns: how far apart values may be and still count as the same (in days for dates).
+             */
+            tolerance?: number | null;
+        };
+        /**
+         * Filter
+         * @description A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare.
+         */
+        "Filter-Output": {
+            /**
+             * Column
+             * @description The column, for every op but `agree` and `disagree`.
+             * @default
+             */
+            column: string;
+            /**
+             * Op
+             * @enum {string}
+             */
+            op: "eq" | "ne" | "lt" | "lte" | "gt" | "gte" | "contains" | "is_null" | "is_not_null" | "agree" | "disagree";
+            /** Value */
+            value: string | number | boolean | null;
+            /**
+             * Columns
+             * @description For `agree` (every column has a value, all the same) and `disagree` (at least two values differ): two or more columns.
+             * @default []
+             */
+            columns: string[];
+            /**
+             * Tolerance
+             * @description For `agree` and `disagree` on number or date columns: how far apart values may be and still count as the same (in days for dates).
+             */
+            tolerance: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -591,7 +859,7 @@ export interface components {
         };
         /** Job */
         Job: {
-            scope: components["schemas"]["Scope"];
+            scope: components["schemas"]["Scope-Output"];
             /** Tasks */
             tasks: components["schemas"]["Task-Output"][];
             /** Id */
@@ -611,13 +879,13 @@ export interface components {
         };
         /** JobConfig */
         "JobConfig-Input": {
-            scope?: components["schemas"]["Scope"];
+            scope?: components["schemas"]["Scope-Input"];
             /** Tasks */
             tasks?: components["schemas"]["Task-Input"][];
         };
         /** JobConfig */
         "JobConfig-Output": {
-            scope: components["schemas"]["Scope"];
+            scope: components["schemas"]["Scope-Output"];
             /** Tasks */
             tasks: components["schemas"]["Task-Output"][];
         };
@@ -654,6 +922,21 @@ export interface components {
              */
             description: string;
         };
+        /** Pair */
+        Pair: {
+            /** Columns */
+            columns: string[];
+            /**
+             * Compared
+             * @description Rows where both have a value.
+             */
+            compared: number;
+            /** Agree */
+            agree: number;
+            /** Rate */
+            rate: number | null;
+            disagree: components["schemas"]["Filter-Output"];
+        };
         /**
          * Preset
          * @description A starting point for a write task: its prompt, to finish by adding the row's columns.
@@ -683,7 +966,7 @@ export interface components {
              * Filters
              * @default []
              */
-            filters: components["schemas"]["Filter"][];
+            filters: components["schemas"]["Filter-Input"][];
             /**
              * Sort
              * @description Ties and the default order are by `__row_id`.
@@ -723,6 +1006,26 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
+        /** ReferenceAccuracy */
+        ReferenceAccuracy: {
+            /** Column */
+            column: string;
+            /**
+             * Compared
+             * @description Rows where both the column and the reference have a value.
+             */
+            compared: number;
+            /** Correct */
+            correct: number;
+            /** Accuracy */
+            accuracy: number | null;
+            wrong: components["schemas"]["Filter-Output"];
+            /**
+             * Values
+             * @description For the reference's most common values; empty with a tolerance.
+             */
+            values: components["schemas"]["ValueAccuracy"][];
+        };
         /** RenderRequest */
         RenderRequest: {
             /** Template */
@@ -734,7 +1037,7 @@ export interface components {
              *       "sort": []
              *     }
              */
-            scope: components["schemas"]["Scope"];
+            scope: components["schemas"]["Scope-Input"];
             /**
              * Offset
              * @description First row of the scope to render, counting from 0.
@@ -780,6 +1083,13 @@ export interface components {
             values: {
                 [key: string]: unknown;
             };
+        };
+        /** Rows */
+        Rows: {
+            /** Rows */
+            rows: number;
+            /** @description Picks these rows, in a scope's `filters`. */
+            filter: components["schemas"]["Filter-Output"] | null;
         };
         /** Run */
         Run: {
@@ -851,7 +1161,7 @@ export interface components {
          */
         RunRequest: {
             /** @description Which rows to ask about; all by default. */
-            scope?: components["schemas"]["Scope"];
+            scope?: components["schemas"]["Scope-Input"];
             /** Tasks */
             tasks: components["schemas"]["Task-Input"][];
         };
@@ -859,7 +1169,7 @@ export interface components {
          * Scope
          * @description Which rows, in which order: what the rows table shows and what a job runs on.
          */
-        Scope: {
+        "Scope-Input": {
             /**
              * Search
              * @description Case-insensitive text match against any column.
@@ -870,7 +1180,35 @@ export interface components {
              * Filters
              * @default []
              */
-            filters: components["schemas"]["Filter"][];
+            filters: components["schemas"]["Filter-Input"][];
+            /**
+             * Sort
+             * @description Ties and the default order are by `__row_id`.
+             * @default []
+             */
+            sort: components["schemas"]["Sort"][];
+            /**
+             * Limit
+             * @description Only the first rows, in this order.
+             */
+            limit?: number | null;
+        };
+        /**
+         * Scope
+         * @description Which rows, in which order: what the rows table shows and what a job runs on.
+         */
+        "Scope-Output": {
+            /**
+             * Search
+             * @description Case-insensitive text match against any column.
+             * @default
+             */
+            search: string;
+            /**
+             * Filters
+             * @default []
+             */
+            filters: components["schemas"]["Filter-Output"][];
             /**
              * Sort
              * @description Ties and the default order are by `__row_id`.
@@ -1101,6 +1439,42 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** ValueAccuracy */
+        ValueAccuracy: {
+            /** Value */
+            value: string;
+            /**
+             * Support
+             * @description Rows where the reference has this value (and the column one).
+             */
+            support: number;
+            /**
+             * Predicted
+             * @description Rows where the column has this value (and the reference one).
+             */
+            predicted: number;
+            /** Correct */
+            correct: number;
+            /** Precision */
+            precision: number | null;
+            /** Recall */
+            recall: number | null;
+        };
+        /** ValueCounts */
+        ValueCounts: {
+            /**
+             * Value
+             * @description None for all values past the most common ones, added up.
+             */
+            value: string | null;
+            /**
+             * Counts
+             * @description Rows with this value, by column.
+             */
+            counts: {
+                [key: string]: number;
+            };
+        };
     };
     responses: never;
     parameters: never;
@@ -1126,6 +1500,123 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    listConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"][];
+                };
+            };
+        };
+    };
+    createConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    updateConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1296,6 +1787,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compareColumns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comparison"];
                 };
             };
             /** @description Validation Error */

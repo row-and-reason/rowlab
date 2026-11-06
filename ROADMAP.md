@@ -1,15 +1,13 @@
 # Roadmap to MVP
 
-**Today:** milestones 1 and 2 are done. CSV, TSV, JSON, JSONL and Parquet files can be uploaded, or loaded
-by local path or public http(s) URL (pulled forward from milestone 7), and explored with server-side search,
-filters, sort and paging; 1M rows ingest in under a second and every page query returns in about 0.1 s.
-A prompt template can be composed from columns with a live per-row preview and token estimates.
-Milestone 3 is done: a job runs several tasks, each with one or more decision models or LLMs, on the rows
-its scope picks (search, filters, sort, limit), with costs per task and model. Tasks classify (yes/no,
-pick one, pick any, scale), extract typed fields, or write new text. Milestone 6 is done: any dataset exports as CSV,
-JSONL or Parquet. Milestones 4 and 5 are done: every run makes a new
-dataset that appears at once and fills in as the run works in the background in chunks of 500 rows; runs
-can be stopped and resumed, survive a server restart without paying twice, and show live progress.
+**Today:** milestones 1 to 7 are done; the MVP release (8) is next. CSV, TSV, JSON, JSONL and Parquet
+files are uploaded, or loaded by local path, public http(s) URL or from S3, and explored with
+server-side search, filters, sort and paging; 1M rows ingest in under a second and every page query
+returns in about 0.1 s. A job runs several tasks, each with one or more decision models or LLMs, on the
+rows its scope picks: tasks classify (yes/no, pick one, pick any, scale), extract typed fields, or write
+new text. Every run makes a new dataset that appears at once and fills in as the run works in the
+background in chunks of 500 rows; runs can be stopped and resumed, survive a server restart without
+paying twice, and show live progress. Any dataset exports as CSV, JSONL or Parquet, to disk or S3.
 `rowlab serve` serves the API and UI on one port, and `make build` produces a wheel with the UI bundled.
 
 **MVP:** a local tool that takes a CSV/JSON/JSONL/Parquet file from disk, HTTP or S3, runs a configured
@@ -215,18 +213,46 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 - UI: "Export…" in a dataset's menus and the ⌘K palette (shortcut E): a dialog with the format, whether
   to include the `#` column, and Download or Save to a path.
 
-### 7. Remote storage: read and write
+### 7. Remote storage: read and write ✅
 
-- ~~Read from public HTTP(S) URLs~~ — done early: downloaded with the standard library, then ingested like
-  an upload. Still to do: read from S3-compatible storage (AWS, R2, MinIO, …).
-- Export to S3-compatible storage.
-- Connections: named S3 configs (endpoint, region, bucket, keys) stored locally; secrets are never
-  returned by the API. Environment/AWS profile credentials work without configuring a connection.
-- API: connections CRUD; `source` accepts `s3://` URIs (it already accepts `https://`), and so does the
-  export `destination`.
-- UI: connections in Settings → Storage (in place, empty for now), S3 sources in "Add
-  data", S3 destination on export.
-- **Done when** tested against MinIO in CI.
+- Read from public HTTP(S) URLs (done early: downloaded, then ingested like an upload) and from
+  S3-compatible storage (AWS S3, Cloudflare R2, MinIO, …): `source` accepts `s3://bucket/key`. DuckDB
+  reads the object where it is, so no new dependency; as its content can't be looked at first, Parquet,
+  JSON and CSV readers are tried in turn, and `.gz` objects are decompressed by their name.
+- Export to S3: the export `path` accepts `s3://bucket/key`, or `s3://bucket/folder/` for
+  `<name>.<format>` in it.
+- Connections (`GET`/`POST /v1/connections`, `PUT`/`DELETE /v1/connections/{id}`): a name, an
+  endpoint (empty for AWS; storage other than AWS is addressed by path), a region and keys, stored
+  locally; the secret key is never returned. Creating a dataset and exporting take a `connection_id`;
+  without one, the AWS credentials in the environment (variables, `~/.aws`) are used, and public buckets
+  work without any.
+- UI: connections in Settings → Storage (add, edit, delete); "Add data" and Export take `s3://` paths
+  and then ask which connection to use.
+- **Done** with tests against a local S3 server (moto), started by the tests themselves, so they run on
+  every `make test` and in CI (`.github/workflows/ci.yml`: lint, test, build, and a check that the
+  generated API client is current) without a storage service. Not yet tried against MinIO, R2 or AWS
+  themselves.
+
+### Comparing columns ✅ (pulled forward)
+
+Most people labeling data have no correct answers to check against: that is why they label. How often
+columns agree is the cheapest sign of where labels are wrong, and comparing against labels someone
+trusts measures accuracy. So any columns compare: several models' answers to one task, a model against
+existing labels, or two columns of the original data.
+
+- `POST /v1/datasets/{id}/compare` with two or more `columns` (or one and a `reference`), an optional
+  `tolerance` for numbers and dates, and the usual search and filters: rows where all agree, disagree,
+  are partly answered or not answered; how often each two columns agree; how often each column gives
+  each value; for exactly two columns, the crosstab of their values; with a reference, each column's
+  accuracy, precision and recall per value. Lists are the same when they hold the same items; empty
+  values never count as a disagreement. Nothing is saved: comparisons are asked for, not kept.
+- Every count comes with the filter for its rows, in the scope's language: two new filter ops,
+  `agree` and `disagree`, over any number of `columns`. So the rows behind a count can be looked at
+  (`query`) or asked about again (`runs`), e.g. a stronger model on just the disagreements.
+- Write answers compare exactly only, for good: to judge whether two texts say the same, label another
+  column with a task that asks.
+- UI: a Compare tab picks the columns (to start with, the models' answers of the run that made the
+  dataset), a reference and a tolerance; every count opens its rows in the Rows tab.
 
 ### 8. MVP release
 
@@ -236,10 +262,13 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 
 ## After MVP
 
-MCP server (`rowlab mcp`, `/mcp`) · human review and corrections · discover → label (LLM proposes
+MCP server (`rowlab mcp`, `/mcp`) · discover → label (LLM proposes
 categories) · one-click cascades (low-confidence rows escalated to an LLM; already possible by hand
-through the workflow loop) · decision model vs LLM agreement
-comparison · provider batch APIs.
+through the workflow loop) · provider batch APIs.
+
+- **Human review.** A UI for people to label or correct rows, which writes a label column like any
+  task does. With comparisons in place it is just another way to make a column: marked as a
+  comparison's reference, it turns agreement into accuracy. Ideas to be written up.
 
 ### Ideas
 
@@ -255,6 +284,11 @@ Not planned yet; noted so they aren't lost. Add new ones here.
 - **More kinds of storage.** S3-compatible storage is the first (milestone 7); Settings → Storage is
   where others would go: Google Cloud Storage, Azure Blob Storage, and maybe databases or warehouses
   (Postgres, BigQuery) as sources and destinations.
+- **SQL instead of our own filter language.** Scopes describe rows with a small filter language of our
+  own (search, `eq`, `contains`, `agree`, …) through `POST /v1/datasets/{id}/query`, a name that
+  suggests SQL it isn't. Rows could be picked with DuckDB SQL instead (a `WHERE` clause, or a whole
+  `SELECT`), and the UI's filters become SQL templates it fills in: one language for people, the UI
+  and agents, and nothing to extend when a new kind of filter is needed.
 - **Recommended models first.** In the model picker, show a short "Recommended for <type>" group at the
   top, picked by the task's type (e.g. fast decision models for Classify, LLMs good at structured output
   for Extract), then the rest sorted as now.

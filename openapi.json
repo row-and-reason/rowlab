@@ -23,6 +23,157 @@
         }
       }
     },
+    "/v1/connections": {
+      "get": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "List Connections",
+        "description": "Connections to S3-compatible storage, by name. Secret keys are never returned.",
+        "operationId": "listConnections",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Connection"
+                  },
+                  "type": "array",
+                  "title": "Response Listconnections"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Create Connection",
+        "operationId": "createConnection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/connections/{connection_id}": {
+      "put": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Update Connection",
+        "description": "Change a connection; leave out `secret_access_key` to keep the saved one.",
+        "operationId": "updateConnection",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Delete Connection",
+        "operationId": "deleteConnection",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/datasets": {
       "get": {
         "tags": [
@@ -260,6 +411,59 @@
         }
       }
     },
+    "/v1/datasets/{dataset_id}/compare": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Compare Columns",
+        "description": "How often two or more columns give the same value in each row: several models' answers,\na model against labels someone already has, or any columns at all. With a `reference`, also\neach column's accuracy against it. Every count comes with the filter for its rows, to use in a\nscope's `filters`: to see them (`query`) or to ask about them again (`runs`).",
+        "operationId": "compareColumns",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comparison"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/datasets/{dataset_id}/render": {
       "post": {
         "tags": [
@@ -380,7 +584,7 @@
           "datasets"
         ],
         "summary": "Export Dataset",
-        "description": "Write the dataset to a file on the server, as CSV, JSONL or Parquet.",
+        "description": "Write the dataset as CSV, JSONL or Parquet to a file on the server, or to S3.",
         "operationId": "exportDataset",
         "parameters": [
           {
@@ -923,6 +1127,49 @@
   },
   "components": {
     "schemas": {
+      "Agreement": {
+        "properties": {
+          "all_agree": {
+            "$ref": "#/components/schemas/Rows",
+            "description": "Every column has a value, and they are all the same."
+          },
+          "disagree": {
+            "$ref": "#/components/schemas/Rows",
+            "description": "At least two values differ."
+          },
+          "partly_answered": {
+            "type": "integer",
+            "title": "Partly Answered",
+            "description": "Some columns are empty, and the others agree."
+          },
+          "not_answered": {
+            "type": "integer",
+            "title": "Not Answered",
+            "description": "Every column is empty."
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate",
+            "description": "Of the rows that agree or disagree, the share that agree."
+          }
+        },
+        "type": "object",
+        "required": [
+          "all_agree",
+          "disagree",
+          "partly_answered",
+          "not_answered",
+          "rate"
+        ],
+        "title": "Agreement"
+      },
       "Body_createDataset": {
         "properties": {
           "file": {
@@ -948,11 +1195,53 @@
               }
             ],
             "title": "Source",
-            "description": "Path of a file on the server, or a public http(s) URL."
+            "description": "Path of a file on the server, a public http(s) URL, or an `s3://bucket/key` object."
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id",
+            "description": "For `s3://` sources; without one, the environment's AWS credentials."
           }
         },
         "type": "object",
         "title": "Body_createDataset"
+      },
+      "Cell": {
+        "properties": {
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Values",
+            "description": "The two columns' values, in the order compared."
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/Filter-Output"
+            },
+            "type": "array",
+            "title": "Filters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "values",
+          "rows",
+          "filters"
+        ],
+        "title": "Cell"
       },
       "Column": {
         "properties": {
@@ -1049,6 +1338,221 @@
           "null_percentage"
         ],
         "title": "ColumnProfile"
+      },
+      "CompareRequest": {
+        "properties": {
+          "search": {
+            "type": "string",
+            "title": "Search",
+            "description": "Case-insensitive text match against any column.",
+            "default": ""
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/Filter-Input"
+            },
+            "type": "array",
+            "title": "Filters",
+            "default": []
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns",
+            "description": "Two or more; or one, with a reference."
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference",
+            "description": "A column to measure the others against, e.g. labels known to be right."
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance",
+            "description": "For number and date columns: how far apart values may be (days for dates)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "columns"
+        ],
+        "title": "CompareRequest",
+        "description": "Which columns to compare, on the rows the search and filters pick (all by default)."
+      },
+      "Comparison": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows",
+            "description": "Rows compared: those the search and filters pick."
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns",
+            "description": "The columns compared, with the reference last."
+          },
+          "agreement": {
+            "$ref": "#/components/schemas/Agreement"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/Pair"
+            },
+            "type": "array",
+            "title": "Pairs",
+            "description": "Every two of the columns."
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ValueCounts"
+            },
+            "type": "array",
+            "title": "Values",
+            "description": "The most common values, and how often each column gives them."
+          },
+          "crosstab": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Cell"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crosstab",
+            "description": "For exactly two columns: how often each pair of their values occurs."
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ReferenceAccuracy"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference",
+            "description": "With a reference: how often each other column matches it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "columns",
+          "agreement",
+          "pairs",
+          "values",
+          "crosstab",
+          "reference"
+        ],
+        "title": "Comparison"
+      },
+      "Connection": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint"
+          },
+          "region": {
+            "type": "string",
+            "title": "Region"
+          },
+          "access_key_id": {
+            "type": "string",
+            "title": "Access Key Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "endpoint",
+          "region",
+          "access_key_id",
+          "created_at"
+        ],
+        "title": "Connection",
+        "description": "A connection as the API shows it: without its secret key."
+      },
+      "ConnectionInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint",
+            "description": "Empty for AWS S3. Otherwise the storage's address, e.g. `https://<account>.r2.cloudflarestorage.com` or `http://localhost:9000` for MinIO.",
+            "default": ""
+          },
+          "region": {
+            "type": "string",
+            "title": "Region",
+            "description": "`auto` for Cloudflare R2.",
+            "default": "us-east-1"
+          },
+          "access_key_id": {
+            "type": "string",
+            "title": "Access Key Id"
+          },
+          "secret_access_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret Access Key",
+            "description": "Required for a new connection; leave out to keep the saved one."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "access_key_id"
+        ],
+        "title": "ConnectionInput"
       },
       "Dataset": {
         "properties": {
@@ -1233,7 +1737,19 @@
           "path": {
             "type": "string",
             "title": "Path",
-            "description": "Where to write it on the server: a file, or a folder to put `<name>.<format>` in."
+            "description": "Where to write it: a file or folder on the server, or an `s3://bucket/key`. A folder, or an `s3://` path ending in `/`, gets `<name>.<format>` in it."
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id",
+            "description": "For `s3://` paths; without one, the environment's AWS credentials."
           },
           "include_row_id": {
             "type": "boolean",
@@ -1378,11 +1894,13 @@
         ],
         "title": "FieldTypeInfo"
       },
-      "Filter": {
+      "Filter-Input": {
         "properties": {
           "column": {
             "type": "string",
-            "title": "Column"
+            "title": "Column",
+            "description": "The column, for every op but `agree` and `disagree`.",
+            "default": ""
           },
           "op": {
             "type": "string",
@@ -1395,7 +1913,9 @@
               "gte",
               "contains",
               "is_null",
-              "is_not_null"
+              "is_not_null",
+              "agree",
+              "disagree"
             ],
             "title": "Op"
           },
@@ -1418,14 +1938,113 @@
               }
             ],
             "title": "Value"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns",
+            "description": "For `agree` (every column has a value, all the same) and `disagree` (at least two values differ): two or more columns.",
+            "default": []
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance",
+            "description": "For `agree` and `disagree` on number or date columns: how far apart values may be and still count as the same (in days for dates)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "op"
+        ],
+        "title": "Filter",
+        "description": "A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare."
+      },
+      "Filter-Output": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column",
+            "description": "The column, for every op but `agree` and `disagree`.",
+            "default": ""
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "eq",
+              "ne",
+              "lt",
+              "lte",
+              "gt",
+              "gte",
+              "contains",
+              "is_null",
+              "is_not_null",
+              "agree",
+              "disagree"
+            ],
+            "title": "Op"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns",
+            "description": "For `agree` (every column has a value, all the same) and `disagree` (at least two values differ): two or more columns.",
+            "default": []
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance",
+            "description": "For `agree` and `disagree` on number or date columns: how far apart values may be and still count as the same (in days for dates)."
           }
         },
         "type": "object",
         "required": [
           "column",
-          "op"
+          "op",
+          "value",
+          "columns",
+          "tolerance"
         ],
-        "title": "Filter"
+        "title": "Filter",
+        "description": "A condition on one column's value, or with `agree`/`disagree`, on how `columns` compare."
       },
       "HTTPValidationError": {
         "properties": {
@@ -1461,7 +2080,7 @@
       "Job": {
         "properties": {
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope-Output"
           },
           "tasks": {
             "items": {
@@ -1503,7 +2122,7 @@
       "JobConfig-Input": {
         "properties": {
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope-Input"
           },
           "tasks": {
             "items": {
@@ -1519,7 +2138,7 @@
       "JobConfig-Output": {
         "properties": {
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope-Output"
           },
           "tasks": {
             "items": {
@@ -1609,6 +2228,49 @@
         ],
         "title": "Option"
       },
+      "Pair": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "compared": {
+            "type": "integer",
+            "title": "Compared",
+            "description": "Rows where both have a value."
+          },
+          "agree": {
+            "type": "integer",
+            "title": "Agree"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "disagree": {
+            "$ref": "#/components/schemas/Filter-Output"
+          }
+        },
+        "type": "object",
+        "required": [
+          "columns",
+          "compared",
+          "agree",
+          "rate",
+          "disagree"
+        ],
+        "title": "Pair"
+      },
       "Preset": {
         "properties": {
           "id": {
@@ -1648,7 +2310,7 @@
           },
           "filters": {
             "items": {
-              "$ref": "#/components/schemas/Filter"
+              "$ref": "#/components/schemas/Filter-Input"
             },
             "type": "array",
             "title": "Filters",
@@ -1723,6 +2385,55 @@
         ],
         "title": "QueryResult"
       },
+      "ReferenceAccuracy": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
+          "compared": {
+            "type": "integer",
+            "title": "Compared",
+            "description": "Rows where both the column and the reference have a value."
+          },
+          "correct": {
+            "type": "integer",
+            "title": "Correct"
+          },
+          "accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy"
+          },
+          "wrong": {
+            "$ref": "#/components/schemas/Filter-Output"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ValueAccuracy"
+            },
+            "type": "array",
+            "title": "Values",
+            "description": "For the reference's most common values; empty with a tolerance."
+          }
+        },
+        "type": "object",
+        "required": [
+          "column",
+          "compared",
+          "correct",
+          "accuracy",
+          "wrong",
+          "values"
+        ],
+        "title": "ReferenceAccuracy"
+      },
       "RenderRequest": {
         "properties": {
           "template": {
@@ -1730,7 +2441,7 @@
             "title": "Template"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope",
+            "$ref": "#/components/schemas/Scope-Input",
             "default": {
               "search": "",
               "filters": [],
@@ -1830,6 +2541,31 @@
           "values"
         ],
         "title": "RenderedRow"
+      },
+      "Rows": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Filter-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Picks these rows, in a scope's `filters`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "filter"
+        ],
+        "title": "Rows"
       },
       "Run": {
         "properties": {
@@ -1951,7 +2687,7 @@
       "RunRequest": {
         "properties": {
           "scope": {
-            "$ref": "#/components/schemas/Scope",
+            "$ref": "#/components/schemas/Scope-Input",
             "description": "Which rows to ask about; all by default."
           },
           "tasks": {
@@ -1969,7 +2705,7 @@
         "title": "RunRequest",
         "description": "What to run: the tasks, on the rows in a scope."
       },
-      "Scope": {
+      "Scope-Input": {
         "properties": {
           "search": {
             "type": "string",
@@ -1979,7 +2715,50 @@
           },
           "filters": {
             "items": {
-              "$ref": "#/components/schemas/Filter"
+              "$ref": "#/components/schemas/Filter-Input"
+            },
+            "type": "array",
+            "title": "Filters",
+            "default": []
+          },
+          "sort": {
+            "items": {
+              "$ref": "#/components/schemas/Sort"
+            },
+            "type": "array",
+            "title": "Sort",
+            "description": "Ties and the default order are by `__row_id`.",
+            "default": []
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit",
+            "description": "Only the first rows, in this order."
+          }
+        },
+        "type": "object",
+        "title": "Scope",
+        "description": "Which rows, in which order: what the rows table shows and what a job runs on."
+      },
+      "Scope-Output": {
+        "properties": {
+          "search": {
+            "type": "string",
+            "title": "Search",
+            "description": "Case-insensitive text match against any column.",
+            "default": ""
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/Filter-Output"
             },
             "type": "array",
             "title": "Filters",
@@ -2427,6 +3206,90 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ValueAccuracy": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "support": {
+            "type": "integer",
+            "title": "Support",
+            "description": "Rows where the reference has this value (and the column one)."
+          },
+          "predicted": {
+            "type": "integer",
+            "title": "Predicted",
+            "description": "Rows where the column has this value (and the reference one)."
+          },
+          "correct": {
+            "type": "integer",
+            "title": "Correct"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "support",
+          "predicted",
+          "correct",
+          "precision",
+          "recall"
+        ],
+        "title": "ValueAccuracy"
+      },
+      "ValueCounts": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value",
+            "description": "None for all values past the most common ones, added up."
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts",
+            "description": "Rows with this value, by column."
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "counts"
+        ],
+        "title": "ValueCounts"
       }
     }
   }
