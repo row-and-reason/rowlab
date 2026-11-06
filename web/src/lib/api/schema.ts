@@ -398,6 +398,11 @@ export interface components {
              */
             status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed";
             /**
+             * Failed
+             * @description Answers that failed, which resuming asks again.
+             */
+            failed: number;
+            /**
              * Done
              * @description Model calls answered so far.
              */

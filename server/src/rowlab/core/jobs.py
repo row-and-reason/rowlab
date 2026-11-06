@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from rowlab.core import datasets, db, tasks
-from rowlab.core.datasets import Scope
+from rowlab.core.datasets import Filter, Scope
 from rowlab.core.errors import InvalidRequest, NotFound
 from rowlab.core.providers import openrouter
 from rowlab.core.tasks import Task
@@ -41,7 +41,11 @@ def list_jobs(dataset_id: str) -> list[Job]:
 
 
 def create_job(dataset_id: str, config: JobConfig) -> Job:
-    datasets.get_dataset(dataset_id)
+    """A dataset's job. Unless a scope is given, it starts on a few rows; on a dataset a run made, on
+    the rows that run answered."""
+    dataset = datasets.get_dataset(dataset_id)
+    if dataset.run and "scope" not in config.model_fields_set:
+        config = config.model_copy(update={"scope": Scope(filters=[_answered(dataset.run.id)])})
     now = datetime.now(UTC)
     job = Job(
         **config.model_dump(),
@@ -97,6 +101,15 @@ def check(job: Job) -> None:
         raise InvalidRequest(
             f"The dataset already has a column {', '.join(existing)}. Rename the task's result column."
         )
+
+
+def _answered(run_id: str) -> Filter:
+    """A filter for the rows a run answered: its first answer column is set."""
+    with db.connect() as conn:
+        columns = json.loads(
+            conn.execute("SELECT columns FROM runs WHERE id = ?", (run_id,)).fetchone()["columns"]
+        )
+    return Filter(column=columns[0], op="is_not_null")
 
 
 def _from_row(row) -> Job:

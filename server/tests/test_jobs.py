@@ -22,12 +22,14 @@ class FakeOpenRouter:
     """Stands in for OpenRouter's HTTP API. Says yes when the prompt mentions a bad experience.
 
     `busy` makes the next calls fail with a rate limit; `crash_on` makes the call for that prompt
-    fail once like a killed server would, with an error nothing catches."""
+    fail once like a killed server would, with an error nothing catches; `flaky` prompts fail once,
+    with an error that isn't retried."""
 
     def __init__(self):
         self.calls = []
         self.busy = 0
         self.crash_on = None
+        self.flaky = set()
 
     def __call__(self, method, path, *, api_key, body=None):
         self.calls.append((method, path, api_key, body))
@@ -59,6 +61,9 @@ class FakeOpenRouter:
         if body["state"] == self.crash_on:
             self.crash_on = None
             raise KeyboardInterrupt
+        if body["state"] in self.flaky:
+            self.flaky.remove(body["state"])
+            raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
         if body["state"] == "fail":
             raise openrouter.OpenRouterError("HTTP 402: Insufficient credits", status=402)
         return {
@@ -193,6 +198,7 @@ def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
         "id": created["id"],
         "status": "queued",
         "done": 0,
+        "failed": 0,
         "total": 2,
     }
     assert [c["name"] for c in made["columns"]] == [
@@ -219,8 +225,7 @@ def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
     assert done["run"]["status"] == "done"
     assert done["columns"] == made["columns"]
     # Once done it is one Parquet file, like any other dataset.
-    files = sorted(p.name for p in (data_dir / "datasets" / made["id"]).iterdir())
-    assert files == ["data.parquet"]
+    assert (data_dir / "datasets" / made["id"] / "data.parquet").is_file()
 
 
 def test_run_runs_every_task_with_every_model(client, job, api_key):
@@ -287,6 +292,40 @@ def test_run_reports_failed_rows(client, job, api_key):
     finished = run(client, update(client, job, tasks=[{**NEGATIVE, "template": "fail"}]))
     assert rows(client, finished)[0]["negative__jev-1.14"] is None
     assert finished["costs"][0]["failed"] == 3
+
+
+def test_resuming_a_done_run_asks_its_failed_answers_again(client, job, api_key, fake):
+    fake.flaky = {"Is this review negative? Love it"}
+    finished = run(client, job)
+    assert (finished["status"], finished["costs"][0]["failed"]) == ("done", 1)
+    assert rows(client, finished)[1]["negative__jev-1.14"] is None
+    made = client.get(f"/v1/datasets/{finished['dataset_id']}").json()
+    assert made["run"]["failed"] == 1
+
+    assert client.post(f"/v1/runs/{finished['id']}/resume").json()["status"] == "queued"
+    asked = len(fake.calls)
+    while runs.process_next():
+        pass
+    again = client.get(f"/v1/runs/{finished['id']}").json()
+    assert (again["status"], again["costs"][0]["failed"]) == ("done", 0)
+    assert rows(client, again)[1]["negative__jev-1.14"] is False
+    # Only the failed answer was asked again.
+    assert len(fake.calls) == asked + 1
+    # Nothing failed now, so there is nothing to resume.
+    assert client.post(f"/v1/runs/{finished['id']}/resume").status_code == 400
+
+
+def test_a_new_job_on_a_made_dataset_starts_on_the_answered_rows(client, job, api_key):
+    finished = run(client, update(client, job, scope={"limit": 2}))
+    made = client.post(f"/v1/datasets/{finished['dataset_id']}/jobs", json={}).json()
+    assert made["scope"] == {
+        "search": "",
+        "filters": [{"column": "negative__jev-1.14", "op": "is_not_null", "value": None}],
+        "sort": [],
+        "limit": None,
+    }
+    page = client.post(f"/v1/datasets/{finished['dataset_id']}/query", json=made["scope"]).json()
+    assert [r["__row_id"] for r in page["rows"]] == [0, 1]
 
 
 def test_a_stopped_run_resumes_where_it_was(client, job, api_key, monkeypatch):

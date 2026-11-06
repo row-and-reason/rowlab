@@ -1,6 +1,13 @@
 "use client";
 
-import { DownloadIcon, EllipsisIcon, PlayIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import {
+  DownloadIcon,
+  EllipsisIcon,
+  PlayIcon,
+  RotateCcwIcon,
+  SquareIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -155,6 +162,17 @@ export function DatasetPanels({
                 <Button size="sm" variant="ghost" onClick={() => changeRun("resume")}>
                   <PlayIcon data-icon="inline-start" />
                   Resume
+                </Button>
+              )}
+              {run && run.status === "done" && run.failed > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title="Ask the failed answers again"
+                  onClick={() => changeRun("resume")}
+                >
+                  <RotateCcwIcon data-icon="inline-start" />
+                  Retry {formatNumber(run.failed)} failed
                 </Button>
               )}
               <TabsList>

@@ -129,7 +129,8 @@ use-case archetypes; phase 1 covers everything decision models can answer, phase
 - OpenRouter key from `OPENROUTER_API_KEY` or saved from the UI after OpenRouter accepts it.
 - Jobs (`GET`/`POST /v1/datasets/{id}/jobs`, `PUT /v1/jobs/{id}`) hold the scope (the Rows tab's search,
   filters, sort and limit) and the tasks; the UI creates one per dataset and saves as you edit. A new job
-  is limited to 20 rows, so its first run is cheap. Tasks are small cards that expand to their prompt,
+  is limited to 20 rows, so its first run is cheap; on a dataset a run made, it starts on the rows that
+  run answered instead (its first answer column is not null). Tasks are small cards that expand to their prompt,
   answer and models.
 - Running a job asks every task and model about the rows in scope: answers, probabilities and cost per
   task and model. The UI shows the answers as columns next to the rows. Runs are milestone 4.
@@ -157,10 +158,13 @@ normalization. An optional reason column is a candidate too.
   errors and timeouts, honouring `Retry-After`. A row that still fails has empty answer columns and counts
   as failed for its task and model.
   The response cache from milestone 3 means answers already given are free.
-- `POST /v1/runs/{id}/stop` stops after the chunk in progress; `POST /v1/runs/{id}/resume` continues from
-  the next chunk. Runs cut off by a server restart are queued again on startup and continue where they
+- `POST /v1/runs/{id}/stop` stops after the chunk in progress; `POST /v1/runs/{id}/resume` first asks
+  the answers that failed in the chunks already written again (past the response cache, so an unusable
+  reply isn't just repeated), then continues from the next chunk. A done run with failed answers can be
+  resumed too ("Retry failed" in its dataset's toolbar). Runs cut off by a server restart are queued again on startup and continue where they
   left off: killing the server mid-run and restarting completes the run without paying twice (tested).
-- When a run finishes, its dataset is written out once as `data.parquet`, like any other dataset.
+- When a run finishes, its dataset is written out as `data.parquet`, like any other dataset. The run's
+  files stay next to it, so its failed answers can be asked again later.
   Deleting a dataset deletes the run that makes it; datasets made from it stay.
 - UI: Run opens the new dataset. Its rows fill in as chunks finish; its toolbar has Stop or Resume; its
   Lineage tab shows what it was made from, the run's status, progress bar, answers per second and time

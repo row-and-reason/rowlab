@@ -59,6 +59,7 @@ class DatasetRun(BaseModel):
 
     id: str
     status: Literal["queued", "running", "stopping", "stopped", "done", "failed"]
+    failed: int = Field(description="Answers that failed, which resuming asks again.")
     done: int = Field(description="Model calls answered so far.")
     total: int = Field(description="Model calls the run makes.")
 
@@ -279,7 +280,8 @@ def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
 
 
 def finish_run_dataset(dataset_id: str) -> None:
-    """Write a run's dataset out as one Parquet file, once every chunk is written."""
+    """Write a run's dataset out as one Parquet file, once every chunk is written. Its run's files
+    stay, so failed answers can be asked again later (see `reopen_run_dataset`)."""
     directory = _dataset_dir(dataset_id)
     temporary = directory / "data.parquet.tmp"
     with duckdb.connect() as con:
@@ -288,14 +290,29 @@ def finish_run_dataset(dataset_id: str) -> None:
             f"TO {sql_string(temporary)} (FORMAT parquet)"
         )
     os.replace(temporary, directory / "data.parquet")
-    (directory / "rows.parquet").unlink()
-    (directory / "asked.parquet").unlink()
-    shutil.rmtree(run_parts_dir(dataset_id))
     with db.connect() as conn:
         conn.execute(
             "UPDATE datasets SET size_bytes = ? WHERE id = ?",
             ((directory / "data.parquet").stat().st_size, dataset_id),
         )
+
+
+def reopen_run_dataset(dataset_id: str) -> None:
+    """Read a finished run's dataset from its run's files again, while the run asks its failed
+    answers again; `finish_run_dataset` writes it out once more."""
+    (_dataset_dir(dataset_id) / "data.parquet").unlink(missing_ok=True)
+
+
+def read_run_part(dataset_id: str, name: str) -> dict[int, dict[str, Any]]:
+    """The answers in one part a run wrote, by `__row_id`."""
+    part = sql_string(run_parts_dir(dataset_id) / f"{name}.parquet")
+    with duckdb.connect() as con:
+        rows = con.execute(f"SELECT to_json(t) FROM read_parquet({part}) AS t").fetchall()
+    answers = {}
+    for (data,) in rows:
+        row = json.loads(data)
+        answers[row.pop(ROW_ID)] = row
+    return answers
 
 
 def read_run_rows(dataset_id: str, *, offset: int, limit: int) -> list[dict[str, Any]]:
@@ -361,6 +378,8 @@ def _register(
 _SELECT = """
 SELECT d.*,
     (SELECT json_object('id', r.id, 'status', r.status, 'done', r.done,
+        'failed', (SELECT coalesce(sum(json_extract(c.value, '$.failed')), 0)
+            FROM json_each(r.costs) c),
         'total', r.total) FROM runs r WHERE r.dataset_id = d.id) AS run
 FROM datasets d
 """

@@ -103,15 +103,22 @@ def check_key(api_key: str) -> None:
         raise InvalidRequest(f"OpenRouter did not accept the key: {e}") from e
 
 
-def decide(model: str, state: str, questions: dict[str, Any], *, api_key: str) -> Response:
+def decide(
+    model: str, state: str, questions: dict[str, Any], *, api_key: str, fresh: bool = False
+) -> Response:
     """Ask a decision model typed questions about `state`. `data` is the answers by question."""
     body = {"model": model, "state": state, "questions": questions}
-    response, cached = _cached_post("/alpha/decisions", body, api_key)
+    response, cached = _cached_post("/alpha/decisions", body, api_key, fresh=fresh)
     return Response(data=response["answers"], cost=response["usage"]["cost"], cached=cached)
 
 
 def complete(
-    model: str, messages: list[dict[str, str]], schema: dict[str, Any], *, api_key: str
+    model: str,
+    messages: list[dict[str, str]],
+    schema: dict[str, Any],
+    *,
+    api_key: str,
+    fresh: bool = False,
 ) -> Response:
     """Ask an LLM for a JSON reply matching `schema`. `data` is the reply's text."""
     body = {
@@ -122,19 +129,22 @@ def complete(
             "json_schema": {"name": "answer", "strict": True, "schema": schema},
         },
     }
-    response, cached = _cached_post("/v1/chat/completions", body, api_key)
+    response, cached = _cached_post("/v1/chat/completions", body, api_key, fresh=fresh)
     content = (response.get("choices") or [{}])[0].get("message", {}).get("content")
     return Response(data=content, cost=response.get("usage", {}).get("cost", 0), cached=cached)
 
 
-def _cached_post(path: str, body: dict[str, Any], api_key: str) -> tuple[dict[str, Any], bool]:
-    """POST, unless the identical request was answered before: a paid call is never made twice."""
+def _cached_post(
+    path: str, body: dict[str, Any], api_key: str, *, fresh: bool = False
+) -> tuple[dict[str, Any], bool]:
+    """POST, unless the identical request was answered before: a paid call is never made twice.
+    `fresh` asks again anyway, e.g. when the cached reply was unusable, and caches the new reply."""
     key = hashlib.sha256(
         json.dumps({"path": path, "body": body}, sort_keys=True).encode()
     ).hexdigest()
     with db.connect() as conn:
         row = conn.execute("SELECT response FROM responses WHERE key = ?", (key,)).fetchone()
-    if row is not None:
+    if row is not None and not fresh:
         return json.loads(row["response"]), True
     response = _post_with_retries(path, body, api_key)
     with db.connect() as conn:

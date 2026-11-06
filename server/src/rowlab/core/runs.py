@@ -138,10 +138,14 @@ def stop_run(run_id: str) -> Run:
 
 
 def resume_run(run_id: str) -> Run:
-    """Queue a stopped or failed run again; it continues from its first unwritten chunk."""
+    """Queue a stopped or failed run again, or a done one with failed answers. It first asks the
+    answers that failed again, then continues from its first unwritten chunk."""
     run = get_run(run_id)
-    if run.status not in ("stopped", "failed"):
-        raise InvalidRequest(f"The run is {run.status}, not stopped.")
+    failed = any(c.failed for c in run.costs)
+    if run.status not in ("stopped", "failed") and not (run.status == "done" and failed):
+        raise InvalidRequest(f"The run is {run.status}, with nothing to resume.")
+    if run.status == "done":
+        datasets.reopen_run_dataset(run.dataset_id)
     _set(run_id, status="queued", error=None)
     _wake.set()
     return get_run(run_id)
@@ -192,6 +196,14 @@ def _process(run_id: str) -> None:
         if api_key is None:
             raise InvalidRequest("Set your OpenRouter API key first.")
         keys = {path: k for path, (_, k) in datasets.dataset_fields(run.dataset_id).items()}
+        # Answers that failed in the chunks already written are asked again first.
+        for chunk in range(run.next_chunk):
+            if not any(c.failed for c in run.costs):
+                break
+            if not _process_chunk(run, chunk, keys, api_key, retry=True):
+                _set(run_id, status="stopped")
+                return
+            run = get_run(run_id)
         chunks = -(-run.row_count // CHUNK_ROWS)
         for chunk in range(run.next_chunk, chunks):
             if not _process_chunk(run, chunk, keys, api_key):
@@ -205,16 +217,27 @@ def _process(run_id: str) -> None:
         raise
 
 
-def _process_chunk(run: Run, chunk: int, keys: dict[str, list[str]], api_key: str) -> bool:
-    """Ask every task and model for the chunk's rows and write its part file. Returns False, writing
-    nothing, if the run was stopped meanwhile."""
+def _process_chunk(
+    run: Run, chunk: int, keys: dict[str, list[str]], api_key: str, *, retry: bool = False
+) -> bool:
+    """Ask every task and model for the chunk's rows and write its part file. With `retry`, the part
+    is already written: only its failed answers are asked again, past the response cache, and it is
+    written again. Returns False, writing nothing, if the run was stopped meanwhile."""
     rows = datasets.read_run_rows(run.dataset_id, offset=chunk * CHUNK_ROWS, limit=CHUNK_ROWS)
+    name = f"part-{chunk:06d}"
+    written = datasets.read_run_part(run.dataset_id, name) if retry else {}
     # Calls in the chunks already written; a chunk being redone after a stop counts from zero.
     per_row = sum(len(task.models) for task in run.config.tasks)
     done_before = chunk * CHUNK_ROWS * per_row
     units = [
-        (row, task, model) for row in rows for task in run.config.tasks for model in task.models
+        (row, task, model)
+        for row in rows
+        for task in run.config.tasks
+        for model in task.models
+        if not retry or _failed(written[row[ROW_ID]], task, model)
     ]
+    if not units:
+        return True
     stopping = threading.Event()
     answers: list[_Answer | None] = [None] * len(units)
 
@@ -222,14 +245,15 @@ def _process_chunk(run: Run, chunk: int, keys: dict[str, list[str]], api_key: st
         if stopping.is_set():
             return
         row, task, model = units[i]
-        answers[i] = _ask(task, model, prompts.render(task.template, row, keys), api_key)
+        prompt = prompts.render(task.template, row, keys)
+        answers[i] = _ask(task, model, prompt, api_key, fresh=retry)
 
     with ThreadPoolExecutor(CONCURRENCY) as pool:
         futures = [pool.submit(ask, i) for i in range(len(units))]
         while not all(f.done() for f in futures):
             time.sleep(PROGRESS_INTERVAL_SECONDS)
-            finished = sum(a is not None for a in answers)
-            _set(run.id, done=done_before + finished)
+            if not retry:
+                _set(run.id, done=done_before + sum(a is not None for a in answers))
             # A deleted dataset takes its run with it.
             if _status(run.id) in ("stopping", None):
                 stopping.set()
@@ -238,12 +262,14 @@ def _process_chunk(run: Run, chunk: int, keys: dict[str, list[str]], api_key: st
     if stopping.is_set():
         return False
 
-    by_row: dict[int, dict[str, Any]] = {row[ROW_ID]: {} for row in rows}
+    by_row: dict[int, dict[str, Any]] = {
+        row[ROW_ID]: dict(written.get(row[ROW_ID], {})) for row in rows
+    }
     for (row, task, model), answer in zip(units, answers):
         assert answer is not None
         if answer.error is None:
             by_row[row[ROW_ID]] |= tasks.with_model(task, model, answer.values)
-    _write_part(run.dataset_id, run.config.tasks, f"part-{chunk:06d}", by_row)
+    _write_part(run.dataset_id, run.config.tasks, name, by_row)
     costs = {(c.task_id, c.model): c for c in run.costs}
     for (_, task, model), answer in zip(units, answers):
         assert answer is not None
@@ -251,15 +277,24 @@ def _process_chunk(run: Run, chunk: int, keys: dict[str, list[str]], api_key: st
             (task.id, model), TaskModelCost(task_id=task.id, model=model, cost=0, failed=0)
         )
         cost.cost += 0 if answer.cached else answer.cost
-        cost.failed += answer.error is not None
+        if retry:
+            cost.failed -= answer.error is None
+        else:
+            cost.failed += answer.error is not None
+    progress = {} if retry else {"next_chunk": chunk + 1, "done": done_before + len(units)}
     _set(
         run.id,
-        next_chunk=chunk + 1,
-        done=done_before + len(units),
+        **progress,
         costs=json.dumps([c.model_dump() for c in costs.values()]),
         cost=sum(c.cost for c in costs.values()),
     )
     return True
+
+
+def _failed(written: dict[str, Any], task: Task, model: str) -> bool:
+    """Whether a model's answer to a task is missing from a written row: it failed."""
+    column = f"{tasks.base_columns(task)[0]}__{tasks.model_slug(model)}"
+    return written.get(column) is None
 
 
 def _write_part(
@@ -301,16 +336,17 @@ def _write_part(
     os.replace(temporary, path)
 
 
-def _ask(task: Task, model: str, prompt: str, api_key: str) -> _Answer:
-    """One task for one row from one model, as base columns."""
+def _ask(task: Task, model: str, prompt: str, api_key: str, *, fresh: bool = False) -> _Answer:
+    """One task for one row from one model, as base columns. `fresh` asks past the cache."""
     decision = openrouter.model_kind(model) == "decision"
     try:
         if decision:
             questions = tasks.decision_questions(task)
-            response = openrouter.decide(model, prompt, questions, api_key=api_key)
+            response = openrouter.decide(model, prompt, questions, api_key=api_key, fresh=fresh)
         else:
             messages = tasks.llm_messages(task, prompt)
-            response = openrouter.complete(model, messages, tasks.llm_schema(task), api_key=api_key)
+            schema = tasks.llm_schema(task)
+            response = openrouter.complete(model, messages, schema, api_key=api_key, fresh=fresh)
     except openrouter.OpenRouterError as e:
         return _Answer(error=str(e))
     # Paid for even when the reply turns out unusable.
