@@ -6,6 +6,7 @@ import threading
 
 import duckdb
 import pytest
+from conftest import stored, stored_datasets
 
 CSV = "name,age,city\nAda,36,London\nAlan,41,Wilmslow\nGrace,,Arlington\n"
 
@@ -35,7 +36,7 @@ def test_create_from_local_path(dataset, csv_file, data_dir):
     assert dataset["source"] == str(csv_file)
     assert dataset["row_count"] == 3
     assert [c["name"] for c in dataset["columns"]] == ["__row_id", "name", "age", "city"]
-    assert (data_dir / "datasets" / dataset["id"] / "data.parquet").is_file()
+    assert stored(dataset["id"], "data.parquet")
 
 
 def test_upload(client):
@@ -91,7 +92,7 @@ def test_rejects_bad_input(client, tmp_path):
     broken = tmp_path / "broken.json"
     broken.write_text("{not json")
     assert client.post("/v1/datasets", data={"source": str(broken)}).status_code == 400
-    assert not list((tmp_path / "data" / "datasets").iterdir())
+    assert stored_datasets() == set()
 
 
 def test_list_get_delete(client, dataset, data_dir):
@@ -101,7 +102,7 @@ def test_list_get_delete(client, dataset, data_dir):
     assert client.delete(f"/v1/datasets/{dataset['id']}").status_code == 204
     assert client.get(f"/v1/datasets/{dataset['id']}").status_code == 404
     assert client.get("/v1/datasets").json() == []
-    assert not (data_dir / "datasets" / dataset["id"]).exists()
+    assert dataset["id"] not in stored_datasets()
 
 
 def test_profile(client, dataset):
@@ -274,3 +275,21 @@ def test_profile_includes_nested_fields(client, tmp_path):
     assert list(profile) == ["actor", "actor.login", "actor.id"]
     assert profile["actor.login"]["min"] == "ada"
     assert profile["actor.id"]["max"] == "2"
+
+
+def test_hosted_mode_reads_and_writes_no_paths_on_the_server(client, csv_file, monkeypatch):
+    from rowlab.core.config import config
+
+    monkeypatch.setenv("ROWLAB_MODE", "hosted")
+    config.cache_clear()
+    assert client.get("/v1/settings").json()["mode"] == "hosted"
+    added = client.post("/v1/datasets", data={"source": str(csv_file)})
+    assert added.status_code == 400
+    assert "Upload the file instead" in added.json()["detail"]
+    uploaded = client.post("/v1/datasets", files={"file": ("people.csv", csv_file.read_bytes())})
+    assert uploaded.status_code == 201
+    export = client.post(
+        f"/v1/datasets/{uploaded.json()['id']}/export",
+        json={"format": "csv", "path": str(csv_file.parent)},
+    )
+    assert export.status_code == 400

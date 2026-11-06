@@ -1,5 +1,7 @@
 import argparse
 import json
+import logging
+import os
 
 import uvicorn
 
@@ -12,12 +14,30 @@ def main() -> None:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--reload", action="store_true", help="Reload on code changes (development)")
+    serve.add_argument(
+        "--no-runner",
+        action="store_true",
+        help="Leave runs to separate `rowlab runner` processes (needs Postgres)",
+    )
+
+    commands.add_parser(
+        "runner", help="Process queued runs (with Postgres, several can share them)"
+    )
 
     commands.add_parser("openapi", help="Print the OpenAPI spec as JSON")
 
     args = parser.parse_args()
     if args.command == "serve":
+        if args.no_runner:
+            # Read by the app as it starts, also in the processes `--reload` starts.
+            os.environ["ROWLAB_NO_RUNNER"] = "1"
         uvicorn.run("rowlab.app:app", host=args.host, port=args.port, reload=args.reload)
+    elif args.command == "runner":
+        from rowlab.core import runs
+
+        logging.basicConfig(level=logging.INFO)
+        runs.recover_interrupted_runs()
+        runs.run_forever()
     elif args.command == "openapi":
         from rowlab.app import app
 

@@ -1061,6 +1061,17 @@ export interface components {
              * @description Where the OpenRouter API key comes from, if set. The key is never returned.
              */
             openrouter_key: ("environment" | "saved") | null;
+            /**
+             * Mode
+             * @description `local`: one person on their own machine. `hosted`: shared, with sign-in.
+             * @enum {string}
+             */
+            mode: "local" | "hosted";
+            /**
+             * Server Files
+             * @description Whether datasets can be added from, and exported to, paths on the server.
+             */
+            server_files: boolean;
         };
         /** Task */
         "Task-Input": {

@@ -20,7 +20,7 @@ from typing import Any
 import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets
+from rowlab.core import datasets, storage
 from rowlab.core.datasets import ROW_ID, Column, sql_string
 from rowlab.core.errors import InvalidRequest
 
@@ -66,12 +66,11 @@ def connect(dataset_id: str) -> Iterator[duckdb.DuckDBPyConnection]:
     nothing else and write nothing at all."""
     datasets.get_dataset(dataset_id)
     source = datasets.dataset_source(dataset_id)
-    with duckdb.connect() as con:
+    with storage.connect() as con:
         con.execute(f"CREATE VIEW data AS SELECT * FROM {source}")
         for macro in _MACROS:
             con.execute(macro)
-        directory = sql_string(str(datasets.dataset_dir(dataset_id)) + "/")
-        con.execute(f"SET allowed_directories = [{directory}]")
+        con.execute(f"SET allowed_directories = [{sql_string(storage.folder(dataset_id))}]")
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
         yield con

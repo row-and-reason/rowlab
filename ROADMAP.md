@@ -1,6 +1,6 @@
 # Roadmap to MVP
 
-**Today:** milestones 1 to 7 are done; the MVP release (8) is next. CSV, TSV, JSON, JSONL and Parquet
+**Today:** milestones 1 to 7 are done; the launch plan (8 to 14) is next. CSV, TSV, JSON, JSONL and Parquet
 files are uploaded, or loaded by local path, public http(s) URL or from S3, and explored with SQL
 (which the UI's search, filters and sort write for you) and paging; 1M rows ingest in under a second and
 every page query returns in about 0.1 s. A run asks several tasks, each with one or more decision models
@@ -287,15 +287,118 @@ existing labels, or two columns of the original data.
 - UI: a Compare tab picks the columns (to start with, the models' answers of the run that made the
   dataset), a reference and a tolerance; every count opens its rows in the Rows tab.
 
-### 8. MVP release
+## Launch plan
 
-- Dockerfile, README quickstart and API docs page; end-to-end smoke test from upload to export.
-- Error states and empty states across the UI.
-- Release `rowlab` 0.1.0 to PyPI via GitHub Actions trusted publishing.
+rowlab becomes an open-source project (one public repo, **Apache-2.0**, the name kept as a trademark),
+and Row & Reason hosts it for those who don't want to run it themselves. The hosted version is the same
+code with a different configuration: nothing in it is private. The milestones below get it there.
 
-## After MVP
+**Two modes, the rest is configuration.** `local` is one person on their own machine: no sign-in,
+localhost only, files on the server's disk allowed. `hosted` is shared, by Row & Reason or anyone:
+sign-in required, everything belongs to an organisation, and the protections a shared server needs are
+on. Everything else is a setting read once at startup into one config object, and the API says what is
+on so the UI shows only that:
 
-MCP server (`rowlab mcp`, `/mcp`) · discover → label (LLM proposes
+| Setting | Options |
+|---|---|
+| `ROWLAB_MODE` | `local` · `hosted` |
+| Database | SQLite file · Postgres URL |
+| Dataset storage | local folder · S3 bucket (MinIO, R2, AWS) |
+| Sign-in (hosted) | WorkOS · API tokens · generic OIDC later |
+| Model keys | BYOK (only option at launch) |
+| Billing | off; plans shown as "coming soon" |
+| Files on the server's disk | on in `local`, off by default in `hosted` |
+
+**Deployed as one image.** The API server serves the UI (a static export), runs as `api` or as
+`runner` (the same image, another command; runners share the queue in Postgres), and serves MCP at
+`/mcp`. Locally: `uvx rowlab`, or `docker compose` with Postgres and MinIO, which is also the reference
+for hosted setups. Row & Reason's runs on k3s. The website is a separate static site.
+
+**Pricing, to start with** (to check against real server costs once it runs). A subscription pays for
+the servers and the product, as BYOK brings no usage to mark up; credits on the platform's model key
+cost the provider's price plus 25% (OpenRouter's fee on credits, payment fees, failed calls, margin),
+but at least $0.01 per 1,000 answers, so cheap decision models don't run at a loss.
+
+| | Free | Pro | Team |
+|---|---|---|---|
+| Price | $0 | $20 / month | $20 / seat / month |
+| Model keys | BYOK | BYOK or credits | BYOK or credits |
+| Answers a month | 50,000 | 2 million | 5 million per seat |
+| Storage | 2 GB | 25 GB | 100 GB |
+
+**Roles in an organisation:** **Admin** (settings, connections, users), **Member** (everything day to
+day: adding data, running, labeling, exporting; runs cost money, so Member and up), **Verifier** (reads,
+and labels by hand once human review exists; no exports). Connections are made by admins and used by
+members, who never see their secrets. Roles live in rowlab's database whatever the sign-in provider,
+which only says who someone is and which organisation they are in. Locally, the one user is Admin.
+
+### 8. Deployment modes and Postgres (built; to try on Postgres)
+
+- `ROWLAB_MODE` and the config object; `GET /v1/settings` says what is on.
+- A thin `db` module over SQLite and Postgres (`connect()`, one placeholder style; no ORM), SQL both
+  understand, migrations per database where they must differ. The test suite runs against both.
+- Datasets in a local folder or an S3 bucket, chosen by configuration (DuckDB reads either).
+- Runners take queued runs with `SELECT … FOR UPDATE SKIP LOCKED`, so several can share the queue.
+- Migrations were reset to one `001_initial.sql` before the repo goes public; from here every change
+  must be safe to apply to existing databases. Applied once per process, tracked in `schema_version`.
+- Built: `core/config.py` (the settings, read once), `core/db.py` (SQLite or Postgres, `?`
+  placeholders, rows as dicts; Postgres through a psycopg pool), `core/storage.py` (dataset files in a
+  folder or on S3: DuckDB reads and writes, boto3 checks and deletes), runners claiming runs atomically
+  and taking back only runs silent for two minutes (`STALE_SECONDS`), `rowlab serve --no-runner` and
+  `rowlab runner`, the `rowlab[hosted]` extra, `make test-hosted` and a CI job with Postgres. The suite
+  passes on SQLite with datasets on disk and on S3; it hasn't run on Postgres here yet.
+
+### 9. Organisations, sign-in and roles
+
+- Everything (datasets, runs, connections, settings, the response cache) belongs to an organisation;
+  locally there is one, implicit.
+- Sign-in in `hosted` mode: WorkOS (Row & Reason's), or API tokens; API tokens work in every mode, for
+  scripts and MCP ("API keys & MCP connections" in the account menu).
+- Roles (Admin, Member, Verifier) checked on every endpoint; users and invites in Settings.
+
+### 10. Hosted protections
+
+- No files on the server's disk (adding or exporting) unless allowed; URL fetching can't reach private
+  addresses (SSRF).
+- Limits: upload size, DuckDB memory, threads and time per query, API requests per organisation.
+- The runner takes turns across organisations, with model calls in flight capped per organisation.
+- Secrets (model keys, connection keys) encrypted at rest when hosted.
+
+### 11. Usage and plans
+
+- A usage ledger: a row per chunk per task and model (organisation, user, run, model, tokens, cost, whose
+  key), recorded for BYOK too.
+- Settings → Usage: answers and spend this month against the plan, by day, model and user; storage.
+  Admins see the organisation, members their own.
+- Plans shown as a teaser ("coming soon"); BYOK only until billing is built.
+
+### 12. MCP and the agent skill
+
+- MCP server: `/mcp` when hosted, `rowlab mcp` (stdio) locally. Tools mirror the API: list and add
+  datasets, query (SQL), compare, estimate, run, run status, export.
+- An agent skill in the agent-skills repo teaching the workflow: look at the data, try a run on a few
+  rows, compare models, run on all, export.
+
+### 13. Website: landing, pricing, docs
+
+- One static site in `site/` (Fumadocs, or Astro Starlight): landing page, pricing, docs, the
+  self-hosting guide (compose and k3s), MCP and skill setup, and an API reference from `openapi.json`.
+- Hosted on Cloudflare or GitHub Pages, or as a small image on k3s.
+
+### 14. Launch
+
+- The image (built in CI), `docker-compose.yml`, k3s manifests.
+- README quickstart; LICENSE (Apache-2.0), CONTRIBUTING (DCO sign-off), code of conduct, security
+  policy, issue templates; no telemetry.
+- An end-to-end smoke test against the built package, from adding a file to an export.
+- A pass over error and empty states across the UI (failed runs, bad SQL, no key, models down).
+- Data handling for the hosted version: where data lives, retention and deletion, GDPR, subprocessors
+  (OpenRouter and model providers), OpenRouter's zero-data-retention options.
+- `rowlab` 0.1.0 on PyPI via GitHub Actions trusted publishing; the repo goes public.
+
+## After launch
+
+Discover → label (LLM proposes
 categories) · one-click cascades (low-confidence rows escalated to an LLM; already possible by hand
 through the workflow loop) · provider batch APIs.
 
@@ -327,6 +430,6 @@ Not planned yet; noted so they aren't lost. Add new ones here.
   flattening step — still to be confirmed.
 - **OpenRouter Decisions API is alpha.** Keeping it behind one module limits the impact of changes.
   Confirm the exact request/response fields and whether the model catalog can be filtered via the API.
-- **Local secret storage** (OpenRouter key, S3 keys) is plaintext in the local data dir in MVP — acceptable
-  for a single-user local tool, revisit before any hosted offering.
+- **Local secret storage** (OpenRouter key, S3 keys) is plaintext in the local data dir — acceptable for
+  a single-user local tool; encrypted at rest when hosted (milestone 10).
 - **Large files:** 1M+ rows must stay responsive in the explorer and runs; test early with real data.

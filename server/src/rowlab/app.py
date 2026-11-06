@@ -25,8 +25,9 @@ class Health(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Runs execute in this process; any still marked running were cut off and continue now.
-    runs_core.start_runner()
+    # Runs execute in this process, unless runners run on their own (`rowlab serve --no-runner`).
+    if not os.environ.get("ROWLAB_NO_RUNNER"):
+        runs_core.start_runner()
     yield
 
 

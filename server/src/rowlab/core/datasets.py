@@ -11,7 +11,6 @@ import gzip
 import json
 import os
 import shutil
-import sqlite3
 import tempfile
 import uuid
 from collections.abc import Iterator
@@ -28,7 +27,8 @@ import duckdb.sqltypes
 from pydantic import BaseModel, Field
 
 from rowlab import __version__
-from rowlab.core import connections, db
+from rowlab.core import connections, db, storage
+from rowlab.core.config import config
 from rowlab.core.errors import InvalidRequest, NotFound
 
 ROW_ID = "__row_id"
@@ -106,6 +106,8 @@ def create_dataset(source: str, connection_id: str | None = None) -> Dataset:
         raise InvalidRequest("A connection is only for s3:// sources.")
     if source.startswith(("http://", "https://")):
         return _download_dataset(source)
+    if not config().server_files:
+        raise InvalidRequest("Paths on the server can't be read here. Upload the file instead.")
     path = Path(source).expanduser().resolve()
     if not path.is_file():
         raise InvalidRequest(f"File not found: {path}")
@@ -196,13 +198,12 @@ def _ingest(
     readers: list[tuple[Format, str]],
     connection_id: str | None = None,
 ) -> Dataset:
-    """Copy a file into `datasets/{id}/data.parquet` with a `__row_id`, and record it. The first of
+    """Copy a file into the dataset's `data.parquet` with a `__row_id`, and record it. The first of
     `readers` that can read it is used."""
     dataset_id = uuid.uuid4().hex
-    directory = dataset_dir(dataset_id)
-    directory.mkdir(parents=True)
+    storage.prepare(dataset_id)
     try:
-        with duckdb.connect() as con:
+        with storage.connect() as con:
             con.execute("SET temp_directory = ?", [str(db.data_dir() / "tmp")])
             if connections.is_s3(location):
                 connections.configure(con, connection_id)
@@ -220,15 +221,16 @@ def _ingest(
             columns = [Column(name=r[0], type=r[1]) for r in con.execute("DESCRIBE src").fetchall()]
             if any(c.name == ROW_ID for c in columns):
                 raise InvalidRequest(f"The file already has a `{ROW_ID}` column.")
-            con.execute(
-                f"COPY (SELECT rowid AS {ROW_ID}, * FROM src ORDER BY rowid) "
-                f"TO {sql_string(directory / 'data.parquet')} (FORMAT parquet)"
+            storage.write(
+                con,
+                f"SELECT rowid AS {ROW_ID}, * FROM src ORDER BY rowid",
+                storage.location(dataset_id, "data.parquet"),
             )
     except duckdb.Error as e:
-        shutil.rmtree(directory)
+        storage.delete_dataset(dataset_id)
         raise InvalidRequest(f"Could not read {source}: {e}") from e
     except BaseException:
-        shutil.rmtree(directory)
+        storage.delete_dataset(dataset_id)
         raise
 
     return _register(dataset_id, name=name_without_extension(name), source=source)
@@ -239,21 +241,22 @@ def write_run_rows(parent_id: str, asked: list[int]) -> str:
     list the ones the run asks about. Returns its id; it is recorded once the run's first (empty)
     part is written."""
     dataset_id = uuid.uuid4().hex
-    directory = dataset_dir(dataset_id)
-    run_parts_dir(dataset_id).mkdir(parents=True)
+    storage.prepare(dataset_id)
     try:
-        with duckdb.connect() as con:
-            con.execute(
-                f"COPY (SELECT * FROM {dataset_source(parent_id)}) "
-                f"TO {sql_string(directory / 'rows.parquet')} (FORMAT parquet)"
+        with storage.connect() as con:
+            storage.write(
+                con,
+                f"SELECT * FROM {dataset_source(parent_id)}",
+                storage.location(dataset_id, "rows.parquet"),
             )
-            con.execute(
-                f"COPY (SELECT unnest(?::BIGINT[]) AS {ROW_ID}) "
-                f"TO {sql_string(directory / 'asked.parquet')} (FORMAT parquet)",
+            storage.write(
+                con,
+                f"SELECT unnest(?::BIGINT[]) AS {ROW_ID}",
+                storage.location(dataset_id, "asked.parquet"),
                 [asked],
             )
     except BaseException:
-        shutil.rmtree(directory)
+        storage.delete_dataset(dataset_id)
         raise
     return dataset_id
 
@@ -267,7 +270,7 @@ def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
     with db.connect() as conn:
         made = conn.execute(
             "UPDATE datasets SET made = made + 1 WHERE id = ? RETURNING made", (parent_id,)
-        ).fetchone()[0]
+        ).fetchone()["made"]
     branch = f"{parent.branch}.{made}" if parent.branch else str(made)
     base = parent.name.removesuffix(f"__{parent.branch}") if parent.branch else parent.name
     return _register(
@@ -282,31 +285,25 @@ def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
 def finish_run_dataset(dataset_id: str) -> None:
     """Write a run's dataset out as one Parquet file, once every chunk is written. Its run's files
     stay, so failed answers can be asked again later (see `reopen_run_dataset`)."""
-    directory = dataset_dir(dataset_id)
-    temporary = directory / "data.parquet.tmp"
-    with duckdb.connect() as con:
-        con.execute(
-            f"COPY (SELECT * FROM {dataset_source(dataset_id)} ORDER BY {ROW_ID}) "
-            f"TO {sql_string(temporary)} (FORMAT parquet)"
-        )
-    os.replace(temporary, directory / "data.parquet")
+    data = storage.location(dataset_id, "data.parquet")
+    with storage.connect() as con:
+        storage.write(con, f"SELECT * FROM {dataset_source(dataset_id)} ORDER BY {ROW_ID}", data)
     with db.connect() as conn:
         conn.execute(
-            "UPDATE datasets SET size_bytes = ? WHERE id = ?",
-            ((directory / "data.parquet").stat().st_size, dataset_id),
+            "UPDATE datasets SET size_bytes = ? WHERE id = ?", (storage.size(data), dataset_id)
         )
 
 
 def reopen_run_dataset(dataset_id: str) -> None:
     """Read a finished run's dataset from its run's files again, while the run asks its failed
     answers again; `finish_run_dataset` writes it out once more."""
-    (dataset_dir(dataset_id) / "data.parquet").unlink(missing_ok=True)
+    storage.delete(storage.location(dataset_id, "data.parquet"))
 
 
 def read_run_part(dataset_id: str, name: str) -> dict[int, dict[str, Any]]:
     """The answers in one part a run wrote, by `__row_id`."""
-    part = sql_string(run_parts_dir(dataset_id) / f"{name}.parquet")
-    with duckdb.connect() as con:
+    part = sql_string(storage.location(dataset_id, "parts", f"{name}.parquet"))
+    with storage.connect() as con:
         rows = con.execute(f"SELECT to_json(t) FROM read_parquet({part}) AS t").fetchall()
     answers = {}
     for (data,) in rows:
@@ -317,10 +314,9 @@ def read_run_part(dataset_id: str, name: str) -> dict[int, dict[str, Any]]:
 
 def read_run_rows(dataset_id: str, *, offset: int, limit: int) -> list[dict[str, Any]]:
     """The rows a run asks about, by `__row_id`, without their answers."""
-    directory = dataset_dir(dataset_id)
-    rows_file = sql_string(directory / "rows.parquet")
-    asked_file = sql_string(directory / "asked.parquet")
-    with duckdb.connect() as con:
+    rows_file = sql_string(storage.location(dataset_id, "rows.parquet"))
+    asked_file = sql_string(storage.location(dataset_id, "asked.parquet"))
+    with storage.connect() as con:
         rows = con.execute(
             f"SELECT to_json(t) FROM read_parquet({rows_file}) AS t "
             f"SEMI JOIN read_parquet({asked_file}) AS a USING ({ROW_ID}) ORDER BY {ROW_ID} "
@@ -328,11 +324,6 @@ def read_run_rows(dataset_id: str, *, offset: int, limit: int) -> list[dict[str,
             [limit, offset],
         ).fetchall()
     return [json.loads(r[0]) for r in rows]
-
-
-def run_parts_dir(dataset_id: str) -> Path:
-    """Where the run making a dataset writes its answers, one Parquet file per chunk of rows."""
-    return dataset_dir(dataset_id) / "parts"
 
 
 def _register(
@@ -344,11 +335,10 @@ def _register(
     branch: str | None = None,
 ) -> Dataset:
     """Record a dataset whose files have been written."""
-    directory = dataset_dir(dataset_id)
-    file = directory / "data.parquet"
-    if not file.exists():
-        file = directory / "rows.parquet"
-    with duckdb.connect() as con:
+    file = storage.location(dataset_id, "data.parquet")
+    if not storage.exists(file):
+        file = storage.location(dataset_id, "rows.parquet")
+    with storage.connect() as con:
         source_sql = dataset_source(dataset_id)
         columns = [
             Column(name=r[0], type=r[1])
@@ -364,7 +354,7 @@ def _register(
                 name,
                 source,
                 row_count,
-                file.stat().st_size,
+                storage.size(file),
                 json.dumps([c.model_dump() for c in columns]),
                 datetime.now(UTC).isoformat(),
                 parent_id,
@@ -376,12 +366,9 @@ def _register(
 
 # Datasets with the run that makes them, if any.
 _SELECT = """
-SELECT d.*,
-    (SELECT json_object('id', r.id, 'status', r.status, 'done', r.done,
-        'failed', (SELECT coalesce(sum(json_extract(c.value, '$.failed')), 0)
-            FROM json_each(r.costs) c),
-        'total', r.total) FROM runs r WHERE r.dataset_id = d.id) AS run
-FROM datasets d
+SELECT d.*, r.id AS run_id, r.status AS run_status, r.done AS run_done, r.total AS run_total,
+    r.costs AS run_costs
+FROM datasets d LEFT JOIN runs r ON r.dataset_id = d.id
 """
 
 
@@ -400,17 +387,12 @@ def get_dataset(dataset_id: str) -> Dataset:
     return _from_row(row)
 
 
-def delete_files(dataset_id: str) -> None:
-    """Remove a dataset's files, e.g. of one that was never recorded."""
-    shutil.rmtree(dataset_dir(dataset_id), ignore_errors=True)
-
-
 def delete_dataset(dataset_id: str) -> None:
-    """Delete a dataset with its jobs and the run that makes it. Datasets made from it stay."""
+    """Delete a dataset with the run that makes it. Datasets made from it stay."""
     get_dataset(dataset_id)
     with db.connect() as conn:
         conn.execute("DELETE FROM datasets WHERE id = ?", (dataset_id,))
-    delete_files(dataset_id)
+    storage.delete_dataset(dataset_id)
 
 
 def dataset_fields(dataset_id: str) -> dict[str, tuple[str, list[str]]]:
@@ -419,7 +401,7 @@ def dataset_fields(dataset_id: str) -> dict[str, tuple[str, list[str]]]:
     Maps the path, e.g. `actor.login`, to its type and the keys leading to it in a row,
     e.g. `["actor", "login"]`. Keys may contain dots themselves; the path is only for display.
     """
-    with duckdb.connect() as con:
+    with storage.connect() as con:
         relation = con.sql(f"SELECT * EXCLUDE ({ROW_ID}) FROM {dataset_source(dataset_id)}")
         columns = list(zip(relation.columns, relation.types))
     fields: dict[str, tuple[str, list[str]]] = {}
@@ -443,7 +425,7 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
         "t." + ".".join(sql_ident(k) for k in keys) + f" AS {sql_ident(path)}"
         for path, (_, keys) in dataset_fields(dataset_id).items()
     )
-    with duckdb.connect() as con:
+    with storage.connect() as con:
         rows = con.execute(f"SUMMARIZE SELECT {select} FROM {dataset_source(dataset_id)} AS t")
         summary = [dict(zip([d[0] for d in rows.description], r)) for r in rows.fetchall()]
     return [
@@ -460,23 +442,27 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
     ]
 
 
-def _from_row(row: sqlite3.Row) -> Dataset:
-    run = json.loads(row["run"]) if row["run"] else None
-    return Dataset(**{**dict(row), "columns": json.loads(row["columns"]), "run": run})
-
-
-def dataset_dir(dataset_id: str) -> Path:
-    return db.data_dir() / "datasets" / dataset_id
+def _from_row(row: dict[str, Any]) -> Dataset:
+    run = None
+    if row["run_id"]:
+        run = DatasetRun(
+            id=row["run_id"],
+            status=row["run_status"],
+            done=row["run_done"],
+            total=row["run_total"],
+            failed=sum(cost["failed"] for cost in json.loads(row["run_costs"])),
+        )
+    return Dataset(**{**row, "columns": json.loads(row["columns"]), "run": run})
 
 
 def dataset_source(dataset_id: str) -> str:
     """A DuckDB table expression for a dataset's rows, including one a run is still making. A run's
     answer columns come right after `__row_id`, so the newest answers are first."""
-    directory = dataset_dir(dataset_id)
-    if (directory / "data.parquet").exists():
-        return f"read_parquet({sql_string(directory / 'data.parquet')})"
-    rows = sql_string(directory / "rows.parquet")
-    parts = sql_string(run_parts_dir(dataset_id) / "*.parquet")
+    data = storage.location(dataset_id, "data.parquet")
+    if storage.exists(data):
+        return f"read_parquet({sql_string(data)})"
+    rows = sql_string(storage.location(dataset_id, "rows.parquet"))
+    parts = sql_string(storage.location(dataset_id, "parts", "*.parquet"))
     return (
         f"(SELECT {ROW_ID}, a.* EXCLUDE ({ROW_ID}, {FAILED}), r.* EXCLUDE ({ROW_ID}) "
         f"FROM read_parquet({rows}) AS r "

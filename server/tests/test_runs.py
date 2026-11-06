@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from conftest import stored, stored_datasets
 
 from rowlab.core import runs
 from rowlab.core.providers import openrouter
@@ -229,7 +230,7 @@ def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
     assert done["run"]["status"] == "done"
     assert done["columns"] == made["columns"]
     # Once done it is one Parquet file, like any other dataset.
-    assert (data_dir / "datasets" / made["id"] / "data.parquet").is_file()
+    assert stored(made["id"], "data.parquet")
 
 
 def test_run_runs_every_task_with_every_model(client, job, api_key):
@@ -343,7 +344,7 @@ def test_a_run_killed_mid_way_completes_after_a_restart_without_paying_twice(
     assert (cut_off["status"], cut_off["next_chunk"]) == ("running", 1)
 
     # The server starts again: the run is queued and continues from its first unwritten chunk.
-    runs.recover_interrupted_runs()
+    runs.recover_interrupted_runs(stale_after=0)
     while runs.process_next():
         pass
     finished = client.get(f"/v1/runs/{created['id']}").json()
@@ -391,7 +392,7 @@ def test_a_run_goes_with_the_dataset_it_makes(client, dataset, job, api_key, dat
 
     client.delete(f"/v1/datasets/{made['id']}")
     assert client.get(f"/v1/runs/{finished['id']}").status_code == 404
-    assert not (data_dir / "datasets" / made["id"]).exists()
+    assert made["id"] not in stored_datasets()
 
 
 def test_a_dataset_still_being_made_cannot_be_exported_yet(client, job, api_key):
@@ -535,18 +536,18 @@ def test_a_run_on_a_dataset_a_run_made_needs_new_column_names(client, job, api_k
 
 
 def test_saving_a_key_checks_it_and_never_returns_it(client):
-    assert client.get("/v1/settings").json() == {"openrouter_key": None}
+    assert client.get("/v1/settings").json()["openrouter_key"] is None
     bad = client.put("/v1/settings/openrouter-key", json={"key": "sk-bad"})
     assert bad.status_code == 400
     assert "did not accept" in bad.json()["detail"]
     saved = client.put("/v1/settings/openrouter-key", json={"key": " sk-good "})
-    assert saved.json() == {"openrouter_key": "saved"}
+    assert saved.json()["openrouter_key"] == "saved"
     assert "sk-good" not in client.get("/v1/settings").text
 
 
 def test_environment_key_wins(client, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
-    assert client.get("/v1/settings").json() == {"openrouter_key": "environment"}
+    assert client.get("/v1/settings").json()["openrouter_key"] == "environment"
 
 
 def test_lists_decision_models_then_llms_with_structured_outputs(client):
@@ -559,3 +560,44 @@ def test_lists_decision_models_then_llms_with_structured_outputs(client):
     ]
     assert models[3]["prompt_price"] == 2e-06
     assert models[3]["completion_price"] == 1e-06
+
+
+def test_only_runs_whose_runner_went_quiet_are_taken_back(client, job, api_key, monkeypatch):
+    created = start(client, job)
+    runs._set(created["id"], status="running")
+    # Its runner saved progress just now: another runner leaves it alone.
+    runs.recover_interrupted_runs()
+    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "running"
+    # Silent for longer than STALE_SECONDS: its runner is gone, so it is queued again.
+    monkeypatch.setattr(runs, "STALE_SECONDS", 0)
+    runs.recover_interrupted_runs()
+    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "queued"
+
+
+def test_each_queued_run_is_claimed_once(client, job, api_key, monkeypatch):
+    first = start(client, job)
+    second = start(client, update(job, sql="SELECT * FROM data LIMIT 1"))
+    claimed = []
+    monkeypatch.setattr(runs, "_process", claimed.append)
+    while runs.process_next():
+        pass
+    # Oldest first, each once; a claimed run is marked running at once, so no other runner takes it.
+    assert claimed == [first["id"], second["id"]]
+    assert {client.get(f"/v1/runs/{r}").json()["status"] for r in claimed} == {"running"}
+
+
+def test_runners_claiming_at_once_never_take_the_same_run(client, job, api_key, monkeypatch):
+    import threading
+    import time
+
+    created = [
+        start(client, update(job, sql=f"SELECT * FROM data LIMIT {n}"))["id"] for n in (1, 2, 3)
+    ]
+    claimed = []
+    monkeypatch.setattr(runs, "_process", lambda run_id: (claimed.append(run_id), time.sleep(0.2)))
+    runners = [threading.Thread(target=runs.process_next) for _ in range(4)]
+    for runner in runners:
+        runner.start()
+    for runner in runners:
+        runner.join()
+    assert sorted(claimed) == sorted(created)

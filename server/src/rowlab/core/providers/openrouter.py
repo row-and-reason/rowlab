@@ -149,7 +149,9 @@ def _cached_post(
     response = _post_with_retries(path, body, api_key)
     with db.connect() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO responses (key, response, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO responses (key, response, created_at) VALUES (?, ?, ?)"
+            " ON CONFLICT (key) DO UPDATE SET response = excluded.response,"
+            " created_at = excluded.created_at",
             (key, json.dumps(response), datetime.now(UTC).isoformat()),
         )
     return response, False

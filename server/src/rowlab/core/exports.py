@@ -8,7 +8,8 @@ from typing import Literal
 import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import connections, datasets, db, sql
+from rowlab.core import connections, datasets, db, sql, storage
+from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID, sql_ident, sql_string
 from rowlab.core.errors import InvalidRequest
 from rowlab.core.runs import ACTIVE
@@ -61,7 +62,7 @@ def export_to_temp(
     os.close(handle)
     path = Path(name)
     try:
-        with duckdb.connect() as con:
+        with storage.connect() as con:
             _write(con, dataset_id, fmt, path, include_row_id=include_row_id, query=query)
     except BaseException:
         path.unlink(missing_ok=True)
@@ -75,6 +76,8 @@ def export_to_path(dataset_id: str, request: ExportRequest) -> ExportResult:
         return _export_to_s3(dataset_id, request)
     if request.connection_id:
         raise InvalidRequest("A connection is only for s3:// paths.")
+    if not config().server_files:
+        raise InvalidRequest("Paths on the server can't be written here. Download it, or use S3.")
     path = Path(request.path).expanduser()
     if path.is_dir():
         path = path / file_name(dataset_id, request.format)
@@ -83,7 +86,7 @@ def export_to_path(dataset_id: str, request: ExportRequest) -> ExportResult:
     # Written next to it first, so the file is complete or untouched.
     temporary = path.with_name(f".{path.name}.tmp")
     try:
-        with duckdb.connect() as con:
+        with storage.connect() as con:
             _write(
                 con,
                 dataset_id,
@@ -105,7 +108,7 @@ def _export_to_s3(dataset_id: str, request: ExportRequest) -> ExportResult:
     if uri.endswith("/"):
         uri += file_name(dataset_id, request.format)
     try:
-        with duckdb.connect() as con:
+        with storage.connect() as con:
             connections.configure(con, request.connection_id)
             _write(
                 con,

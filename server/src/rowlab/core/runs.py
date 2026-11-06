@@ -11,18 +11,17 @@ written, the dataset is written out as one Parquet file.
 
 import json
 import logging
-import os
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets, db, prompts, settings, sql, tasks
+from rowlab.core import datasets, db, prompts, settings, sql, storage, tasks
+from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest, NotFound
 from rowlab.core.providers import openrouter
@@ -36,6 +35,9 @@ CONCURRENCY = 16
 
 # How often a run's progress is saved, and how often the runner checks for a stop.
 PROGRESS_INTERVAL_SECONDS = 0.5
+
+# A run whose progress hasn't been saved for this long has lost its runner, and is queued again.
+STALE_SECONDS = 120
 
 log = logging.getLogger(__name__)
 
@@ -135,7 +137,7 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
     except BaseException:
         with db.connect() as conn:
             conn.execute("DELETE FROM datasets WHERE id = ?", (made_id,))
-        datasets.delete_files(made_id)
+        storage.delete_dataset(made_id)
         raise
     _wake.set()
     return get_run(run_id)
@@ -261,23 +263,37 @@ def resume_run(run_id: str) -> Run:
 
 
 def start_runner() -> None:
-    """Start the runner thread, called once when the server starts."""
-    recover_interrupted_runs()
-    threading.Thread(target=_runner, name="rowlab-runner", daemon=True).start()
+    """Start a runner thread, for `rowlab serve`. On SQLite it is the only runner, so every run
+    still marked running was cut off and is queued again straight away."""
+    recover_interrupted_runs(STALE_SECONDS if config().postgres else 0)
+    threading.Thread(target=run_forever, name="rowlab-runner", daemon=True).start()
 
 
-def recover_interrupted_runs() -> None:
-    """Queue runs that the last stop of the server cut off; they continue where they were."""
+def recover_interrupted_runs(stale_after: float | None = None) -> None:
+    """Queue runs whose runner stopped (a server stop, a crash); they continue where they were. A
+    runner saves its run's progress twice a second, so a run silent for `stale_after` seconds
+    (`STALE_SECONDS` by default) has none."""
+    seconds = STALE_SECONDS if stale_after is None else stale_after
+    stale = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
     with db.connect() as conn:
-        conn.execute("UPDATE runs SET status = 'queued' WHERE status = 'running'")
-        conn.execute("UPDATE runs SET status = 'stopped' WHERE status = 'stopping'")
+        conn.execute(
+            "UPDATE runs SET status = 'queued' WHERE status = 'running' AND updated_at <= ?",
+            (stale,),
+        )
+        conn.execute(
+            "UPDATE runs SET status = 'stopped' WHERE status = 'stopping' AND updated_at <= ?",
+            (stale,),
+        )
 
 
 def process_next() -> bool:
-    """Process the oldest queued run, if there is one. Returns whether there was."""
+    """Claim the oldest queued run, if there is one, and process it. Returns whether there was.
+    Several runners can share the queue: each claims a different run."""
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT id FROM runs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+            "UPDATE runs SET status = 'running', updated_at = ? WHERE id = (SELECT id FROM runs"
+            f" WHERE status = 'queued' ORDER BY created_at LIMIT 1{db.skip_locked()}) RETURNING id",
+            (datetime.now(UTC).isoformat(),),
         ).fetchone()
     if row is None:
         return False
@@ -285,11 +301,14 @@ def process_next() -> bool:
     return True
 
 
-def _runner() -> None:
+def run_forever() -> None:
+    """Process queued runs, oldest first, one at a time; `rowlab runner` runs just this. While idle,
+    runs whose runner stopped (another process that crashed) are queued again."""
     while True:
         try:
             if process_next():
                 continue
+            recover_interrupted_runs()
         except Exception:
             # The run is marked failed with its error; log it and keep serving the others.
             log.exception("Run failed")
@@ -361,7 +380,10 @@ def _process_chunk(
         futures = [pool.submit(ask, i) for i in range(len(units))]
         while not all(f.done() for f in futures):
             time.sleep(PROGRESS_INTERVAL_SECONDS)
-            if not retry:
+            # Saving progress also shows other runners this run still has its runner.
+            if retry:
+                _set(run.id)
+            else:
                 _set(run.id, done=done_before + sum(a is not None for a in answers))
             # A deleted dataset takes its run with it.
             if _status(run.id) in ("stopping", None):
@@ -423,9 +445,7 @@ def _write_part(
         for column, sql_type in tasks.columns(task, model)
     ]
     columns.append((datasets.FAILED, "VARCHAR[]"))
-    path = datasets.run_parts_dir(dataset_id) / f"{name}.parquet"
-    temporary = path.with_suffix(".tmp")
-    with duckdb.connect() as con:
+    with storage.connect() as con:
         con.execute(
             "CREATE TABLE part ("
             + ", ".join(
@@ -442,8 +462,9 @@ def _write_part(
                     for row_id, values in by_row.items()
                 ],
             )
-        con.execute(f"COPY part TO {datasets.sql_string(temporary)} (FORMAT parquet)")
-    os.replace(temporary, path)
+        storage.write(
+            con, "SELECT * FROM part", storage.location(dataset_id, "parts", f"{name}.parquet")
+        )
 
 
 def _ask(task: Task, model: str, prompt: str, api_key: str, *, fresh: bool = False) -> _Answer:

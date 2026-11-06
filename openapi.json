@@ -2372,11 +2372,27 @@
             ],
             "title": "Openrouter Key",
             "description": "Where the OpenRouter API key comes from, if set. The key is never returned."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "local",
+              "hosted"
+            ],
+            "title": "Mode",
+            "description": "`local`: one person on their own machine. `hosted`: shared, with sign-in."
+          },
+          "server_files": {
+            "type": "boolean",
+            "title": "Server Files",
+            "description": "Whether datasets can be added from, and exported to, paths on the server."
           }
         },
         "type": "object",
         "required": [
-          "openrouter_key"
+          "openrouter_key",
+          "mode",
+          "server_files"
         ],
         "title": "Settings"
       },

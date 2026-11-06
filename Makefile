@@ -1,4 +1,4 @@
-.PHONY: dev api web gen-client test lint build
+.PHONY: dev api web gen-client test test-hosted lint build
 
 # Run the API (:8000) and the web dev server (:3000) together.
 dev:
@@ -17,6 +17,10 @@ gen-client:
 
 test:
 	cd server && uv run pytest
+
+# The same tests on a hosted setup: Postgres (ROWLAB_TEST_DATABASE_URL) and datasets on S3 (moto).
+test-hosted:
+	cd server && ROWLAB_TEST_STORAGE=s3 uv run pytest
 
 lint:
 	cd server && uv run ruff check && uv run ruff format --check

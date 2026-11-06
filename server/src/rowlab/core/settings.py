@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from rowlab.core import db
+from rowlab.core.config import config
 from rowlab.core.providers import openrouter
 
 OPENROUTER_KEY = "openrouter_api_key"
@@ -15,12 +16,20 @@ class Settings(BaseModel):
     openrouter_key: Literal["environment", "saved"] | None = Field(
         description="Where the OpenRouter API key comes from, if set. The key is never returned."
     )
+    mode: Literal["local", "hosted"] = Field(
+        description="`local`: one person on their own machine. `hosted`: shared, with sign-in."
+    )
+    server_files: bool = Field(
+        description="Whether datasets can be added from, and exported to, paths on the server."
+    )
 
 
 def get_settings() -> Settings:
     if os.environ.get("OPENROUTER_API_KEY"):
-        return Settings(openrouter_key="environment")
-    return Settings(openrouter_key="saved" if _get(OPENROUTER_KEY) else None)
+        key = "environment"
+    else:
+        key = "saved" if _get(OPENROUTER_KEY) else None
+    return Settings(openrouter_key=key, mode=config().mode, server_files=config().server_files)
 
 
 def openrouter_key() -> str | None:
@@ -33,7 +42,9 @@ def save_openrouter_key(key: str) -> Settings:
     openrouter.check_key(key)
     with db.connect() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (OPENROUTER_KEY, key)
+            "INSERT INTO settings (key, value) VALUES (?, ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (OPENROUTER_KEY, key),
         )
     return get_settings()
 
