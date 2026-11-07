@@ -2,8 +2,13 @@ import type { Me } from "@/lib/api/client";
 
 const ALL = [
   { id: "providers", label: "Providers", keywords: "openrouter model key", hostedOnly: false },
-  { id: "storage", label: "Storage", keywords: "s3 connections bucket", hostedOnly: false },
-  { id: "usage", label: "Usage", keywords: "spend cost answers tokens", hostedOnly: false },
+  {
+    id: "storage",
+    label: "Storage",
+    keywords: "s3 connections bucket storage datasets size bytes",
+    hostedOnly: false,
+  },
+  { id: "usage", label: "Usage", keywords: "spend cost answers tokens storage", hostedOnly: false },
   { id: "members", label: "Members", keywords: "people invite roles", hostedOnly: true },
   { id: "api-keys", label: "API keys", keywords: "tokens scripts", hostedOnly: true },
   { id: "plans", label: "Plans", keywords: "pricing billing", hostedOnly: true },

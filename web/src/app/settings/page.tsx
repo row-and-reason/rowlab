@@ -11,7 +11,9 @@ import { useCan, useMe } from "@/components/me";
 import { MembersSettings } from "@/components/members-settings";
 import { PaneHeader } from "@/components/pane";
 import { Plans } from "@/components/plans";
-import { StorageConnections } from "@/components/storage-connections";
+import { StorageSettings } from "@/components/storage-settings";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { TooltipButton } from "@/components/tooltip-button";
 import { UsageSettings } from "@/components/usage-settings";
 import { Button } from "@/components/ui/button";
@@ -42,14 +44,31 @@ export default function SettingsPage() {
 function SettingsView() {
   const router = useRouter();
   const params = useSearchParams();
-  const shown = sections(useMe());
+  const me = useMe();
+  const shown = sections(me);
   const section: Section = shown.find((s) => s.id === params.get("section"))?.id ?? "providers";
   const back = `/?${params.get("from") ?? ""}`;
   const [settings, setSettings] = useState<Settings>();
 
+  const [loadError, setLoadError] = useState<string>();
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    api.GET("/v1/settings").then(({ data }) => setSettings(data));
-  }, []);
+    let current = true;
+    api
+      .GET("/v1/settings")
+      .then(({ data, error }) => {
+        if (current) {
+          if (data) setSettings(data);
+          else setLoadError(errorMessage(error));
+        }
+      })
+      .catch(() => {
+        if (current) setLoadError("Could not reach rowlab.");
+      });
+    return () => {
+      current = false;
+    };
+  }, [attempt]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -65,7 +84,7 @@ function SettingsView() {
     <main className="flex min-h-0 flex-1">
       <nav className="flex w-[16%] min-w-48 shrink-0 flex-col border-r bg-sidebar">
         <PaneHeader>
-          <span className="pl-1.5 text-sm font-semibold">Settings</span>
+          <span className="pl-1.5 text-sm font-medium">Settings</span>
           <TooltipButton
             className="ml-auto"
             label="Back"
@@ -94,29 +113,59 @@ function SettingsView() {
             </Item>
           ))}
         </ItemGroup>
+        <div className="mt-auto border-t px-4 py-3 text-xs text-muted-foreground">
+          <p className="truncate font-medium text-foreground" title={me.org.name}>
+            {me.user ? me.org.name : "Local workspace"}
+          </p>
+          <p className="mt-1">
+            {me.user
+              ? `${me.role[0].toUpperCase()}${me.role.slice(1)} access`
+              : "Stored on this instance"}
+          </p>
+        </div>
       </nav>
       <section className="flex min-w-0 flex-1 flex-col">
         <PaneHeader>
           <span className="font-medium">{shown.find((s) => s.id === section)!.label}</span>
         </PaneHeader>
-        <div className="min-h-0 flex-1 overflow-auto px-3 py-4">
-          <div className="max-w-xl">
-            {section === "providers" && (
-              <FieldSet>
-                <FieldLegend>OpenRouter</FieldLegend>
-                <FieldDescription>
-                  Decision models and hundreds of LLMs, through one key.
-                </FieldDescription>
-                <OpenRouterKey settings={settings} onSaved={setSettings} />
-              </FieldSet>
-            )}
-            {section === "storage" && (
-              <FieldSet>
-                <FieldLegend>S3-compatible</FieldLegend>
-                <FieldDescription>AWS S3, Cloudflare R2, MinIO and others.</FieldDescription>
-                <StorageConnections />
-              </FieldSet>
-            )}
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          <div className={section === "usage" ? "max-w-4xl" : "max-w-2xl"}>
+            {section === "providers" &&
+              (loadError ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{loadError}</AlertDescription>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setLoadError(undefined);
+                      setAttempt((n) => n + 1);
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </Alert>
+              ) : !settings ? (
+                <Spinner />
+              ) : (
+                <FieldSet className="gap-4">
+                  <FieldLegend variant="label" className="flex items-center justify-between gap-3">
+                    OpenRouter
+                    <Badge variant="secondary">
+                      {settings.openrouter_key === "environment"
+                        ? "Managed by server"
+                        : settings.openrouter_key
+                          ? "Connected"
+                          : "Not connected"}
+                    </Badge>
+                  </FieldLegend>
+                  <FieldDescription>
+                    One provider key for decision models and LLMs.
+                  </FieldDescription>
+                  <OpenRouterKey settings={settings} onSaved={setSettings} />
+                </FieldSet>
+              ))}
+            {section === "storage" && <StorageSettings />}
             {section === "members" && <MembersSettings />}
             {section === "api-keys" && <ApiKeys />}
             {section === "usage" && <UsageSettings />}
@@ -144,15 +193,20 @@ function OpenRouterKey({
   async function save() {
     setSaving(true);
     setError(undefined);
-    const { data, error } = await api.PUT("/v1/settings/openrouter-key", { body: { key } });
-    setSaving(false);
-    if (error) {
-      setError(errorMessage(error));
-      return;
+    try {
+      const { data, error } = await api.PUT("/v1/settings/openrouter-key", { body: { key } });
+      if (error) {
+        setError(errorMessage(error));
+        return;
+      }
+      setKey("");
+      onSaved(data);
+      toast.success("OpenRouter key saved");
+    } catch {
+      setError("Could not reach rowlab. Your key was not saved.");
+    } finally {
+      setSaving(false);
     }
-    setKey("");
-    onSaved(data);
-    toast.success("OpenRouter key saved");
   }
 
   if (!canAdmin) {
@@ -179,7 +233,7 @@ function OpenRouterKey({
     >
       <Field data-invalid={!!error}>
         <FieldLabel htmlFor="openrouter-key">API key</FieldLabel>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <Input
             id="openrouter-key"
             type="password"
@@ -191,7 +245,7 @@ function OpenRouterKey({
             aria-invalid={!!error}
             onChange={(e) => setKey(e.target.value)}
           />
-          <Button type="submit" disabled={saving || !key.trim()}>
+          <Button type="submit" size="sm" disabled={saving || !key.trim()}>
             {saving && <Spinner data-icon="inline-start" />}
             Save
           </Button>

@@ -34,6 +34,14 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
 - [API reference](https://docs.rowlab.dev/api/): the web app uses only the public API, so anything
   it can do, a script can do.
 
+## Settings and storage
+
+**Storage** shows current recorded dataset size for the whole organization, separately from external
+S3 connections. **Usage** repeats this current figure above the monthly activity breakdown. Members
+see their own run activity, but storage always covers the organization. The figure sums registered
+dataset sizes; it is not a live disk inventory and excludes external bucket contents. Organization
+storage quotas and billing are not enforced yet; **Plans** is an explicitly labeled pricing preview.
+
 ## Dataset origin
 
 The **Origin** tab records where a dataset came from. For runs it shows selected rows, processed model

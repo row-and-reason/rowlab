@@ -1,64 +1,60 @@
 "use client";
-
 import { Badge } from "@/components/ui/badge";
 import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemTitle,
-} from "@/components/ui/item";
-
-// What the plans will be. Until billing exists, everyone is on Free with their own model key.
-const PLANS = [
-  {
-    name: "Free",
-    price: "$0",
-    details: "Your own model key · 50,000 answers a month · 2 GB of datasets",
-    current: true,
-  },
-  {
-    name: "Pro",
-    price: "$20 a month",
-    details: "Your own key or credits · 2 million answers a month · 25 GB",
-    current: false,
-  },
-  {
-    name: "Team",
-    price: "$20 a seat a month",
-    details: "Your own key or credits · 5 million answers a month per seat · 100 GB",
-    current: false,
-  },
-];
-
-/** The plans there will be: a teaser until billing is built. */
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+/** Planned pricing is informational; billing and quotas are not enforced yet. */
 export function Plans() {
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">
-        Everyone is on Free for now, with their own OpenRouter key (Settings → Providers). Paid
-        plans, and credits instead of a key of your own, are coming.
-      </p>
-      <ItemGroup className="gap-1">
-        {PLANS.map((plan) => (
-          <Item key={plan.name} variant="outline" size="sm">
-            <ItemContent>
-              <ItemTitle>
-                {plan.name} <span className="font-normal text-muted-foreground">{plan.price}</span>
-              </ItemTitle>
-              <ItemDescription>{plan.details}</ItemDescription>
-            </ItemContent>
-            <ItemActions>
-              {plan.current ? (
-                <Badge>Your plan</Badge>
-              ) : (
-                <Badge variant="secondary">Coming soon</Badge>
-              )}
-            </ItemActions>
-          </Item>
-        ))}
-      </ItemGroup>
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <h3 className="text-sm font-medium">Free during pre-alpha</h3>
+        <p className="text-xs text-muted-foreground">
+          Use your own OpenRouter key. Model charges go to your provider.
+        </p>
+      </div>
+      <section className="space-y-2 border-t pt-4">
+        <h3 className="text-sm font-medium">Planned subscriptions</h3>
+        <p className="text-xs text-muted-foreground">
+          Pricing preview only. Billing and these plan limits are not active.
+        </p>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Plan</TableHead>
+              <TableHead>Price</TableHead>
+              <TableHead className="text-right">Answers / month</TableHead>
+              <TableHead className="text-right">Dataset allowance</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell>Free</TableCell>
+              <TableCell>$0</TableCell>
+              <TableCell className="text-right">50,000</TableCell>
+              <TableCell className="text-right">2 GB</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>Pro</TableCell>
+              <TableCell>$20 / month</TableCell>
+              <TableCell className="text-right">2 million</TableCell>
+              <TableCell className="text-right">25 GB</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>Team</TableCell>
+              <TableCell>$20 / seat / month</TableCell>
+              <TableCell className="text-right">5 million / seat</TableCell>
+              <TableCell className="text-right">100 GB</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+        <Badge variant="secondary">Paid plans coming later</Badge>
+      </section>
     </div>
   );
 }

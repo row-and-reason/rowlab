@@ -37,6 +37,10 @@ import {
   ItemGroup,
   ItemTitle,
 } from "@/components/ui/item";
+import {
+  Alert as LoadAlert,
+  AlertDescription as LoadAlertDescription,
+} from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Connection } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
@@ -48,9 +52,16 @@ export function StorageConnections() {
   const [editing, setEditing] = useState<Connection | "new">();
   const canAdmin = useCan("admin");
 
+  const [loadError, setLoadError] = useState<string>();
   const load = useCallback(async () => {
-    const { data } = await api.GET("/v1/settings/connections");
-    setConnections(data);
+    setLoadError(undefined);
+    try {
+      const { data, error } = await api.GET("/v1/settings/connections");
+      if (data) setConnections(data);
+      else setLoadError(errorMessage(error));
+    } catch {
+      setLoadError("Could not reach rowlab.");
+    }
   }, []);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount
@@ -66,12 +77,21 @@ export function StorageConnections() {
     load();
   }
 
+  if (loadError)
+    return (
+      <LoadAlert variant="destructive">
+        <LoadAlertDescription>{loadError}</LoadAlertDescription>
+        <Button size="sm" variant="outline" onClick={load}>
+          Retry
+        </Button>
+      </LoadAlert>
+    );
   if (!connections) return <Spinner />;
   return (
     <>
       {connections.length === 0 ? (
-        <Empty className="border">
-          <EmptyHeader>
+        <Empty className="items-start px-0 py-5 text-left">
+          <EmptyHeader className="items-start text-left">
             <EmptyMedia variant="icon">
               <DatabaseIcon />
             </EmptyMedia>
@@ -92,9 +112,14 @@ export function StorageConnections() {
         </Empty>
       ) : (
         <div className="flex flex-col gap-2">
-          <ItemGroup className="gap-1">
+          <ItemGroup className="gap-0">
             {connections.map((connection) => (
-              <Item key={connection.id} variant="outline" size="sm">
+              <Item
+                key={connection.id}
+                variant="default"
+                size="xs"
+                className="rounded-none border-x-0 border-t-0 border-b border-border"
+              >
                 <ItemContent className="min-w-0">
                   <ItemTitle>{connection.name}</ItemTitle>
                   <ItemDescription className="truncate">
@@ -264,7 +289,7 @@ function ConnectionDialog({
                 <FieldDescription>Kept by rowlab and never shown again.</FieldDescription>
               )}
             </Field>
-            <Button type="submit" className="self-end" disabled={saving}>
+            <Button type="submit" size="sm" className="self-end" disabled={saving}>
               {saving && <Spinner data-icon="inline-start" />}
               Save
             </Button>

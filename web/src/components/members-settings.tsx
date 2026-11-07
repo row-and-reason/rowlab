@@ -33,6 +33,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Alert as LoadAlert,
+  AlertDescription as LoadAlertDescription,
+} from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Members, type Role } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
@@ -50,9 +54,16 @@ export function MembersSettings() {
   const canAdmin = useCan("admin");
   const [members, setMembers] = useState<Members>();
 
+  const [loadError, setLoadError] = useState<string>();
   const load = useCallback(async () => {
-    const { data } = await api.GET("/v1/settings/members");
-    setMembers(data);
+    setLoadError(undefined);
+    try {
+      const { data, error } = await api.GET("/v1/settings/members");
+      if (data) setMembers(data);
+      else setLoadError(errorMessage(error));
+    } catch {
+      setLoadError("Could not reach rowlab.");
+    }
   }, []);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount
@@ -86,13 +97,30 @@ export function MembersSettings() {
     load();
   }
 
+  if (loadError)
+    return (
+      <LoadAlert variant="destructive">
+        <LoadAlertDescription>{loadError}</LoadAlertDescription>
+        <Button size="sm" variant="outline" onClick={load}>
+          Retry
+        </Button>
+      </LoadAlert>
+    );
   if (!members) return <Spinner />;
   return (
     <div className="flex flex-col gap-4">
+      <p className="text-xs text-muted-foreground">
+        People with access to {me.org.name}. Admins manage invitations and roles.
+      </p>
       {canAdmin && <InviteForm onInvited={load} />}
-      <ItemGroup className="gap-1">
+      <ItemGroup className="gap-0">
         {members.members.map((member) => (
-          <Item key={member.user.id} variant="outline" size="sm">
+          <Item
+            key={member.user.id}
+            variant="default"
+            size="xs"
+            className="rounded-none border-x-0 border-t-0 border-b border-border"
+          >
             <ItemContent className="min-w-0">
               <ItemTitle>
                 {member.user.name}
@@ -140,7 +168,12 @@ export function MembersSettings() {
           </Item>
         ))}
         {members.invites.map((invite) => (
-          <Item key={invite.id} variant="outline" size="sm">
+          <Item
+            key={invite.id}
+            variant="default"
+            size="xs"
+            className="rounded-none border-x-0 border-t-0 border-b border-border"
+          >
             <ItemContent className="min-w-0">
               <ItemTitle className="truncate">{invite.email}</ItemTitle>
               <ItemDescription>Invited · joins when they first sign in</ItemDescription>
@@ -202,8 +235,9 @@ function InviteForm({ onInvited }: { onInvited: () => void }) {
       }}
     >
       <Field data-invalid={!!error}>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
+            className="min-w-48 flex-1"
             type="email"
             placeholder="name@example.com"
             aria-label="Email address"
@@ -216,7 +250,7 @@ function InviteForm({ onInvited }: { onInvited: () => void }) {
             value={role}
             onValueChange={(value) => setRole(value as Role)}
           >
-            <SelectTrigger aria-label="Role" className="w-32">
+            <SelectTrigger aria-label="Role" className="w-28" size="sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -227,7 +261,7 @@ function InviteForm({ onInvited }: { onInvited: () => void }) {
               ))}
             </SelectContent>
           </Select>
-          <Button type="submit" disabled={saving || !email.trim()}>
+          <Button type="submit" size="sm" disabled={saving || !email.trim()}>
             {saving ? <Spinner data-icon="inline-start" /> : <MailIcon data-icon="inline-start" />}
             Invite
           </Button>
@@ -236,7 +270,7 @@ function InviteForm({ onInvited }: { onInvited: () => void }) {
           <FieldError>{error}</FieldError>
         ) : (
           <FieldDescription>
-            Nobody is emailed: they join with this role when they first sign in with this address.
+            Share the sign-in link yourself. Invitations do not send an email.
           </FieldDescription>
         )}
       </Field>

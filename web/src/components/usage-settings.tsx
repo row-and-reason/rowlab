@@ -2,8 +2,9 @@
 
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
+import { DatasetStorage } from "@/components/storage-settings";
 import { TooltipButton } from "@/components/tooltip-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { api, type Usage } from "@/lib/api/client";
-import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format";
+import { errorMessage, formatNumber, formatUsd } from "@/lib/format";
 
 const chartConfig = {
   answers: { label: "Answers", color: "var(--primary)" },
@@ -61,8 +62,9 @@ export function UsageSettings() {
   const loaded = usage?.month === month ? usage : undefined;
   const failed = error?.month === month && !loaded ? error.message : undefined;
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-1">
+    <div className="flex flex-col gap-5">
+      {usage && <DatasetStorage bytes={usage.storage_bytes} />}
+      <div className="flex flex-wrap items-center gap-1 border-b pb-2">
         <TooltipButton
           label="Month before"
           variant="ghost"
@@ -131,26 +133,33 @@ function MonthUsage({ usage }: { usage: Usage }) {
 
   return (
     <>
-      <dl className="grid grid-cols-4 gap-4">
+      <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Figure label="Answers" value={formatNumber(total.answers)}>
           {total.cached > 0 && `${formatNumber(total.cached)} from the cache, free`}
         </Figure>
         <Figure label="Spent" value={formatUsd(total.cost)}>
-          {total.failed > 0 && `${formatNumber(total.failed)} failed`}
+          Recorded model spend
         </Figure>
         <Figure label="Tokens" value={formatNumber(total.input_tokens + total.output_tokens)}>
           {formatNumber(total.input_tokens)} in · {formatNumber(total.output_tokens)} out
         </Figure>
-        <Figure label="Storage" value={formatBytes(usage.storage_bytes)}>
-          The organisation&apos;s datasets, now
+        <Figure label="Failed calls" value={formatNumber(total.failed)}>
+          {total.failed ? "Included in this month’s activity" : "No failed calls this month"}
         </Figure>
       </dl>
 
       <section className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">Answers by day</h3>
-        <ChartContainer config={chartConfig} className="aspect-auto h-40 w-full">
+        <ChartContainer config={chartConfig} className="aspect-auto h-44 w-full">
           <BarChart data={days} margin={{ left: 0, right: 0 }}>
             <CartesianGrid vertical={false} />
+            <YAxis
+              width={42}
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+              tickFormatter={(n: number) => (n >= 1000 ? `${n / 1000}k` : String(n))}
+            />
             <XAxis
               dataKey="day"
               tickLine={false}
@@ -171,7 +180,12 @@ function MonthUsage({ usage }: { usage: Usage }) {
                 />
               }
             />
-            <Bar dataKey="answers" fill="var(--color-answers)" radius={[4, 4, 0, 0]} />
+            <Bar
+              isAnimationActive={false}
+              dataKey="answers"
+              fill="var(--color-answers)"
+              radius={[4, 4, 0, 0]}
+            />
           </BarChart>
         </ChartContainer>
       </section>
@@ -206,7 +220,7 @@ function Figure({
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-xl font-semibold tabular-nums">{value}</dd>
+      <dd className="text-lg font-semibold tabular-nums">{value}</dd>
       <dd className="text-xs text-muted-foreground">{children}</dd>
     </div>
   );
@@ -226,7 +240,7 @@ function Breakdown({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead />
+            <TableHead>{title === "By model" ? "Model" : "Person"}</TableHead>
             <TableHead className="text-right">Answers</TableHead>
             <TableHead className="text-right">From the cache</TableHead>
             <TableHead className="text-right">Spent</TableHead>
@@ -235,7 +249,9 @@ function Breakdown({
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.key}>
-              <TableCell className="max-w-64 truncate">{row.name}</TableCell>
+              <TableCell className="max-w-64 truncate" title={row.name}>
+                {row.name}
+              </TableCell>
               <TableCell className="text-right tabular-nums">{formatNumber(row.answers)}</TableCell>
               <TableCell className="text-right tabular-nums">{formatNumber(row.cached)}</TableCell>
               <TableCell className="text-right tabular-nums">{formatUsd(row.cost)}</TableCell>
