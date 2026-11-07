@@ -69,6 +69,8 @@ class FakeOpenRouter:
             self.flaky.remove(body["state"])
             raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
         if body["state"] == "fail":
+            raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
+        if body["state"] == "no credits":
             raise openrouter.OpenRouterError("HTTP 402: Insufficient credits", status=402)
         return {
             "answers": {"answer": {"type": "noul", "noul": 0.9 if _bad(body["state"]) else 0.1}},
@@ -206,6 +208,7 @@ def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
         "done": 0,
         "failed": 0,
         "total": 2,
+        "error": None,
     }
     assert [c["name"] for c in made["columns"]] == [
         "__row_id",
@@ -294,6 +297,19 @@ def test_run_reports_failed_rows(client, job, api_key):
     finished = run(client, update(job, tasks=[{**NEGATIVE, "template": "fail"}]))
     assert rows(client, finished)[0]["negative__jev-1.14"] is None
     assert finished["costs"][0]["failed"] == 3
+
+
+def test_a_key_out_of_credits_fails_the_run_until_resumed(client, job, api_key):
+    created = start(client, update(job, tasks=[{**NEGATIVE, "template": "no credits"}]))
+    with pytest.raises(runs.KeyProblem):
+        runs.process_next()
+    failed = client.get(f"/v1/runs/{created['id']}").json()
+    assert failed["status"] == "failed"
+    assert failed["error"].startswith("The OpenRouter key is out of credits.")
+    assert "HTTP 402: Insufficient credits" in failed["error"]
+    made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
+    assert made["run"]["error"] == failed["error"]
+    assert client.post(f"/v1/runs/{created['id']}/resume").json()["status"] == "queued"
 
 
 def test_resuming_a_done_run_asks_its_failed_answers_again(client, job, api_key, fake):

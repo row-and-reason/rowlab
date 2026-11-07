@@ -61,6 +61,7 @@ class DatasetRun(BaseModel):
     failed: int = Field(description="Answers that failed, which resuming asks again.")
     done: int = Field(description="Model calls answered so far.")
     total: int = Field(description="Model calls the run makes.")
+    error: str | None = Field(description="Why the run failed.")
 
 
 class Dataset(BaseModel):
@@ -140,6 +141,8 @@ def detect_format(path: Path) -> tuple[Format, bool]:
     if b"\0" in sample:
         raise InvalidRequest(f"{path.name} is not a CSV, TSV, JSON, JSONL or Parquet file.")
     first = sample.removeprefix(b"\xef\xbb\xbf").lstrip()[:1]
+    if not first:
+        raise InvalidRequest(f"{path.name} is empty.")
     if first == b"[":
         return "json", gzipped
     if first == b"{":
@@ -157,12 +160,18 @@ def name_without_extension(filename: str) -> str:
 def _download_dataset(org_id: str, url: str) -> Dataset:
     name = Path(urlparse(url).path).name or "download"
     try:
-        with network.open_url(url, timeout=60) as response, _temp_copy(response, name) as path:
-            return _ingest_file(org_id, path, name=name, source=url)
+        with network.open_url(url, timeout=60) as response:
+            if response.headers.get_content_type() == "text/html":
+                raise InvalidRequest(
+                    f"{url} is a web page, not a data file. Use the link to the file itself."
+                )
+            with _temp_copy(response, name) as path:
+                return _ingest_file(org_id, path, name=name, source=url)
     except HTTPError as e:
         raise InvalidRequest(f"Could not download {url}: HTTP {e.code} {e.reason}") from e
     except (URLError, TimeoutError) as e:
-        raise InvalidRequest(f"Could not download {url}: {getattr(e, 'reason', e)}") from e
+        reason = network.describe(getattr(e, "reason", e), urlparse(url).hostname)
+        raise InvalidRequest(f"Could not download {url}: {reason}") from e
 
 
 @contextmanager
@@ -183,10 +192,15 @@ def _temp_copy(file: BinaryIO, filename: str) -> Iterator[Path]:
 
 
 def _too_big(name: str) -> str:
-    return (
-        f"{name} is bigger than {config().max_file_bytes / 1e9:g} GB, rowlab's limit "
-        "(`ROWLAB_MAX_FILE`)."
-    )
+    return f"{name} is bigger than {_size(config().max_file_bytes)}, rowlab's limit (`ROWLAB_MAX_FILE`)."
+
+
+def _size(size: int) -> str:
+    """A size in bytes as people write it, e.g. `1 GB` or `500 MB`."""
+    for unit, bytes_ in (("TB", 1000**4), ("GB", 1000**3), ("MB", 1000**2), ("KB", 1000)):
+        if size >= bytes_:
+            return f"{size / bytes_:g} {unit}"
+    return f"{size} bytes"
 
 
 # Objects in S3 are read where they are, so their content can't be looked at first: each reader is tried
@@ -225,6 +239,8 @@ def _ingest(
                 size = con.execute("SELECT size FROM read_blob(?)", [location]).fetchone()[0]
                 if size > config().max_file_bytes:
                     raise InvalidRequest(_too_big(name))
+                if size == 0:
+                    raise InvalidRequest(f"{name} is empty.")
             for i, (_, reader) in enumerate(readers):
                 try:
                     # A table keeps the file's row order, so `rowid` becomes a stable row id.
@@ -244,6 +260,10 @@ def _ingest(
                 f"SELECT rowid AS {ROW_ID}, * FROM src ORDER BY rowid",
                 storage.location(dataset_id, "data.parquet"),
             )
+    except duckdb.HTTPException as e:
+        storage.delete_dataset(dataset_id)
+        status = f"HTTP {e.status_code} {e.reason}" if e.status_code else str(e)
+        raise InvalidRequest(f"Could not read {source}: {status}") from e
     except duckdb.Error as e:
         storage.delete_dataset(dataset_id)
         raise InvalidRequest(f"Could not read {source}: {e}") from e
@@ -388,7 +408,7 @@ def _register(
 # Datasets with the run that makes them, if any.
 _SELECT = """
 SELECT d.*, r.id AS run_id, r.status AS run_status, r.done AS run_done, r.total AS run_total,
-    r.costs AS run_costs
+    r.costs AS run_costs, r.error AS run_error
 FROM datasets d LEFT JOIN runs r ON r.dataset_id = d.id
 """
 
@@ -489,6 +509,7 @@ def _from_row(row: dict[str, Any]) -> Dataset:
             done=row["run_done"],
             total=row["run_total"],
             failed=sum(cost["failed"] for cost in json.loads(row["run_costs"])),
+            error=row["run_error"],
         )
     return Dataset(**{**row, "columns": json.loads(row["columns"]), "run": run})
 

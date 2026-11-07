@@ -444,7 +444,11 @@ def _process_chunk(
             return
         row, task, model = units[i]
         prompt = prompts.render(task.template, row, keys)
-        answer = answers[i] = _ask(task, model, prompt, org_id, api_key, fresh=retry)
+        try:
+            answer = answers[i] = _ask(task, model, prompt, org_id, api_key, fresh=retry)
+        except KeyProblem:
+            stopping.set()
+            raise
         with spent_lock:
             _count(spent.setdefault((task.id, model), usage.Spent()), answer)
 
@@ -571,6 +575,17 @@ def _write_part(
         )
 
 
+class KeyProblem(Exception):
+    """OpenRouter refuses the key, or it is out of credits: every call would fail alike, so the run
+    fails with this, to be resumed once the key is fixed."""
+
+
+_KEY_PROBLEMS = {
+    401: "OpenRouter refused the key. Change it in Settings → Providers, then resume the run",
+    402: "The OpenRouter key is out of credits. Add some at openrouter.ai, then resume the run",
+}
+
+
 def _ask(
     task: Task, model: str, prompt: str, org_id: str, api_key: str, *, fresh: bool = False
 ) -> _Answer:
@@ -589,6 +604,8 @@ def _ask(
                 model, messages, schema, org_id=org_id, api_key=api_key, fresh=fresh
             )
     except openrouter.OpenRouterError as e:
+        if e.status in _KEY_PROBLEMS:
+            raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
         return _Answer(error=str(e))
     # Paid for even when the reply turns out unusable.
     answer = _Answer(

@@ -38,10 +38,11 @@ another's twenty. Each organisation has `ROWLAB_RUNS_PER_ORG` runs going at once
 ## Stop, fail, resume
 
 A stopped run keeps the chunks it finished; the chunk under way is dropped, though its answers stay
-in the cache and cost nothing when asked again. A run fails when a model keeps failing; the rows answered so
-far stay. Some calls fail on their own (rate limits, a provider error, a reply that doesn't fit the
-answer type): the run finishes with those rows marked failed. _Resume_ asks the failed rows again, and
-continues a stopped run; it never re-asks what was answered.
+in the cache and cost nothing when asked again. A run fails, with the reason shown above its rows,
+when OpenRouter refuses the key or the key is out of credits, since every call would fail alike; the
+rows answered so far stay. Other calls fail on their own (rate limits, a provider error, a reply that
+doesn't fit the answer type): the run finishes with those rows marked failed. _Resume_ asks the
+failed rows again, and continues a stopped or failed run; it never re-asks what was answered.
 
 A run's tasks are frozen when it starts. To change the prompt, start a new run from the source
 dataset.

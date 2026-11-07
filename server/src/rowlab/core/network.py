@@ -31,7 +31,7 @@ def check_url(url: str) -> None:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         found = socket.getaddrinfo(parsed.hostname, port, proto=socket.IPPROTO_TCP)
     except (OSError, ValueError) as e:
-        raise InvalidRequest(f"Could not find {parsed.hostname}: {e}") from e
+        raise InvalidRequest(f"Could not reach {url}: {describe(e, parsed.hostname)}.") from e
     for *_, address in found:
         ip = ipaddress.ip_address(address[0].split("%")[0])
         if ip.version == 6 and ip.ipv4_mapped:
@@ -40,6 +40,13 @@ def check_url(url: str) -> None:
             raise InvalidRequest(
                 f"{parsed.hostname} is a private address, which rowlab can't reach here."
             )
+
+
+def describe(error: object, hostname: str | None) -> str:
+    """Why a request failed, in words: no errno, nor the platform's name-lookup jargon."""
+    if isinstance(error, socket.gaierror):
+        return f"{hostname} wasn't found"
+    return getattr(error, "strerror", None) or str(error)
 
 
 def open_url(url: str, timeout: float) -> Any:

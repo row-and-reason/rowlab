@@ -95,7 +95,7 @@ def check(con: duckdb.DuckDBPyConnection, sql: str) -> str:
     try:
         statements = con.extract_statements(sql)
     except duckdb.Error as e:
-        raise InvalidRequest(f"The SQL has an error: {e}") from e
+        raise InvalidRequest(_sql_error(e)) from e
     if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
         raise InvalidRequest("Write one SELECT over the table `data`.")
     return sql.strip().rstrip(";")
@@ -108,7 +108,14 @@ def execute(con: duckdb.DuckDBPyConnection, sql: str, params: list | None = None
     except duckdb.InterruptException:
         raise  # Took too long: `storage.connect` says so.
     except duckdb.Error as e:
-        raise InvalidRequest(f"The SQL has an error: {e}") from e
+        raise InvalidRequest(_sql_error(e)) from e
+
+
+def _sql_error(error: duckdb.Error) -> str:
+    """DuckDB's message without its excerpt (`LINE 1: …`), which quotes the SQL rowlab wraps around
+    the query rather than the query as written."""
+    message = str(error).split("\n\nLINE ")[0].strip()
+    return f"The SQL has an error: {message}"
 
 
 def query(dataset_id: str, request: QueryRequest) -> QueryResult:

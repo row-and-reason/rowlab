@@ -2428,6 +2428,18 @@
             "type": "integer",
             "title": "Total",
             "description": "Model calls the run makes."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Why the run failed."
           }
         },
         "type": "object",
@@ -2436,7 +2448,8 @@
           "status",
           "failed",
           "done",
-          "total"
+          "total",
+          "error"
         ],
         "title": "DatasetRun",
         "description": "The run that makes a dataset."

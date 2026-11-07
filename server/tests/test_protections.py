@@ -47,7 +47,7 @@ def test_files_over_the_limit_are_refused(client, monkeypatch):
     configure(monkeypatch, ROWLAB_MAX_FILE="10")
     response = upload(client)
     assert response.status_code == 400
-    assert "bigger than" in response.json()["detail"]
+    assert "bigger than 10 bytes, rowlab's limit" in response.json()["detail"]
 
 
 def test_uploads_far_over_the_limit_are_refused_before_they_are_read(client, monkeypatch):

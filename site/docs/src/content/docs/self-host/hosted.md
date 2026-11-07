@@ -59,8 +59,9 @@ them there (Cloudflare does this well). Nor, fully, is keeping requests off priv
 rowlab refuses them, but DuckDB follows redirects from S3 endpoints, so block private addresses
 (other than the database and storage) in the network, with a network policy or an egress firewall.
 
-Uploads need a `Content-Length`; a proxy that strips it gets `411`, and an upload past
-`ROWLAB_MAX_FILE` gets `413`. A file past it from a URL, S3 or disk is a `400` saying so.
+Uploads need a `Content-Length`; a proxy that strips it gets `411`. An upload well past
+`ROWLAB_MAX_FILE` is refused with `413` before it is read; any file past it, uploaded or from a URL,
+S3 or disk, gets a `400` saying so.
 
 ## In containers
 

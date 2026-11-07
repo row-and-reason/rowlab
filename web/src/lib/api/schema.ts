@@ -927,6 +927,11 @@ export interface components {
              * @description Model calls the run makes.
              */
             total: number;
+            /**
+             * Error
+             * @description Why the run failed.
+             */
+            error: string | null;
         };
         /** Day */
         Day: {

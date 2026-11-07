@@ -12,7 +12,11 @@ let taskTypes: Promise<TaskTypes | undefined> | undefined;
 export function useModels(): Model[] {
   const [loaded, setLoaded] = useState<Model[]>([]);
   useEffect(() => {
-    models ??= api.GET("/v1/utils/models").then(({ data }) => data ?? []);
+    models ??= api.GET("/v1/utils/models").then(({ data }) => {
+      // OpenRouter may be down: ask again next time rather than keep an empty list.
+      if (!data) models = undefined;
+      return data ?? [];
+    });
     models.then(setLoaded);
   }, []);
   return loaded;

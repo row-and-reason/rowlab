@@ -20,6 +20,7 @@ import { Lineage } from "@/components/lineage";
 import { useCan } from "@/components/me";
 import { PaneHeader } from "@/components/pane";
 import { TooltipButton } from "@/components/tooltip-button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -69,6 +70,7 @@ export function DatasetPanels({
   onOpenDataset,
   actionsRef,
   comparisonActionsRef,
+  needsKey,
 }: {
   dataset: Dataset;
   datasets: Dataset[];
@@ -80,6 +82,7 @@ export function DatasetPanels({
   onOpenDataset: (datasetId: string) => void;
   actionsRef: React.RefObject<TaskActions | null>;
   comparisonActionsRef: React.RefObject<ComparisonActions | null>;
+  needsKey: boolean;
 }) {
   const { draft, update, isNew } = useDraft(dataset.id, () => ({
     // A first run on a few rows, so it's cheap.
@@ -169,7 +172,7 @@ export function DatasetPanels({
     },
     [draft.tasks, types, models, addTask],
   );
-  const estimate = useEstimate(dataset.id, sql, draft.tasks, canEdit);
+  const { estimate, problem } = useEstimate(dataset.id, sql, draft.tasks, canEdit);
 
   // Starts over with one empty task, on the rows you have picked.
   const clearTasks = useCallback(() => {
@@ -261,6 +264,12 @@ export function DatasetPanels({
               </DropdownMenu>
             </div>
           </PaneHeader>
+          {run?.status === "failed" && run.error && (
+            <Alert variant="destructive" className="m-3 mb-0 w-auto">
+              <AlertTitle>The run stopped</AlertTitle>
+              <AlertDescription>{run.error}</AlertDescription>
+            </Alert>
+          )}
           <TabsContent value="rows" keepMounted className="min-h-0 flex-1">
             <DatasetExplorer
               dataset={dataset}
@@ -294,7 +303,7 @@ export function DatasetPanels({
                   ? "Running tasks needs the member role"
                   : making
                     ? "This dataset is still being made"
-                    : (estimate?.problem ??
+                    : (problem ??
                       (estimate
                         ? `About ${formatUsd(estimate.cost)} for ${formatNumber(estimate.rows)} rows, making a new dataset`
                         : "Run every task on the rows in the table, making a new dataset"))
@@ -322,7 +331,8 @@ export function DatasetPanels({
               onTasksChange={(tasks) => update({ tasks })}
               onAddTask={addTask}
               runError={runError}
-              problem={estimate?.problem ?? undefined}
+              problem={problem}
+              needsKey={needsKey}
             />
           </div>
         </div>
@@ -352,8 +362,10 @@ function useEstimate(
   sql: string,
   tasks: Task[],
   enabled: boolean,
-): Estimate | undefined {
-  const [estimate, setEstimate] = useState<{ key: string; estimate: Estimate }>();
+): { estimate?: Estimate; problem?: string } {
+  // What the API says the run would cost, and why it can't start, if it can't: its own answer, or
+  // the request's error (e.g. OpenRouter can't be reached).
+  const [estimate, setEstimate] = useState<{ key: string; estimate?: Estimate; problem?: string }>();
   const key = JSON.stringify([sql, tasks]);
   useEffect(() => {
     if (!enabled) return;
@@ -364,8 +376,10 @@ function useEstimate(
           params: { path: { dataset_id: datasetId } },
           body: { sql, tasks },
         })
-        .then(({ data }) => {
-          if (current && data) setEstimate({ key, estimate: data });
+        .then(({ data, error }) => {
+          if (!current) return;
+          if (data) setEstimate({ key, estimate: data, problem: data.problem ?? undefined });
+          else setEstimate({ key, problem: errorMessage(error) });
         });
     }, 500);
     return () => {
@@ -375,7 +389,7 @@ function useEstimate(
     // The key stands for the query and tasks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId, key, enabled]);
-  return estimate?.estimate;
+  return { estimate: estimate?.estimate, problem: estimate?.problem };
 }
 
 function newId(): string {

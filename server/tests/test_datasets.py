@@ -89,6 +89,11 @@ def test_rejects_bad_input(client, tmp_path):
     clash.write_text("__row_id,a\n1,2\n")
     assert client.post("/v1/datasets", data={"source": str(clash)}).status_code == 400
 
+    empty = tmp_path / "empty.csv"
+    empty.write_text("\n")
+    response = client.post("/v1/datasets", data={"source": str(empty)})
+    assert response.json()["detail"] == "empty.csv is empty."
+
     broken = tmp_path / "broken.json"
     broken.write_text("{not json")
     assert client.post("/v1/datasets", data={"source": str(broken)}).status_code == 400
@@ -159,6 +164,16 @@ def test_query_rejects_anything_but_one_select_over_the_dataset(client, dataset,
     assert response.json()["detail"].startswith(detail)
 
 
+def test_sql_errors_quote_the_query_as_written(client, dataset):
+    response = client.post(
+        f"/v1/datasets/{dataset['id']}/query", json={"sql": "SELECT nope FROM data"}
+    )
+    detail = response.json()["detail"]
+    assert detail.startswith('The SQL has an error: Binder Error: Referenced column "nope"')
+    # Not DuckDB's excerpt of the SQL around it.
+    assert "LINE" not in detail
+
+
 def test_query_of_an_unknown_dataset(client):
     assert client.post("/v1/datasets/nope/query", json={}).status_code == 404
 
@@ -203,14 +218,21 @@ def test_url_without_extension(client, http_dir):
 
 
 def test_url_errors(client, http_dir):
-    _, base = http_dir
+    directory, base = http_dir
     missing = client.post("/v1/datasets", data={"source": f"{base}/nope.csv"})
     assert missing.status_code == 400
     assert "HTTP 404" in missing.json()["detail"]
 
     unreachable = client.post("/v1/datasets", data={"source": "http://127.0.0.1:1/data.csv"})
     assert unreachable.status_code == 400
-    assert "Could not download" in unreachable.json()["detail"]
+    assert unreachable.json()["detail"].endswith(": Connection refused")
+
+    nowhere = client.post("/v1/datasets", data={"source": "http://no-such-host.invalid/a.csv"})
+    assert nowhere.json()["detail"].endswith(": no-such-host.invalid wasn't found")
+
+    (directory / "page.html").write_text("<!doctype html><title>Data</title>")
+    page = client.post("/v1/datasets", data={"source": f"{base}/page.html"})
+    assert "is a web page, not a data file" in page.json()["detail"]
 
 
 def _gzip(text):
