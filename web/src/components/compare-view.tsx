@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  Columns3Icon,
-  GitCompareArrowsIcon,
-  PanelRightCloseIcon,
-  PanelRightOpenIcon,
-} from "lucide-react";
+import { Columns3Icon, GitCompareArrowsIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef } from "react";
 
@@ -31,6 +26,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -84,9 +80,15 @@ export function CompareView({
   const referenceParam = params.get("reference");
   const reference = choices.some((c) => c.name === referenceParam) ? referenceParam : null;
   const tolerance = params.get("tolerance") ?? "";
+  const ignoreCase = params.get("ignore_case") === "true";
+  const trimWhitespace = params.get("trim_whitespace") === "true";
   const compared = reference ? [...columns, reference] : columns;
   const types = compared.map((name) => choices.find((c) => c.name === name)!.type);
-  const numeric = types.length > 0 && types.every((type) => NUMERIC.test(type));
+  const numeric =
+    types.length > 0 &&
+    types.every((type) => NUMERIC.test(type)) &&
+    (types.every((t) => t === "DATE") || types.every((t) => t !== "DATE"));
+  const text = types.length > 0 && types.every((t) => t === "VARCHAR");
   const dates = types.length > 0 && types.every((type) => type === "DATE");
   const mixed = new Set(types).size > 1 && !numeric;
   const enough = columns.length >= 2 || (columns.length === 1 && !!reference);
@@ -105,15 +107,23 @@ export function CompareView({
             sql: ALL_ROWS,
             columns,
             reference,
+            ignore_case: text && ignoreCase,
+            trim_whitespace: text && trimWhitespace,
             tolerance: numeric && tolerance !== "" ? Number(tolerance) : null,
           }
         : undefined,
-    [enough, problem, columns, reference, numeric, tolerance],
+    [enough, problem, columns, reference, numeric, tolerance, text, ignoreCase, trimWhitespace],
   );
   const result = useComparison(dataset.id, request, dataset.run?.done);
 
-  function change(next: { columns?: string[]; reference?: string | null; tolerance?: string; focus?: boolean }) {
-    const query = new URLSearchParams(params);
+  function change(next: {
+    columns?: string[];
+    reference?: string | null;
+    tolerance?: string;
+    ignore_case?: boolean;
+    trim_whitespace?: boolean;
+  }) {
+    const query = new URLSearchParams(window.location.search);
     if (next.columns) query.set("compare", JSON.stringify(next.columns));
     if (next.reference !== undefined) {
       if (next.reference) query.set("reference", next.reference);
@@ -123,11 +133,13 @@ export function CompareView({
       if (next.tolerance) query.set("tolerance", next.tolerance);
       else query.delete("tolerance");
     }
-    if (next.focus !== undefined) {
-      if (next.focus) query.set("focus", "compare");
-      else query.delete("focus");
+    for (const key of ["ignore_case", "trim_whitespace"] as const) {
+      if (next[key] !== undefined) {
+        if (next[key]) query.set(key, "true");
+        else query.delete(key);
+      }
     }
-    router.replace(`/?${query}`, { scroll: false });
+    window.history.replaceState(null, "", `/?${query}`);
   }
 
   // Defaults from a run must not overwrite a selection made while that request was pending.
@@ -230,39 +242,77 @@ export function CompareView({
               ))}
           </SelectContent>
         </Select>
-        {numeric && (
-          <>
-            <Label htmlFor="compare-tolerance" className="text-xs">
-              Tolerance{dates ? " (days)" : ""}
-            </Label>
-            <Input
-              id="compare-tolerance"
-              className="h-7 w-24"
-              type="number"
-              min={0}
-              step="any"
-              placeholder="Exact"
-              value={tolerance}
-              aria-invalid={!!problem}
-              onChange={(e) => change({ tolerance: e.target.value })}
-            />
-          </>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto text-xs"
-          aria-pressed={params.get("focus") === "compare"}
-          onClick={() => change({ focus: params.get("focus") !== "compare" })}
-        >
-          {params.get("focus") === "compare" ? <PanelRightOpenIcon /> : <PanelRightCloseIcon />}
-          {params.get("focus") === "compare" ? "Restore run pane" : "Expand comparison"}
-        </Button>
-        <span className="text-xs text-muted-foreground">
+        <Popover>
+          <PopoverTrigger render={<Button variant="outline" size="sm" className="text-xs" />}>
+            <SlidersHorizontalIcon />{" "}
+            {numeric && tolerance !== ""
+              ? `Within ${tolerance}${dates ? " days" : ""}`
+              : text && (ignoreCase || trimWhitespace)
+                ? [ignoreCase && "Ignore case", trimWhitespace && "Trim spaces"]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "Exact match"}
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-72 space-y-4">
+            <span className="text-sm font-medium">Match rules</span>
+            {text ? (
+              <>
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={ignoreCase}
+                    onCheckedChange={(v) => change({ ignore_case: !!v })}
+                  />
+                  Ignore case
+                </Label>
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={trimWhitespace}
+                    onCheckedChange={(v) => change({ trim_whitespace: !!v })}
+                  />
+                  Trim surrounding whitespace
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Unicode lowercase; ASCII whitespace trimming. Original values stay unchanged.
+                  Empty strings count as answers.
+                </p>
+              </>
+            ) : numeric ? (
+              <>
+                <Label htmlFor="compare-tolerance">Tolerance{dates ? " (days)" : ""}</Label>
+                <Input
+                  id="compare-tolerance"
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder="Exact"
+                  defaultValue={tolerance}
+                  key={tolerance}
+                  aria-invalid={!!problem}
+                  onBlur={(e) => change({ tolerance: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      change({ tolerance: e.currentTarget.value });
+                      e.currentTarget.blur();
+                    }
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Maximum absolute difference. Leave blank for exact matches. Applied on Enter or
+                  leaving the field.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Text rules require all text columns. Tolerance requires all numbers or all dates.
+              </p>
+            )}
+          </PopoverContent>
+        </Popover>
+        <span className="ml-auto text-xs text-muted-foreground">
           All {formatNumber(dataset.row_count)} rows
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {problem ? (
           <Alert variant="destructive" className="m-3 w-auto">
             <AlertDescription>{problem}</AlertDescription>
@@ -299,13 +349,7 @@ export function CompareView({
                 the same thing.
               </p>
             )}
-            <ComparisonResults
-              key={JSON.stringify(request)}
-              dataset={dataset}
-              comparison={result.data}
-              tolerance={request.tolerance}
-              onFilter={onFilter}
-            />
+            <ComparisonResults dataset={dataset} comparison={result.data} onFilter={onFilter} />
           </>
         )}
       </div>

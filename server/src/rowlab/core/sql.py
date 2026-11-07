@@ -33,14 +33,27 @@ _MACROS = [
         " AND len(list_distinct(vals)) = 1"
     ),
     "CREATE MACRO disagree(vals) AS len(list_distinct(vals)) > 1",
+    # Floating subtraction can put an exact decimal boundary a few ULPs outside tolerance.
+    # Apply a four-epsilon roundoff allowance only to positive floating tolerances.
+    (
+        "CREATE MACRO range_within(vals, tolerance) AS"
+        " isfinite(list_max(vals)) AND isfinite(list_min(vals)) AND ("
+        " list_max(vals) - list_min(vals) <= tolerance OR ("
+        " tolerance > 0 AND typeof(list_max(vals)) IN ('FLOAT', 'DOUBLE') AND"
+        " abs((list_max(vals) - list_min(vals)) - tolerance) <="
+        " 4 * CASE WHEN typeof(list_max(vals)) = 'FLOAT' THEN 1.1920928955078125e-7"
+        " ELSE 2.220446049250313e-16 END *"
+        " greatest(abs(list_max(vals)), abs(list_min(vals)), abs(tolerance))))"
+    ),
     (
         "CREATE MACRO agree_within(vals, tolerance) AS"
         " len(list_filter(vals, lambda v: v IS NOT NULL)) = len(vals)"
-        " AND list_max(vals) - list_min(vals) <= tolerance"
+        " AND coalesce(range_within(vals, tolerance), false)"
     ),
     (
         "CREATE MACRO disagree_within(vals, tolerance) AS"
-        " coalesce(list_max(vals) - list_min(vals), 0) > tolerance"
+        " len(list_filter(vals, lambda v: v IS NOT NULL)) >= 2"
+        " AND NOT coalesce(range_within(vals, tolerance), false)"
     ),
 ]
 

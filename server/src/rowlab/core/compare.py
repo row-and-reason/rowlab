@@ -10,6 +10,9 @@ Lists count as the same when they hold the same items; with a tolerance, numbers
 same when they are no further apart. Empty values never count as a disagreement.
 """
 
+import itertools
+from typing import Literal
+
 import duckdb
 from pydantic import BaseModel, Field
 
@@ -17,7 +20,7 @@ from rowlab.core import sql
 from rowlab.core.datasets import sql_ident, sql_string
 from rowlab.core.errors import InvalidRequest
 
-# Most common values listed (the rest are added up), and most common pairs in a crosstab.
+# Bound display summaries; confusion cells prioritize differing values, then frequency.
 TOP_VALUES = 20
 TOP_CELLS = 50
 
@@ -31,7 +34,17 @@ class CompareRequest(BaseModel):
     )
     tolerance: float | None = Field(
         None,
+        ge=0,
+        allow_inf_nan=False,
         description="For number and date columns: how far apart values may be (days for dates).",
+    )
+    ignore_case: bool = Field(
+        False,
+        description="Compare VARCHAR columns using Unicode lowercase (not full case folding).",
+    )
+    trim_whitespace: bool = Field(
+        False,
+        description="Trim ASCII space, tab, newline, carriage return, form feed and vertical tab in VARCHAR columns. Empty strings remain answers.",
     )
     sql: str = Field(sql.ALL_ROWS, description="The rows to compare: a SELECT over `data`.")
 
@@ -51,15 +64,54 @@ class Agreement(BaseModel):
     )
 
 
+class HistogramBin(Rows):
+    lower: float
+    upper: float
+    upper_inclusive: bool
+
+
+class NumericSummary(BaseModel):
+    difference: str = Field(
+        description="Signed difference expression; column minus reference when a reference exists, otherwise second minus first."
+    )
+    unit: str
+    finite_pairs: int
+    non_finite_pairs: int
+    bias: float | None
+    mean_absolute_difference: float | None
+    p95_absolute_difference: float | None
+    max_absolute_difference: float | None
+    histogram: list[HistogramBin]
+
+
+class Coverage(BaseModel):
+    missing_left: Rows
+    missing_right: Rows
+    missing_both: Rows
+
+
+class Completeness(BaseModel):
+    total_groups: int
+    shown_groups: int
+    omitted_count: int
+    count_unit: Literal["rows", "answers"] = "rows"
+    truncated: bool
+
+
 class Pair(BaseModel):
     columns: list[str]
     compared: int = Field(description="Rows where both have a value.")
     agree: int
     rate: float | None
     disagree: str = Field(description="SQL picking the rows where the two differ.")
+    coverage: Coverage
+    numeric: NumericSummary | None = None
 
 
 class ValueCounts(BaseModel):
+    where: dict[str, str] = Field(
+        description="Exact row predicates by column, including Other values."
+    )
     value: str | None = Field(
         description="None for all values past the most common ones, added up."
     )
@@ -86,6 +138,9 @@ class ValueAccuracy(BaseModel):
 
 
 class ReferenceAccuracy(BaseModel):
+    labels_completeness: Completeness
+    macro_f1: float | None
+    balanced_accuracy: float | None
     column: str
     compared: int = Field(description="Rows where both the column and the reference have a value.")
     correct: int
@@ -94,11 +149,16 @@ class ReferenceAccuracy(BaseModel):
         description="SQL picking the rows where the column differs from the reference."
     )
     values: list[ValueAccuracy] = Field(
-        description="For the reference's most common values; empty with a tolerance."
+        description="Up to 20 reference labels with lowest recall; aggregate metrics use all labels. Empty with a tolerance."
     )
 
 
 class Comparison(BaseModel):
+    ignore_case: bool
+    trim_whitespace: bool
+    tolerance: float | None
+    values_completeness: Completeness
+    crosstab_completeness: Completeness | None
     rows: int = Field(description="Rows compared: those the query returns.")
     columns: list[str] = Field(description="The columns compared, with the reference last.")
     agreement: Agreement
@@ -107,7 +167,7 @@ class Comparison(BaseModel):
         description="The most common values, and how often each column gives them."
     )
     crosstab: list[Cell] | None = Field(
-        description="For exactly two columns: how often each pair of their values occurs."
+        description="For exactly two columns: up to 50 value combinations, differing values first then frequency."
     )
     reference: list[ReferenceAccuracy] | None = Field(
         description="With a reference: how often each other column matches it."
@@ -129,7 +189,17 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
         for c in columns:
             if c not in types:
                 raise InvalidRequest(f"Unknown column: {c}")
-        same = _Same(types, request.tolerance)
+        same = _Same(types, request.tolerance, request.ignore_case, request.trim_whitespace)
+        if (request.ignore_case or request.trim_whitespace) and any(
+            types[c] != "VARCHAR" for c in columns
+        ):
+            raise InvalidRequest("Text matching rules require text columns only.")
+        if (
+            request.tolerance is not None
+            and any(types[c] == "DATE" for c in columns)
+            and not all(types[c] == "DATE" for c in columns)
+        ):
+            raise InvalidRequest("Compare dates with dates, not with numbers.")
         source = f"FROM ({query}) AS t"
 
         def one(expressions: list[str]) -> tuple:
@@ -161,19 +231,32 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
                         agree=agree,
                         rate=_share(agree, compared),
                         disagree=same.disagree([a, b]),
+                        coverage=_coverage(con, a, b, source),
+                        numeric=_numeric(con, a, b, same, source, request.reference),
                     )
                 )
 
-        values = _value_counts(con, columns, types, source)
+        values, values_completeness = _value_counts(con, columns, same, source)
 
         crosstab = None
+        crosstab_completeness = None
         if len(columns) == 2:
-            a, b = (_text(c, types[c]) for c in columns)
+            a, b = (same.text(c) for c in columns)
             cells = sql.execute(
                 con,
                 f"SELECT {a}, {b}, count(*) {source} WHERE {a} IS NOT NULL AND {b} IS NOT NULL"
-                f" GROUP BY ALL ORDER BY count(*) DESC, 1, 2 LIMIT {TOP_CELLS}",
+                f" GROUP BY 1, 2 ORDER BY ({a} = {b}), count(*) DESC, 1, 2 LIMIT {TOP_CELLS}",
             ).fetchall()
+            total_groups, paired = sql.execute(
+                con,
+                f"SELECT count(*), coalesce(sum(n), 0) FROM (SELECT count(*) n {source} WHERE {a} IS NOT NULL AND {b} IS NOT NULL GROUP BY {a}, {b})",
+            ).fetchone()
+            crosstab_completeness = Completeness(
+                total_groups=total_groups,
+                shown_groups=len(cells),
+                omitted_count=paired - sum(c[2] for c in cells),
+                truncated=total_groups > len(cells),
+            )
             crosstab = [
                 Cell(
                     values=[va, vb],
@@ -186,11 +269,16 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
         reference = None
         if request.reference:
             reference = [
-                _accuracy(con, column, request.reference, types, same, source)
+                _accuracy(con, column, request.reference, same, source)
                 for column in request.columns
             ]
 
     return Comparison(
+        ignore_case=request.ignore_case,
+        trim_whitespace=request.trim_whitespace,
+        tolerance=request.tolerance,
+        values_completeness=values_completeness,
+        crosstab_completeness=crosstab_completeness,
         rows=rows,
         columns=columns,
         agreement=Agreement(
@@ -210,9 +298,26 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
 class _Same:
     """SQL for whether columns' values are the same, with the `agree` and `disagree` functions."""
 
-    def __init__(self, types: dict[str, str], tolerance: float | None):
+    def __init__(
+        self,
+        types: dict[str, str],
+        tolerance: float | None,
+        ignore_case: bool = False,
+        trim_whitespace: bool = False,
+    ):
         self.types = types
         self.tolerance = tolerance
+        self.ignore_case = ignore_case
+        self.trim_whitespace = trim_whitespace
+
+    def text(self, column: str) -> str:
+        value = _text(column, self.types[column])
+        if self.types[column] == "VARCHAR":
+            if self.trim_whitespace:
+                value = f"regexp_replace({value}, '^\\s+|\\s+$', '', 'g')"
+            if self.ignore_case:
+                value = f"lower({value})"
+        return value
 
     def agree(self, columns: list[str]) -> str:
         return self._call("agree", columns)
@@ -230,15 +335,15 @@ class _Same:
         kinds = {self.types[c] for c in columns}
         # Columns of one type compare as they are, lists by their items; others as text.
         if len(kinds) == 1 and not kinds.pop().endswith("[]"):
-            return [sql_ident(c) for c in columns]
-        return [_text(c, self.types[c]) for c in columns]
+            return [self.text(c) if self.types[c] == "VARCHAR" else sql_ident(c) for c in columns]
+        return [self.text(c) for c in columns]
 
     def _number(self, column: str) -> str:
         sql_type = self.types[column]
         if sql_type == "DATE":
             return f"date_diff('day', DATE '1970-01-01', {sql_ident(column)})"
         if sql_type in _NUMBERS or sql_type.startswith("DECIMAL"):
-            return f"CAST({sql_ident(column)} AS DOUBLE)"
+            return sql_ident(column)
         raise InvalidRequest("A tolerance is only for number and date columns.")
 
 
@@ -253,10 +358,10 @@ def _text(column: str, sql_type: str) -> str:
 
 
 def _value_counts(
-    con: duckdb.DuckDBPyConnection, columns: list[str], types: dict[str, str], source: str
-) -> list[ValueCounts]:
+    con: duckdb.DuckDBPyConnection, columns: list[str], same: _Same, source: str
+) -> tuple[list[ValueCounts], Completeness]:
     union = " UNION ALL ".join(
-        f"SELECT {sql_string(c)} AS col, {_text(c, types[c])} AS value {source}" for c in columns
+        f"SELECT {sql_string(c)} AS col, {same.text(c)} AS value {source}" for c in columns
     )
     counted = sql.execute(
         con, f"SELECT col, value, count(*) FROM ({union}) WHERE value IS NOT NULL GROUP BY ALL"
@@ -267,18 +372,37 @@ def _value_counts(
         totals[value] = totals.get(value, 0) + count
         by_value.setdefault(value, {c: 0 for c in columns})[column] = count
     ordered = sorted(totals, key=lambda v: (-totals[v], v))
-    result = [ValueCounts(value=v, counts=by_value[v]) for v in ordered[:TOP_VALUES]]
+    result = [
+        ValueCounts(
+            value=v,
+            counts=by_value[v],
+            where={c: f"{same.text(c)} = {sql_string(v)}" for c in columns},
+        )
+        for v in ordered[:TOP_VALUES]
+    ]
     if len(ordered) > TOP_VALUES:
         other = {c: sum(by_value[v][c] for v in ordered[TOP_VALUES:]) for c in columns}
-        result.append(ValueCounts(value=None, counts=other))
-    return result
+        known = ", ".join(sql_string(v) for v in ordered[:TOP_VALUES])
+        result.append(
+            ValueCounts(
+                value=None,
+                counts=other,
+                where={c: f"{same.text(c)} NOT IN ({known})" for c in columns},
+            )
+        )
+    return result, Completeness(
+        total_groups=len(ordered),
+        shown_groups=min(len(ordered), TOP_VALUES),
+        omitted_count=sum(totals[v] for v in ordered[TOP_VALUES:]),
+        count_unit="answers",
+        truncated=len(ordered) > TOP_VALUES,
+    )
 
 
 def _accuracy(
     con: duckdb.DuckDBPyConnection,
     column: str,
     reference: str,
-    types: dict[str, str],
     same: _Same,
     source: str,
 ) -> ReferenceAccuracy:
@@ -290,15 +414,15 @@ def _accuracy(
     ).fetchone()
     values = []
     if same.tolerance is None:
-        c, r = _text(column, types[column]), _text(reference, types[reference])
+        c, r = same.text(column), same.text(reference)
         for value, support, predicted, hits in sql.execute(
             con,
-            f"WITH v AS (SELECT {r} AS value, count(*) AS support {source} WHERE {both}"
-            f" GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT {TOP_VALUES})"
-            f" SELECT v.value, v.support,"
-            f" (SELECT count(*) {source} WHERE {both} AND {c} = v.value),"
-            f" (SELECT count(*) {source} WHERE {both} AND {c} = v.value AND {r} = v.value)"
-            f" FROM v ORDER BY v.support DESC, v.value",
+            f"WITH paired AS (SELECT {c} prediction, {r} reference {source} WHERE {both}),"
+            " refs AS (SELECT reference value, count(*) support FROM paired GROUP BY 1),"
+            " preds AS (SELECT prediction value, count(*) predicted FROM paired GROUP BY 1),"
+            " hits AS (SELECT reference value, count(*) correct FROM paired WHERE prediction=reference GROUP BY 1)"
+            " SELECT refs.value, support, coalesce(predicted,0), coalesce(correct,0)"
+            " FROM refs LEFT JOIN preds USING(value) LEFT JOIN hits USING(value)",
         ).fetchall():
             values.append(
                 ValueAccuracy(
@@ -310,15 +434,120 @@ def _accuracy(
                     recall=_share(hits, support),
                 )
             )
+    total_labels = len(values)
+    balanced = sum(v.recall or 0 for v in values) / total_labels if total_labels else None
+    # Include predicted-only labels in macro F1 (their score is zero).
+    predicted_only = 0
+    if same.tolerance is None:
+        predicted_only = sql.execute(
+            con,
+            f"SELECT count(DISTINCT {c}) {source} WHERE {both} AND {c} NOT IN (SELECT {r} {source} WHERE {both})",
+        ).fetchone()[0]
+    label_union = total_labels + predicted_only
+    macro_f1 = (
+        sum(2 * v.correct / (v.support + v.predicted) for v in values) / label_union
+        if label_union
+        else None
+    )
+    shown = sorted(
+        values, key=lambda v: (v.recall if v.recall is not None else 2, -v.support, v.value)
+    )[:TOP_VALUES]
     return ReferenceAccuracy(
+        labels_completeness=Completeness(
+            total_groups=total_labels,
+            shown_groups=len(shown),
+            omitted_count=sum(v.support for v in values) - sum(v.support for v in shown),
+            truncated=total_labels > len(shown),
+        ),
+        macro_f1=macro_f1,
+        balanced_accuracy=balanced,
         column=column,
         compared=compared,
         correct=correct,
         accuracy=_share(correct, compared),
         wrong=same.disagree([column, reference]),
-        values=values,
+        values=shown,
     )
 
 
 def _share(part: int, whole: int) -> float | None:
     return part / whole if whole else None
+
+
+def _coverage(con, a: str, b: str, source: str) -> Coverage:
+    predicates = {
+        "missing_left": f"{sql_ident(a)} IS NULL AND {sql_ident(b)} IS NOT NULL",
+        "missing_right": f"{sql_ident(b)} IS NULL AND {sql_ident(a)} IS NOT NULL",
+        "missing_both": f"{sql_ident(a)} IS NULL AND {sql_ident(b)} IS NULL",
+    }
+    counts = sql.execute(
+        con, f"SELECT {', '.join(f'count(*) FILTER ({v})' for v in predicates.values())} {source}"
+    ).fetchone()
+    return Coverage(
+        **{key: Rows(rows=n, where=predicates[key]) for key, n in zip(predicates, counts)}
+    )
+
+
+def _numeric(
+    con, a: str, b: str, same: _Same, source: str, reference: str | None
+) -> NumericSummary | None:
+    kinds = [same.types[c] for c in (a, b)]
+    days = all(k == "DATE" for k in kinds)
+    if not days and not all(k in _NUMBERS or k.startswith("DECIMAL") for k in kinds):
+        return None
+    left, right = (b, a) if b == reference else (a, b)
+    # Subtract in the source type first to retain integer/decimal differences before chart conversion.
+    delta = f"CAST(({same._number(right)} - {same._number(left)}) AS DOUBLE)"
+    finite = f"isfinite({same._number(a)}) AND isfinite({same._number(b)}) AND isfinite({delta})"
+    paired = f"{sql_ident(a)} IS NOT NULL AND {sql_ident(b)} IS NOT NULL"
+    n, excluded, bias, mae, p95, maximum, low, high = sql.execute(
+        con,
+        f"SELECT count(*) FILTER ({finite}), count(*) FILTER ({paired} AND NOT coalesce(({finite}), false)), "
+        + ", ".join(
+            f"{aggregate} FILTER ({finite})"
+            for aggregate in [
+                f"avg({delta})",
+                f"avg(abs({delta}))",
+                f"quantile_cont(abs({delta}), 0.95)",
+                f"max(abs({delta}))",
+                f"min({delta})",
+                f"max({delta})",
+            ]
+        )
+        + f" {source}",
+    ).fetchone()
+    bins = []
+    if n:
+        edges = sorted(
+            {
+                low,
+                high,
+                *[low + (high - low) * i / 12 for i in range(1, 12)],
+            }
+        )
+        if len(edges) == 1:
+            edges.append(edges[0])
+        predicates = [
+            f"({finite}) AND {delta} >= {lo!r} AND {delta} {'<=' if i == len(edges) - 2 else '<'} {hi!r}"
+            for i, (lo, hi) in enumerate(itertools.pairwise(edges))
+        ]
+        counts = sql.execute(
+            con, f"SELECT {', '.join(f'count(*) FILTER ({v})' for v in predicates)} {source}"
+        ).fetchone()
+        bins = [
+            HistogramBin(
+                lower=lo, upper=hi, upper_inclusive=i == len(edges) - 2, rows=count, where=where
+            )
+            for i, (lo, hi, count, where) in enumerate(zip(edges, edges[1:], counts, predicates))
+        ]
+    return NumericSummary(
+        difference=f"{right} − {left}",
+        unit="days" if days else "value",
+        finite_pairs=n,
+        non_finite_pairs=excluded,
+        bias=bias,
+        mean_absolute_difference=mae,
+        p95_absolute_difference=p95,
+        max_absolute_difference=maximum,
+        histogram=bins,
+    )

@@ -740,6 +740,18 @@ export interface components {
              */
             tolerance?: number | null;
             /**
+             * Ignore Case
+             * @description Compare VARCHAR columns using Unicode lowercase (not full case folding).
+             * @default false
+             */
+            ignore_case: boolean;
+            /**
+             * Trim Whitespace
+             * @description Trim ASCII space, tab, newline, carriage return, form feed and vertical tab in VARCHAR columns. Empty strings remain answers.
+             * @default false
+             */
+            trim_whitespace: boolean;
+            /**
              * Sql
              * @description The rows to compare: a SELECT over `data`.
              * @default SELECT * FROM data
@@ -748,6 +760,14 @@ export interface components {
         };
         /** Comparison */
         Comparison: {
+            /** Ignore Case */
+            ignore_case: boolean;
+            /** Trim Whitespace */
+            trim_whitespace: boolean;
+            /** Tolerance */
+            tolerance: number | null;
+            values_completeness: components["schemas"]["Completeness"];
+            crosstab_completeness: components["schemas"]["Completeness"] | null;
             /**
              * Rows
              * @description Rows compared: those the query returns.
@@ -771,7 +791,7 @@ export interface components {
             values: components["schemas"]["ValueCounts"][];
             /**
              * Crosstab
-             * @description For exactly two columns: how often each pair of their values occurs.
+             * @description For exactly two columns: up to 50 value combinations, differing values first then frequency.
              */
             crosstab: components["schemas"]["Cell"][] | null;
             /**
@@ -779,6 +799,23 @@ export interface components {
              * @description With a reference: how often each other column matches it.
              */
             reference: components["schemas"]["ReferenceAccuracy"][] | null;
+        };
+        /** Completeness */
+        Completeness: {
+            /** Total Groups */
+            total_groups: number;
+            /** Shown Groups */
+            shown_groups: number;
+            /** Omitted Count */
+            omitted_count: number;
+            /**
+             * Count Unit
+             * @default rows
+             * @enum {string}
+             */
+            count_unit: "rows" | "answers";
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * Connection
@@ -824,6 +861,12 @@ export interface components {
              * @description Required for a new connection; leave out to keep the saved one.
              */
             secret_access_key?: string | null;
+        };
+        /** Coverage */
+        Coverage: {
+            missing_left: components["schemas"]["Rows"];
+            missing_right: components["schemas"]["Rows"];
+            missing_both: components["schemas"]["Rows"];
         };
         /** Dataset */
         Dataset: {
@@ -1041,6 +1084,22 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** HistogramBin */
+        HistogramBin: {
+            /** Rows */
+            rows: number;
+            /**
+             * Where
+             * @description SQL picking these rows, for a query's WHERE clause.
+             */
+            where: string | null;
+            /** Lower */
+            lower: number;
+            /** Upper */
+            upper: number;
+            /** Upper Inclusive */
+            upper_inclusive: boolean;
+        };
         /** Invite */
         Invite: {
             /** Id */
@@ -1118,6 +1177,30 @@ export interface components {
              */
             key: string;
         };
+        /** NumericSummary */
+        NumericSummary: {
+            /**
+             * Difference
+             * @description Signed difference expression; column minus reference when a reference exists, otherwise second minus first.
+             */
+            difference: string;
+            /** Unit */
+            unit: string;
+            /** Finite Pairs */
+            finite_pairs: number;
+            /** Non Finite Pairs */
+            non_finite_pairs: number;
+            /** Bias */
+            bias: number | null;
+            /** Mean Absolute Difference */
+            mean_absolute_difference: number | null;
+            /** P95 Absolute Difference */
+            p95_absolute_difference: number | null;
+            /** Max Absolute Difference */
+            max_absolute_difference: number | null;
+            /** Histogram */
+            histogram: components["schemas"]["HistogramBin"][];
+        };
         /** OpenRouterKey */
         OpenRouterKey: {
             /** Key */
@@ -1158,6 +1241,8 @@ export interface components {
              * @description SQL picking the rows where the two differ.
              */
             disagree: string;
+            coverage: components["schemas"]["Coverage"];
+            numeric?: components["schemas"]["NumericSummary"] | null;
         };
         /**
          * Preset
@@ -1215,6 +1300,11 @@ export interface components {
         };
         /** ReferenceAccuracy */
         ReferenceAccuracy: {
+            labels_completeness: components["schemas"]["Completeness"];
+            /** Macro F1 */
+            macro_f1: number | null;
+            /** Balanced Accuracy */
+            balanced_accuracy: number | null;
             /** Column */
             column: string;
             /**
@@ -1233,7 +1323,7 @@ export interface components {
             wrong: string;
             /**
              * Values
-             * @description For the reference's most common values; empty with a tolerance.
+             * @description Up to 20 reference labels with lowest recall; aggregate metrics use all labels. Empty with a tolerance.
              */
             values: components["schemas"]["ValueAccuracy"][];
         };
@@ -1745,6 +1835,13 @@ export interface components {
         };
         /** ValueCounts */
         ValueCounts: {
+            /**
+             * Where
+             * @description Exact row predicates by column, including Other values.
+             */
+            where: {
+                [key: string]: string;
+            };
             /**
              * Value
              * @description None for all values past the most common ones, added up.

@@ -118,3 +118,145 @@ def test_compares_the_rows_a_query_returns(client, dataset):
         client, dataset, columns=["a", "b"], sql="SELECT * FROM data WHERE city <> 'Lima'"
     )
     assert (result["rows"], result["agreement"]["disagree"]["rows"]) == (5, 0)
+
+
+def test_text_rules_reconcile_metrics_groups_and_predicates(client, tmp_path):
+    path = tmp_path / "text.jsonl"
+    path.write_text(
+        '{"city":"a","a":" Bug ","b":"bug"}\n{"city":"b","a":"BUG","b":"bug"}\n{"city":"c","a":"\\tBug\\n","b":"Bug"}\n{"city":"d","a":"   ","b":""}\n{"city":"e","a":null,"b":"bug"}'
+    )
+    dataset = client.post("/v1/datasets", data={"source": str(path)}).json()
+    exact = compare(client, dataset, columns=["a"], reference="b")
+    assert exact["pairs"][0]["agree"] == 0
+    case = compare(client, dataset, columns=["a"], reference="b", ignore_case=True)
+    assert case["pairs"][0]["agree"] == 1
+    normalized = compare(
+        client, dataset, columns=["a"], reference="b", ignore_case=True, trim_whitespace=True
+    )
+    assert normalized["pairs"][0]["agree"] == 4
+    assert normalized["reference"][0]["accuracy"] == 1
+    assert normalized["reference"][0]["macro_f1"] == 1
+    for cell in normalized["crosstab"]:
+        assert len(rows(client, dataset, cell["where"])) == cell["rows"]
+    assert normalized["pairs"][0]["coverage"]["missing_left"]["rows"] == 1
+    bug = next(v for v in normalized["values"] if v["value"] == "bug")
+    assert bug["counts"] == {"a": 3, "b": 4}
+    for value in normalized["values"]:
+        for column in ("a", "b"):
+            assert len(rows(client, dataset, value["where"][column])) == value["counts"][column]
+
+
+def test_numeric_diagnostics_and_histogram_are_exact_drilldowns(client, dataset):
+    result = compare(client, dataset, columns=["price_a"], reference="price_b", tolerance=0.5)
+    numeric = result["pairs"][0]["numeric"]
+    assert numeric["difference"] == "price_a − price_b"
+    assert numeric["finite_pairs"] == 5
+    assert numeric["bias"] == pytest.approx(-1.32)
+    assert numeric["mean_absolute_difference"] == pytest.approx(1.32)
+    assert sum(b["rows"] for b in numeric["histogram"]) == 5
+    found = []
+    for bucket in numeric["histogram"]:
+        members = rows(client, dataset, bucket["where"])
+        assert len(members) == bucket["rows"]
+        found.extend(members)
+    assert len(set(found)) == len(found) == 5
+    scoped = compare(
+        client, dataset, columns=["price_a", "price_b"], sql="SELECT * FROM data WHERE city='Tokyo'"
+    )
+    assert scoped["pairs"][0]["numeric"]["histogram"][0]["rows"] == 1
+
+
+def test_tolerance_boundary_and_validation(client, dataset):
+    invalid = client.post(
+        f"/v1/datasets/{dataset['id']}/compare",
+        json={"columns": ["price_a", "price_b"], "tolerance": -1},
+    )
+    assert invalid.status_code == 422
+    invalid = client.post(
+        f"/v1/datasets/{dataset['id']}/compare",
+        json={"columns": ["price_a", "price_b"], "ignore_case": True},
+    )
+    assert invalid.status_code == 400
+    result = compare(
+        client,
+        dataset,
+        columns=["a", "b"],
+        tolerance=0.1,
+        sql="SELECT city, 0.3::DOUBLE a, 0.4::DOUBLE b FROM data",
+    )
+    assert result["pairs"][0]["agree"] == 6
+    outside = compare(
+        client,
+        dataset,
+        columns=["a", "b"],
+        tolerance=0.1,
+        sql="SELECT city, 0.3::DOUBLE a, 0.40000001::DOUBLE b FROM data",
+    )
+    assert outside["pairs"][0]["agree"] == 0
+    exact = compare(
+        client,
+        dataset,
+        columns=["a", "b"],
+        tolerance=0,
+        sql="SELECT city, 0.3::DOUBLE a, 0.30000000000000004::DOUBLE b FROM data",
+    )
+    assert exact["pairs"][0]["agree"] == 0
+
+
+def test_complete_label_metrics_despite_display_limit(client, dataset):
+    result = compare(
+        client,
+        dataset,
+        columns=["a"],
+        reference="b",
+        sql="SELECT i::VARCHAR a, i::VARCHAR b FROM range(30) t(i)",
+    )
+    reference = result["reference"][0]
+    assert reference["macro_f1"] == reference["balanced_accuracy"] == 1
+    assert reference["labels_completeness"] == {
+        "total_groups": 30,
+        "shown_groups": 20,
+        "omitted_count": 10,
+        "count_unit": "rows",
+        "truncated": True,
+    }
+    assert result["values_completeness"]["truncated"]
+    assert result["crosstab_completeness"]["total_groups"] == 30
+
+
+def test_numeric_empty_nonfinite_large_integer_and_dates(client, dataset):
+    result = compare(
+        client,
+        dataset,
+        columns=["a", "b"],
+        sql="SELECT 9007199254740992::BIGINT a, 9007199254740993::BIGINT b",
+    )
+    assert result["pairs"][0]["numeric"]["bias"] == 1
+    result = compare(
+        client, dataset, columns=["a", "b"], sql="SELECT NULL::DOUBLE a, NULL::DOUBLE b"
+    )
+    assert result["pairs"][0]["numeric"]["histogram"] == []
+    assert result["pairs"][0]["numeric"]["bias"] is None
+    result = compare(
+        client,
+        dataset,
+        columns=["a", "b"],
+        sql="SELECT 'Infinity'::DOUBLE a, 1::DOUBLE b",
+        tolerance=0.1,
+    )
+    assert result["pairs"][0]["numeric"]["non_finite_pairs"] == 1
+    assert result["pairs"][0]["agree"] == 0
+    result = compare(
+        client,
+        dataset,
+        columns=["a", "b"],
+        tolerance=1,
+        sql="SELECT DATE '2026-01-01' a, DATE '2026-01-02' b",
+    )
+    assert result["pairs"][0]["numeric"]["unit"] == "days"
+    assert result["pairs"][0]["agree"] == 1
+    response = client.post(
+        f"/v1/datasets/{dataset['id']}/compare",
+        json={"columns": ["a", "b"], "tolerance": 1, "sql": "SELECT DATE '2026-01-01' a, 1 b"},
+    )
+    assert response.status_code == 400

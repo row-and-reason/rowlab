@@ -2023,7 +2023,8 @@
           "tolerance": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -2031,6 +2032,18 @@
             ],
             "title": "Tolerance",
             "description": "For number and date columns: how far apart values may be (days for dates)."
+          },
+          "ignore_case": {
+            "type": "boolean",
+            "title": "Ignore Case",
+            "description": "Compare VARCHAR columns using Unicode lowercase (not full case folding).",
+            "default": false
+          },
+          "trim_whitespace": {
+            "type": "boolean",
+            "title": "Trim Whitespace",
+            "description": "Trim ASCII space, tab, newline, carriage return, form feed and vertical tab in VARCHAR columns. Empty strings remain answers.",
+            "default": false
           },
           "sql": {
             "type": "string",
@@ -2047,6 +2060,38 @@
       },
       "Comparison": {
         "properties": {
+          "ignore_case": {
+            "type": "boolean",
+            "title": "Ignore Case"
+          },
+          "trim_whitespace": {
+            "type": "boolean",
+            "title": "Trim Whitespace"
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance"
+          },
+          "values_completeness": {
+            "$ref": "#/components/schemas/Completeness"
+          },
+          "crosstab_completeness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Completeness"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "rows": {
             "type": "integer",
             "title": "Rows",
@@ -2092,7 +2137,7 @@
               }
             ],
             "title": "Crosstab",
-            "description": "For exactly two columns: how often each pair of their values occurs."
+            "description": "For exactly two columns: up to 50 value combinations, differing values first then frequency."
           },
           "reference": {
             "anyOf": [
@@ -2112,6 +2157,11 @@
         },
         "type": "object",
         "required": [
+          "ignore_case",
+          "trim_whitespace",
+          "tolerance",
+          "values_completeness",
+          "crosstab_completeness",
           "rows",
           "columns",
           "agreement",
@@ -2121,6 +2171,43 @@
           "reference"
         ],
         "title": "Comparison"
+      },
+      "Completeness": {
+        "properties": {
+          "total_groups": {
+            "type": "integer",
+            "title": "Total Groups"
+          },
+          "shown_groups": {
+            "type": "integer",
+            "title": "Shown Groups"
+          },
+          "omitted_count": {
+            "type": "integer",
+            "title": "Omitted Count"
+          },
+          "count_unit": {
+            "type": "string",
+            "enum": [
+              "rows",
+              "answers"
+            ],
+            "title": "Count Unit",
+            "default": "rows"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_groups",
+          "shown_groups",
+          "omitted_count",
+          "truncated"
+        ],
+        "title": "Completeness"
       },
       "Connection": {
         "properties": {
@@ -2203,6 +2290,26 @@
           "access_key_id"
         ],
         "title": "ConnectionInput"
+      },
+      "Coverage": {
+        "properties": {
+          "missing_left": {
+            "$ref": "#/components/schemas/Rows"
+          },
+          "missing_right": {
+            "$ref": "#/components/schemas/Rows"
+          },
+          "missing_both": {
+            "$ref": "#/components/schemas/Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "missing_left",
+          "missing_right",
+          "missing_both"
+        ],
+        "title": "Coverage"
       },
       "Dataset": {
         "properties": {
@@ -2634,6 +2741,47 @@
         ],
         "title": "Health"
       },
+      "HistogramBin": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Where",
+            "description": "SQL picking these rows, for a query's WHERE clause."
+          },
+          "lower": {
+            "type": "number",
+            "title": "Lower"
+          },
+          "upper": {
+            "type": "number",
+            "title": "Upper"
+          },
+          "upper_inclusive": {
+            "type": "boolean",
+            "title": "Upper Inclusive"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "where",
+          "lower",
+          "upper",
+          "upper_inclusive"
+        ],
+        "title": "HistogramBin"
+      },
       "Invite": {
         "properties": {
           "id": {
@@ -2804,6 +2952,91 @@
         ],
         "title": "NewApiKey"
       },
+      "NumericSummary": {
+        "properties": {
+          "difference": {
+            "type": "string",
+            "title": "Difference",
+            "description": "Signed difference expression; column minus reference when a reference exists, otherwise second minus first."
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "finite_pairs": {
+            "type": "integer",
+            "title": "Finite Pairs"
+          },
+          "non_finite_pairs": {
+            "type": "integer",
+            "title": "Non Finite Pairs"
+          },
+          "bias": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias"
+          },
+          "mean_absolute_difference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Absolute Difference"
+          },
+          "p95_absolute_difference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Absolute Difference"
+          },
+          "max_absolute_difference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Absolute Difference"
+          },
+          "histogram": {
+            "items": {
+              "$ref": "#/components/schemas/HistogramBin"
+            },
+            "type": "array",
+            "title": "Histogram"
+          }
+        },
+        "type": "object",
+        "required": [
+          "difference",
+          "unit",
+          "finite_pairs",
+          "non_finite_pairs",
+          "bias",
+          "mean_absolute_difference",
+          "p95_absolute_difference",
+          "max_absolute_difference",
+          "histogram"
+        ],
+        "title": "NumericSummary"
+      },
       "OpenRouterKey": {
         "properties": {
           "key": {
@@ -2886,6 +3119,19 @@
             "type": "string",
             "title": "Disagree",
             "description": "SQL picking the rows where the two differ."
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "numeric": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -2894,7 +3140,8 @@
           "compared",
           "agree",
           "rate",
-          "disagree"
+          "disagree",
+          "coverage"
         ],
         "title": "Pair"
       },
@@ -2991,6 +3238,31 @@
       },
       "ReferenceAccuracy": {
         "properties": {
+          "labels_completeness": {
+            "$ref": "#/components/schemas/Completeness"
+          },
+          "macro_f1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Macro F1"
+          },
+          "balanced_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Balanced Accuracy"
+          },
           "column": {
             "type": "string",
             "title": "Column"
@@ -3026,11 +3298,14 @@
             },
             "type": "array",
             "title": "Values",
-            "description": "For the reference's most common values; empty with a tolerance."
+            "description": "Up to 20 reference labels with lowest recall; aggregate metrics use all labels. Empty with a tolerance."
           }
         },
         "type": "object",
         "required": [
+          "labels_completeness",
+          "macro_f1",
+          "balanced_accuracy",
           "column",
           "compared",
           "correct",
@@ -4023,6 +4298,14 @@
       },
       "ValueCounts": {
         "properties": {
+          "where": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Where",
+            "description": "Exact row predicates by column, including Other values."
+          },
           "value": {
             "anyOf": [
               {
@@ -4046,6 +4329,7 @@
         },
         "type": "object",
         "required": [
+          "where",
           "value",
           "counts"
         ],

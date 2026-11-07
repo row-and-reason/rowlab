@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Bar, BarChart, CartesianGrid, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Spinner } from "@/components/ui/spinner";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Table,
   TableBody,
@@ -14,218 +12,172 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type Comparison, type Dataset } from "@/lib/api/client";
-import { columnLabel, errorMessage, formatNumber } from "@/lib/format";
-import { ident, type WhereFilter } from "@/lib/sql";
+import { type Comparison } from "@/lib/api/client";
+import { type WhereFilter } from "@/lib/sql";
 
-/** Numeric summaries use the existing read-only query API, over every finite paired answer. */
+const metric = (n: number | null) =>
+  n === null ? "—" : n.toLocaleString("en-US", { maximumSignificantDigits: 4 });
+
+/** All metrics, bins and row predicates come from the comparison API. */
 export function NumericComparison({
-  dataset,
   pair,
   tolerance,
   onFilter,
 }: {
-  dataset: Dataset;
   pair: Comparison["pairs"][number];
   tolerance: number | null;
   onFilter: (filters: WhereFilter[], columns: string[]) => void;
 }) {
-  const [a, b] = pair.columns;
-  const number = (name: string) =>
-    dataset.columns.find((c) => c.name === name)?.type === "DATE"
-      ? `date_diff('day', DATE '1970-01-01', ${ident(name)})`
-      : `CAST(${ident(name)} AS DOUBLE)`;
-  const days = pair.columns.every(
-    (name) => dataset.columns.find((c) => c.name === name)?.type === "DATE",
-  );
-  const delta = `(${number(b)} - ${number(a)})`;
-  const finite = pair.columns
-    .map((name) => `${ident(name)} IS NOT NULL AND isfinite(${number(name)})`)
-    .join(" AND ");
-  const buckets = [
-    {
-      key: "lower",
-      label: `${columnLabel(b)} lower`,
-      where: `(${pair.disagree}) AND ${delta} < 0`,
-      match: false,
-    },
-    {
-      key: "within",
-      label:
-        tolerance === null
-          ? "Exact match"
-          : `Within ${formatNumber(tolerance)}${days ? " days" : ""}`,
-      where: `NOT (${pair.disagree})`,
-      match: true,
-    },
-    {
-      key: "higher",
-      label: `${columnLabel(b)} higher`,
-      where: `(${pair.disagree}) AND ${delta} > 0`,
-      match: false,
-    },
-    // Exact comparison of mixed types can distinguish 1 from "1.0", even with zero numeric error.
-    {
-      key: "representation",
-      label: "Same number, different representation",
-      where: `(${pair.disagree}) AND ${delta} = 0`,
-      match: false,
-    },
-  ];
-  const sql = `SELECT count(*) AS paired, avg(${delta}) AS bias, avg(abs(${delta})) AS mae,
-    max(abs(${delta})) AS max_error, ${buckets.map((bucket) => `count(*) FILTER (WHERE ${bucket.where}) AS ${bucket.key}`).join(", ")}
-    FROM data WHERE ${finite}`;
-  const [attempt, setAttempt] = useState(0);
-  const version = dataset.run?.done;
-  const [result, setResult] = useState<{
-    sql: string;
-    datasetId: string;
-    attempt: number;
-    version?: number;
-    row?: Record<string, unknown>;
-    error?: string;
-  }>();
-  useEffect(() => {
-    let current = true;
-    const identity = { sql, datasetId: dataset.id, attempt, version };
-    api
-      .POST("/v1/datasets/{dataset_id}/query", {
-        params: { path: { dataset_id: dataset.id } },
-        body: { sql, offset: 0, limit: 1 },
-      })
-      .then(({ data, error }) => {
-        if (current)
-          setResult({
-            ...identity,
-            row: data?.rows[0],
-            error: error ? errorMessage(error) : undefined,
-          });
-      })
-      .catch(() => {
-        if (current)
-          setResult({
-            ...identity,
-            error: "Could not load numeric differences. Retry when connected.",
-          });
-      });
-    return () => {
-      current = false;
-    };
-  }, [sql, dataset.id, attempt, version]);
-  const current =
-    result?.sql === sql &&
-    result?.datasetId === dataset.id &&
-    result?.attempt === attempt &&
-    result?.version === version;
-  if (current && result.error)
-    return (
-      <Alert variant="destructive">
-        <AlertDescription>{result.error}</AlertDescription>
-        <Button variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
-          Retry numeric summary
-        </Button>
-      </Alert>
-    );
-  if (!current || !result.row)
-    return (
-      <div role="status" className="flex items-center gap-2 text-muted-foreground">
-        <Spinner /> Loading numeric differences…
-      </div>
-    );
-  const row = result.row;
-  const n = Number(row.paired);
-  if (!n)
+  const stats = pair.numeric!;
+  if (!stats.finite_pairs)
     return <p className="py-3 text-muted-foreground">No finite paired answers to summarize.</p>;
-  const metric = (value: unknown) =>
-    typeof value === "number" && Number.isFinite(value)
-      ? value.toLocaleString("en-US", { maximumSignificantDigits: 4 })
-      : "—";
+  const bins = stats.histogram.map((b) => ({
+    ...b,
+    center: (b.lower + b.upper) / 2,
+    range: `${metric(b.lower)} to ${metric(b.upper)}`,
+  }));
+  const low = bins[0].lower,
+    high = bins.at(-1)!.upper;
+  const extent = Math.max(Math.abs(low), Math.abs(high), tolerance ?? 0, 0.001);
+  const domain: [number, number] =
+    low === high ? [low - extent / 2, high + extent / 2] : [Math.min(low, 0), Math.max(high, 0)];
+  const inspect = (bin: (typeof bins)[number]) =>
+    bin.where &&
+    onFilter(
+      [
+        {
+          where: bin.where,
+          label: `${stats.difference}: ${bin.range}${stats.unit === "days" ? " days" : ""}`,
+        },
+      ],
+      pair.columns,
+    );
   return (
-    <section className="space-y-3">
-      <div>
-        <h3 className="font-medium">Numeric differences</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Difference = {columnLabel(b)} − {columnLabel(a)}
-          {days ? " (days)" : ""}. Positive means {columnLabel(b)} is higher. All {formatNumber(n)}{" "}
-          finite paired rows, not a sample.
-        </p>
-      </div>
-      <dl className="grid grid-cols-3 gap-3 border-y py-3">
+    <section className="space-y-4">
+      <dl className="flex flex-wrap gap-x-10 gap-y-3">
         <div>
-          <dt className="text-xs text-muted-foreground">Mean difference (bias)</dt>
+          <dt className="text-xs text-muted-foreground">Mean absolute difference</dt>
           <dd className="mt-1 font-medium tabular-nums">
-            {Number(row.bias) > 0 ? "+" : ""}
-            {metric(row.bias)}
+            {metric(stats.mean_absolute_difference)}
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-muted-foreground">Mean absolute error</dt>
-          <dd className="mt-1 font-medium tabular-nums">{metric(row.mae)}</dd>
+          <dt className="text-xs text-muted-foreground">Signed mean difference</dt>
+          <dd className="mt-1 font-medium tabular-nums">
+            {(stats.bias ?? 0) > 0 ? "+" : ""}
+            {metric(stats.bias)}
+          </dd>
         </div>
         <div>
-          <dt className="text-xs text-muted-foreground">Largest absolute error</dt>
-          <dd className="mt-1 font-medium tabular-nums">{metric(row.max_error)}</dd>
+          <dt className="text-xs text-muted-foreground">95th percentile absolute difference</dt>
+          <dd className="mt-1 font-medium tabular-nums">{metric(stats.p95_absolute_difference)}</dd>
         </div>
       </dl>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Difference bucket / inspect</TableHead>
-            <TableHead>Share of finite pairs</TableHead>
-            <TableHead className="text-right">Rows</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {buckets
-            .filter((bucket) => bucket.key !== "representation" || Number(row[bucket.key]) > 0)
-            .map((bucket) => {
-              const count = Number(row[bucket.key]);
-              return (
-                <TableRow key={bucket.key}>
-                  <TableCell>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-medium">Difference distribution</h3>
+          <span className="text-xs text-muted-foreground">{stats.finite_pairs} finite pairs</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {stats.difference}
+          {stats.unit === "days" ? " · days" : ""} · positive means the first named column is
+          higher.
+        </p>
+        <ChartContainer
+          config={{ rows: { label: "Rows", color: "var(--primary)" } }}
+          className="h-64 w-full aspect-auto"
+        >
+          <BarChart
+            data={bins}
+            margin={{ top: 12, right: 16, bottom: 12, left: 0 }}
+            accessibilityLayer
+          >
+            <CartesianGrid vertical={false} />
+            <XAxis
+              type="number"
+              dataKey="center"
+              domain={domain}
+              tickFormatter={metric}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={38} />
+            {tolerance !== null && (
+              <ReferenceArea
+                x1={Math.max(domain[0], -tolerance)}
+                x2={Math.min(domain[1], tolerance)}
+                fill="var(--primary)"
+                fillOpacity={0.1}
+              />
+            )}
+            <ReferenceLine x={0} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.range ?? "Difference"}
+                />
+              }
+            />
+            <Bar
+              dataKey="rows"
+              fill="var(--primary)"
+              fillOpacity={0.75}
+              maxBarSize={48}
+              isAnimationActive={false}
+              onClick={(_, index) => inspect(bins[index])}
+              cursor="pointer"
+            />
+          </BarChart>
+        </ChartContainer>
+        <p className="text-xs text-muted-foreground">
+          Click a bar to inspect its rows.
+          {tolerance !== null
+            ? ` Shaded range: ±${metric(tolerance)}. A bar may contain values on both sides of the tolerance boundary.`
+            : " Dashed line: no difference."}
+        </p>
+      </div>
+      <Collapsible>
+        <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="px-0 text-xs" />}>
+          Inspect bins and exact counts
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Difference interval</TableHead>
+                <TableHead className="text-right">Rows / inspect</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {bins.map((b, i) => (
+                <TableRow key={i}>
+                  <TableCell className="tabular-nums">
+                    [{metric(b.lower)}, {metric(b.upper)}
+                    {b.upper_inclusive ? "]" : ")"}
+                  </TableCell>
+                  <TableCell className="text-right">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="justify-start px-0 text-xs"
-                      disabled={!count}
-                      onClick={() =>
-                        onFilter(
-                          [
-                            {
-                              where: `(${finite}) AND (${bucket.where})`,
-                              label: `${bucket.label} · ${tolerance === null ? "exact comparison" : `tolerance ${tolerance}`}`,
-                            },
-                          ],
-                          pair.columns,
-                        )
-                      }
+                      disabled={!b.rows}
+                      onClick={() => inspect(b)}
+                      aria-label={`Inspect ${b.rows} rows in bin ${i + 1}`}
+                      className="text-xs tabular-nums"
                     >
-                      {bucket.label}
+                      {b.rows}
                     </Button>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Progress
-                        value={(100 * count) / n}
-                        aria-label={bucket.label}
-                        className={`w-32 ${bucket.match ? "" : "[&_[data-slot=progress-indicator]]:bg-muted-foreground"}`}
-                      />
-                      <span className="text-xs tabular-nums">
-                        {((100 * count) / n).toFixed(1)}%
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatNumber(count)}</TableCell>
                 </TableRow>
-              );
-            })}
-        </TableBody>
-      </Table>
-      <p className="text-xs text-muted-foreground">
-        Lower / higher buckets contain only differences outside the comparison rule. Accent marks
-        matches. Missing answers and non-finite numbers are excluded
-        {n !== pair.compared ? ` (${formatNumber(pair.compared - n)} non-finite pairs)` : ""}.
-      </p>
+              ))}
+            </TableBody>
+          </Table>
+          <p className="pt-3 text-xs text-muted-foreground">
+            Largest absolute difference: {metric(stats.max_absolute_difference)}.{" "}
+            {stats.non_finite_pairs} non-finite pairs excluded. Displayed bounds are rounded; row
+            filters use full precision.
+          </p>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }

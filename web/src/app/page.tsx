@@ -10,7 +10,6 @@ import {
   ListRestartIcon,
   MoonIcon,
   PenLineIcon,
-  PanelRightCloseIcon,
   PlayIcon,
   PlusIcon,
   SearchIcon,
@@ -325,15 +324,14 @@ function Workspace() {
                     onSelect={() =>
                       command(() => {
                         const query = new URLSearchParams(params);
-                        query.set("tab", "compare");
-                        if (params.get("focus") === "compare") query.delete("focus");
-                        else query.set("focus", "compare");
+                        query.set("tab", "rows");
+                        query.delete("focus");
                         router.push(`/?${query}`);
                       })
                     }
                   >
-                    <PanelRightCloseIcon />
-                    {params.get("focus") === "compare" ? "Restore run pane" : "Expand comparison"}
+                    <PlayIcon />
+                    Open run composer
                   </CommandItem>
                 </>
               )}

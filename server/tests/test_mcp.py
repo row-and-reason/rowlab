@@ -148,3 +148,27 @@ def test_hosted_workos_tokens_must_be_for_this_server(hosted):
     with pytest.raises(Unauthorized, match="browser first"):
         auth.me_for_workos_user("user_nobody")
     assert auth.me_for_workos_user("user_Ada").user.email == "ada@example.com"
+
+
+def test_comparison_text_rules_and_numeric_diagnostics_through_mcp(mcp, tmp_path):
+    path = tmp_path / "compare.csv"
+    path.write_text("a,b,x,y\nBug,bug,0.3,0.4\nBUG,bug,0.7,0.8\n")
+    dataset = call(mcp, "dataset_add", source=str(path))
+    result = call(
+        mcp,
+        "columns_compare",
+        dataset_id=dataset["id"],
+        columns=["a"],
+        reference="b",
+        ignore_case=True,
+        trim_whitespace=True,
+    )
+    assert result["pairs"][0]["agree"] == 2
+    assert result["ignore_case"] is True
+    result = call(
+        mcp, "columns_compare", dataset_id=dataset["id"], columns=["x", "y"], tolerance=0.1
+    )
+    assert result["pairs"][0]["agree"] == 2
+    assert result["pairs"][0]["numeric"]["finite_pairs"] == 2
+    with pytest.raises(ToolError):
+        call(mcp, "columns_compare", dataset_id=dataset["id"], columns=["x", "y"], tolerance=-1)

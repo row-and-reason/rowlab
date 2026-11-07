@@ -9,7 +9,6 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { usePanelCallbackRef } from "react-resizable-panels";
 import { toast } from "sonner";
 
@@ -107,7 +106,7 @@ export function DatasetPanels({
 
   const [jobPanel, setJobPanel] = usePanelCallbackRef();
   const runPaneWidth = useRef<number | null>(null);
-  const focusComparison = useSearchParams().get("focus") === "compare" && tab === "compare";
+  const focusComparison = tab === "compare";
   useEffect(() => {
     if (!jobPanel) return;
     if (focusComparison) {

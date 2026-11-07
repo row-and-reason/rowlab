@@ -36,12 +36,24 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
 
 ## Compare columns
 
-The **Compare** tab compares columns across the whole dataset: agreement, reference-label precision
-and recall, pairwise confusion tables, and value distributions. Numeric pairs show bias, absolute
-error and tolerance-aware difference buckets using the existing query API. Expand comparison hides
-the run pane while analyzing; opening Rows restores it. Columns, reference, tolerance and expanded mode are saved in the URL.
-Click a count to inspect exactly those rows; this replaces the Rows tab's search, filters and limit,
-and brings the compared columns to the front. Missing answers are excluded from pairwise rates.
+The **Compare** tab uses its own analysis workspace: select a model or pair in the ranking to inspect
+its confusion table, label metrics, value distribution or missing-answer coverage. Numeric pairs show
+signed differences, mean absolute difference, error quantiles and a histogram. All calculations and
+exact row filters come from the comparison API, also available through MCP `columns_compare`.
+Columns, reference, matching rules, selected pair and detail view are saved in the URL.
+Click a count or histogram bar to inspect those rows; this replaces the Rows tab's search, filters and
+limit and brings compared columns to the front. Returning to Rows restores the run composer.
+
+Matching is exact by default. Text columns support independent `ignore_case` (Unicode lowercase, not
+full case folding) and `trim_whitespace` (ASCII whitespace) rules. These normalize comparison groups,
+metrics and row filters, never source data. Empty strings remain answers; NULLs are missing.
+Numeric/date tolerance must be finite and nonnegative; dates compare only with dates, in days.
+Positive floating tolerances allow four machine-epsilon units scaled to the operand magnitudes for
+subtraction roundoff; zero tolerance remains exact. Numeric diagnostics exclude non-finite pairs and
+report the excluded count. Reference metrics exclude missing pairs; macro F1 and balanced accuracy
+use all labels even when the displayed label table is truncated. Completeness metadata reports omitted
+groups and counts. API/MCP callers may scope a comparison with a SELECT query; returned row predicates
+apply to that same query. The UI compares the whole dataset.
 
 
 ## Principles

@@ -225,6 +225,12 @@ def create_server() -> FastMCP:
         tolerance: Annotated[
             float | None, Field(description="For numbers: how far apart still counts as the same.")
         ] = None,
+        ignore_case: Annotated[
+            bool, Field(description="Unicode lowercase matching for text columns.")
+        ] = False,
+        trim_whitespace: Annotated[
+            bool, Field(description="Trim surrounding ASCII whitespace in text columns.")
+        ] = False,
         sql: Sql = ALL_ROWS,
     ) -> Comparison:
         """How often columns give the same value per row: models against each other, or against
@@ -233,7 +239,12 @@ def create_server() -> FastMCP:
         me = _me()
         datasets.check_access(me.org.id, dataset_id)
         request = compare.CompareRequest(
-            columns=columns, reference=reference, tolerance=tolerance, sql=sql
+            columns=columns,
+            reference=reference,
+            tolerance=tolerance,
+            ignore_case=ignore_case,
+            trim_whitespace=trim_whitespace,
+            sql=sql,
         )
         return compare.compare(dataset_id, request)
 
