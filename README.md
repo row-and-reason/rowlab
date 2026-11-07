@@ -38,11 +38,13 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
 
 The **Compare** tab uses its own analysis workspace: select a model or pair in the ranking to inspect
 its confusion table, label metrics, value distribution or missing-answer coverage. Numeric pairs show
-signed differences, mean absolute difference, error quantiles and a histogram. All calculations and
+signed differences, mean absolute difference, error quantiles and a histogram with matched/different
+segments driven by the same comparison rule. All calculations and
 exact row filters come from the comparison API, also available through MCP `columns_compare`.
 Columns, reference, matching rules, selected pair and detail view are saved in the URL.
 Click a count or histogram bar to inspect those rows; this replaces the Rows tab's search, filters and
-limit and brings compared columns to the front. Returning to Rows restores the run composer.
+limit and brings compared columns to the front. Returning to Rows restores the run composer. In Compare, ⌘↵ inspects differing rows; ⌘K also opens
+matching rules and column selection.
 
 Matching is exact by default. Text columns support independent `ignore_case` (Unicode lowercase, not
 full case folding) and `trim_whitespace` (ASCII whitespace) rules. These normalize comparison groups,

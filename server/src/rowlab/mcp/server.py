@@ -223,7 +223,12 @@ def create_server() -> FastMCP:
             str | None, Field(description="Labels you trust, to measure the others against.")
         ] = None,
         tolerance: Annotated[
-            float | None, Field(description="For numbers: how far apart still counts as the same.")
+            float | None,
+            Field(
+                ge=0,
+                allow_inf_nan=False,
+                description="For numbers or dates: maximum absolute difference (days for dates).",
+            ),
         ] = None,
         ignore_case: Annotated[
             bool, Field(description="Unicode lowercase matching for text columns.")

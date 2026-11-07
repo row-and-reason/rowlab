@@ -5,6 +5,13 @@ import { api, type Comparison } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
 import type { components } from "@/lib/api/schema";
 
+export type ComparisonActions = {
+  setReady?: (ready: boolean) => void;
+  rules?: () => void;
+  columns?: () => void;
+  different?: () => void;
+};
+
 export type CompareRequest = components["schemas"]["CompareRequest"];
 
 /** A result belongs to one request. Old counts must never act on a newly selected comparison. */

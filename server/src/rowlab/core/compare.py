@@ -11,6 +11,7 @@ same when they are no further apart. Empty values never count as a disagreement.
 """
 
 import itertools
+import math
 from typing import Literal
 
 import duckdb
@@ -24,7 +25,20 @@ from rowlab.core.errors import InvalidRequest
 TOP_VALUES = 20
 TOP_CELLS = 50
 
-_NUMBERS = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "FLOAT", "DOUBLE")
+_NUMBERS = (
+    "TINYINT",
+    "SMALLINT",
+    "INTEGER",
+    "BIGINT",
+    "HUGEINT",
+    "FLOAT",
+    "DOUBLE",
+    "UTINYINT",
+    "USMALLINT",
+    "UINTEGER",
+    "UBIGINT",
+    "UHUGEINT",
+)
 
 
 class CompareRequest(BaseModel):
@@ -67,12 +81,16 @@ class Agreement(BaseModel):
 class HistogramBin(Rows):
     lower: float
     upper: float
+    matched: Rows
+    different: Rows
     upper_inclusive: bool
 
 
 class NumericSummary(BaseModel):
+    matched: Rows
+    different: Rows
     difference: str = Field(
-        description="Signed difference expression; column minus reference when a reference exists, otherwise second minus first."
+        description="Human-readable signed difference; column minus reference when a reference exists, otherwise second minus first."
     )
     unit: str
     finite_pairs: int
@@ -314,7 +332,7 @@ class _Same:
         value = _text(column, self.types[column])
         if self.types[column] == "VARCHAR":
             if self.trim_whitespace:
-                value = f"regexp_replace({value}, '^\\s+|\\s+$', '', 'g')"
+                value = f"regexp_replace({value}, '^[\\x09-\\x0D ]+|[\\x09-\\x0D ]+$', '', 'g')"
             if self.ignore_case:
                 value = f"lower({value})"
         return value
@@ -344,6 +362,10 @@ class _Same:
             return f"date_diff('day', DATE '1970-01-01', {sql_ident(column)})"
         if sql_type in _NUMBERS or sql_type.startswith("DECIMAL"):
             return sql_ident(column)
+        if sql_type.startswith("TIMESTAMP"):
+            raise InvalidRequest(
+                "Timestamp tolerance is not supported; cast to DATE for day-level comparison."
+            )
         raise InvalidRequest("A tolerance is only for number and date columns.")
 
 
@@ -497,50 +519,74 @@ def _numeric(
         return None
     left, right = (b, a) if b == reference else (a, b)
     # Subtract in the source type first to retain integer/decimal differences before chart conversion.
-    delta = f"CAST(({same._number(right)} - {same._number(left)}) AS DOUBLE)"
+    x, y = same._number(right), same._number(left)
+    # Reversing unsigned subtraction preserves a negative small difference exactly.
+    # Only differences outside the source type's range need floating subtraction.
+    delta = f"coalesce(TRY(CAST(({x} - {y}) AS DOUBLE)), -TRY(CAST(({y} - {x}) AS DOUBLE)), CAST({x} AS DOUBLE) - CAST({y} AS DOUBLE))"
     finite = f"isfinite({same._number(a)}) AND isfinite({same._number(b)}) AND isfinite({delta})"
     paired = f"{sql_ident(a)} IS NOT NULL AND {sql_ident(b)} IS NOT NULL"
-    n, excluded, bias, mae, p95, maximum, low, high = sql.execute(
+    n, excluded, low, high = sql.execute(
         con,
         f"SELECT count(*) FILTER ({finite}), count(*) FILTER ({paired} AND NOT coalesce(({finite}), false)), "
-        + ", ".join(
-            f"{aggregate} FILTER ({finite})"
-            for aggregate in [
-                f"avg({delta})",
-                f"avg(abs({delta}))",
-                f"quantile_cont(abs({delta}), 0.95)",
-                f"max(abs({delta}))",
-                f"min({delta})",
-                f"max({delta})",
-            ]
-        )
-        + f" {source}",
+        f"min({delta}) FILTER ({finite}), max({delta}) FILTER ({finite}) {source}",
     ).fetchone()
+    bias = mae = p95 = maximum = None
+    if n:
+        maximum = max(abs(low), abs(high))
+        scale = maximum or 1
+        # Scale before accumulation/interpolation so finite extreme inputs do not overflow.
+        scaled = f"({delta} / {scale!r})"
+        bias, mae, p95 = sql.execute(
+            con,
+            f"SELECT avg({scaled}), avg(abs({scaled})), quantile_cont(abs({scaled}), 0.95) {source} WHERE {finite}",
+        ).fetchone()
+        bias, mae, p95 = [
+            v * scale if v is not None and math.isfinite(v * scale) else None
+            for v in (bias, mae, p95)
+        ]
     bins = []
     if n:
         edges = sorted(
             {
                 low,
                 high,
-                *[low + (high - low) * i / 12 for i in range(1, 12)],
+                *[low * (1 - i / 12) + high * (i / 12) for i in range(1, 12)],
             }
         )
+        edges = [v for v in edges if math.isfinite(v)]
         if len(edges) == 1:
             edges.append(edges[0])
         predicates = [
             f"({finite}) AND {delta} >= {lo!r} AND {delta} {'<=' if i == len(edges) - 2 else '<'} {hi!r}"
             for i, (lo, hi) in enumerate(itertools.pairwise(edges))
         ]
+        matching = same.agree([a, b])
+        match_predicates = [f"({where}) AND ({matching})" for where in predicates]
+        different_predicates = [f"({where}) AND NOT ({matching})" for where in predicates]
         counts = sql.execute(
-            con, f"SELECT {', '.join(f'count(*) FILTER ({v})' for v in predicates)} {source}"
+            con,
+            f"SELECT {', '.join(f'count(*) FILTER ({v})' for v in predicates + match_predicates)} {source}",
         ).fetchone()
         bins = [
             HistogramBin(
-                lower=lo, upper=hi, upper_inclusive=i == len(edges) - 2, rows=count, where=where
+                lower=lo,
+                upper=hi,
+                upper_inclusive=i == len(edges) - 2,
+                rows=counts[i],
+                where=where,
+                matched=Rows(rows=counts[i + len(predicates)], where=match_predicates[i]),
+                different=Rows(
+                    rows=counts[i] - counts[i + len(predicates)], where=different_predicates[i]
+                ),
             )
-            for i, (lo, hi, count, where) in enumerate(zip(edges, edges[1:], counts, predicates))
+            for i, (lo, hi, where) in enumerate(zip(edges, edges[1:], predicates))
         ]
+    matching = same.agree([a, b])
     return NumericSummary(
+        matched=Rows(rows=sum(b.matched.rows for b in bins), where=f"({finite}) AND ({matching})"),
+        different=Rows(
+            rows=sum(b.different.rows for b in bins), where=f"({finite}) AND NOT ({matching})"
+        ),
         difference=f"{right} − {left}",
         unit="days" if days else "value",
         finite_pairs=n,

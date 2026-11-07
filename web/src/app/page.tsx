@@ -64,6 +64,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Dataset, type Settings } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
+import type { ComparisonActions } from "@/lib/use-comparison";
 import { useTaskTypes } from "@/lib/catalog";
 import { datasetTree } from "@/lib/dataset-tree";
 import { loadDraft } from "@/lib/draft";
@@ -101,6 +102,8 @@ function Workspace() {
   const [exporting, setExporting] = useState<Dataset>();
   const [palette, setPalette] = useState(false);
   const taskActionsRef = useRef<TaskActions | null>(null);
+  const [comparisonReady, setComparisonReady] = useState(false);
+  const comparisonActionsRef = useRef<ComparisonActions | null>({ setReady: setComparisonReady });
   const taskTypes = useTaskTypes();
   const me = useMe();
   // Verifiers read; adding, running and exporting need a member.
@@ -145,7 +148,9 @@ function Workspace() {
         setPalette((open) => !open);
       } else if (mod && e.key === "Enter") {
         e.preventDefault();
-        taskActionsRef.current?.run();
+        if (tab === "compare") {
+          if (!isTyping(e.target)) comparisonActionsRef.current?.different?.();
+        } else taskActionsRef.current?.run();
       } else if (!mod && !e.altKey && !isTyping(e.target)) {
         if ((e.key === "j" || e.key === "k") && datasets?.length) {
           // In the list's order, made datasets under the one they were made from.
@@ -164,7 +169,7 @@ function Workspace() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [datasets, selectedId, select, selected, exportable, openSettings]);
+  }, [datasets, selectedId, select, selected, exportable, openSettings, tab]);
 
   async function remove(dataset: Dataset) {
     const { error } = await api.DELETE("/v1/datasets/{dataset_id}", {
@@ -218,6 +223,7 @@ function Workspace() {
             onChanged={load}
             onOpenDataset={select}
             actionsRef={taskActionsRef}
+            comparisonActionsRef={comparisonActionsRef}
           />
         ) : (
           <>
@@ -335,43 +341,78 @@ function Workspace() {
                   </CommandItem>
                 </>
               )}
-              {selected && canEdit && (
+              {selected && tab === "compare" && (
                 <>
-                  <CommandItem onSelect={() => command(() => taskActionsRef.current?.run())}>
-                    <PlayIcon />
-                    Run
-                    <CommandShortcut>⌘↵</CommandShortcut>
+                  <CommandItem
+                    disabled={!comparisonReady}
+                    onSelect={() => command(() => comparisonActionsRef.current?.different?.())}
+                  >
+                    <GitCompareArrowsIcon />
+                    Inspect different rows<CommandShortcut>⌘↵</CommandShortcut>
                   </CommandItem>
-                  <CommandItem onSelect={() => command(() => taskActionsRef.current?.clearTasks())}>
-                    <ListRestartIcon />
-                    Clear tasks
-                  </CommandItem>
-                  <CommandItem onSelect={() => command(() => taskActionsRef.current?.addTask())}>
-                    <ListChecksIcon />
-                    Add task
-                  </CommandItem>
-                  {taskTypes?.presets.map((preset) => (
-                    <CommandItem
-                      key={preset.id}
-                      value={`add ${preset.label} task`}
-                      onSelect={() => command(() => taskActionsRef.current?.addTask(preset))}
-                    >
-                      <PenLineIcon />
-                      {preset.label}…
-                    </CommandItem>
-                  ))}
                   <CommandItem
                     onSelect={() =>
-                      command(() =>
-                        // Once the palette has closed and handed focus back.
-                        setTimeout(() => document.getElementById("rows-search")?.focus(), 50),
-                      )
+                      command(() => setTimeout(() => comparisonActionsRef.current?.rules?.(), 50))
                     }
                   >
-                    <SearchIcon />
-                    Search rows
-                    <CommandShortcut>/</CommandShortcut>
+                    <SettingsIcon />
+                    Comparison match rules
                   </CommandItem>
+                  <CommandItem
+                    onSelect={() =>
+                      command(() => setTimeout(() => comparisonActionsRef.current?.columns?.(), 50))
+                    }
+                  >
+                    <TableIcon />
+                    Choose compared columns
+                  </CommandItem>
+                </>
+              )}
+              {selected && canEdit && (
+                <>
+                  {tab !== "compare" && (
+                    <>
+                      <CommandItem onSelect={() => command(() => taskActionsRef.current?.run())}>
+                        <PlayIcon />
+                        Run
+                        <CommandShortcut>⌘↵</CommandShortcut>
+                      </CommandItem>
+                      <CommandItem
+                        onSelect={() => command(() => taskActionsRef.current?.clearTasks())}
+                      >
+                        <ListRestartIcon />
+                        Clear tasks
+                      </CommandItem>
+                      <CommandItem
+                        onSelect={() => command(() => taskActionsRef.current?.addTask())}
+                      >
+                        <ListChecksIcon />
+                        Add task
+                      </CommandItem>
+                      {taskTypes?.presets.map((preset) => (
+                        <CommandItem
+                          key={preset.id}
+                          value={`add ${preset.label} task`}
+                          onSelect={() => command(() => taskActionsRef.current?.addTask(preset))}
+                        >
+                          <PenLineIcon />
+                          {preset.label}…
+                        </CommandItem>
+                      ))}
+                      <CommandItem
+                        onSelect={() =>
+                          command(() =>
+                            // Once the palette has closed and handed focus back.
+                            setTimeout(() => document.getElementById("rows-search")?.focus(), 50),
+                          )
+                        }
+                      >
+                        <SearchIcon />
+                        Search rows
+                        <CommandShortcut>/</CommandShortcut>
+                      </CommandItem>
+                    </>
+                  )}
                   {exportable && (
                     <CommandItem onSelect={() => command(() => setExporting(selected))}>
                       <DownloadIcon />

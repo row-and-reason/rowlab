@@ -2,7 +2,7 @@
 
 import { Columns3Icon, GitCompareArrowsIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ComparisonResults } from "@/components/comparison-results";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -41,20 +41,34 @@ import { Spinner } from "@/components/ui/spinner";
 import { api, type Dataset } from "@/lib/api/client";
 import { columnLabel, formatNumber } from "@/lib/format";
 import { ALL_ROWS, type WhereFilter } from "@/lib/sql";
-import { useComparison } from "@/lib/use-comparison";
+import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
 
 const NO_REFERENCE = "none";
-const NUMERIC = /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|FLOAT|DOUBLE|DECIMAL.*|DATE)$/;
+const NUMERIC = /^(U?TINYINT|U?SMALLINT|U?INTEGER|U?BIGINT|U?HUGEINT|FLOAT|DOUBLE|DECIMAL.*|DATE)$/;
 
 /** Compare the whole dataset. URL-backed setup survives reloads and trips to the underlying rows. */
 export function CompareView({
   dataset,
   onFilter,
+  actionsRef,
 }: {
   dataset: Dataset;
+  actionsRef: React.RefObject<ComparisonActions | null>;
   onFilter: (filters: WhereFilter[], columns: string[]) => void;
 }) {
   const router = useRouter();
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  useEffect(() => {
+    actionsRef.current = {
+      ...actionsRef.current,
+      rules: () => setRulesOpen(true),
+      columns: () => setColumnsOpen(true),
+    };
+    return () => {
+      actionsRef.current = { ...actionsRef.current, rules: undefined, columns: undefined };
+    };
+  }, [actionsRef]);
   const params = useSearchParams();
   const anchor = useComboboxAnchor();
   const choices = dataset.columns.filter((c) => c.name !== "__row_id");
@@ -171,7 +185,7 @@ export function CompareView({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-card px-3 py-2">
-        <Popover>
+        <Popover open={columnsOpen} onOpenChange={setColumnsOpen}>
           <PopoverTrigger render={<Button variant="outline" size="sm" className="text-xs" />}>
             <Columns3Icon data-icon="inline-start" /> Columns
             {columns.length ? ` · ${columns.length}` : "…"}
@@ -242,7 +256,7 @@ export function CompareView({
               ))}
           </SelectContent>
         </Select>
-        <Popover>
+        <Popover open={rulesOpen} onOpenChange={setRulesOpen}>
           <PopoverTrigger render={<Button variant="outline" size="sm" className="text-xs" />}>
             <SlidersHorizontalIcon />{" "}
             {numeric && tolerance !== ""
@@ -349,7 +363,26 @@ export function CompareView({
                 the same thing.
               </p>
             )}
-            <ComparisonResults dataset={dataset} comparison={result.data} onFilter={onFilter} />
+            <ComparisonResults
+              actionsRef={actionsRef}
+              dataset={dataset}
+              comparison={result.data}
+              onFilter={(filters, selectedColumns) => {
+                const rules = [
+                  request.ignore_case && "ignore case",
+                  request.trim_whitespace && "trim whitespace",
+                ]
+                  .filter(Boolean)
+                  .join(" + ");
+                onFilter(
+                  filters.map((f) => ({
+                    ...f,
+                    label: rules ? `${f.label ?? "Comparison"} · ${rules}` : f.label,
+                  })),
+                  selectedColumns,
+                );
+              }}
+            />
           </>
         )}
       </div>

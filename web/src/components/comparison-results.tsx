@@ -1,9 +1,10 @@
 "use client";
 
-import { CheckIcon } from "lucide-react";
-import { useMemo } from "react";
+import { InfoIcon } from "lucide-react";
+import { useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { NumericComparison } from "@/components/numeric-comparison";
+import { TooltipButton } from "@/components/tooltip-button";
 import { PaneHeader } from "@/components/pane";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { type Comparison, type Dataset } from "@/lib/api/client";
 import { columnLabel, formatNumber } from "@/lib/format";
 import { ALL_ROWS, ident, type WhereFilter } from "@/lib/sql";
-import { useComparison } from "@/lib/use-comparison";
+import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
 
 type InspectRows = (filters: WhereFilter[], columns: string[]) => void;
 type Pair = Comparison["pairs"][number];
@@ -30,7 +31,9 @@ export function ComparisonResults({
   dataset,
   comparison,
   onFilter,
+  actionsRef,
 }: {
+  actionsRef: React.RefObject<ComparisonActions | null>;
   dataset: Dataset;
   comparison: Comparison;
   onFilter: InspectRows;
@@ -60,6 +63,38 @@ export function ComparisonResults({
     query.set(key, value);
     window.history.replaceState(null, "", `/?${query}`);
   }
+  const pairKey = JSON.stringify(pair.columns);
+  useEffect(() => {
+    if (params.get("pair") !== pairKey) {
+      const query = new URLSearchParams(window.location.search);
+      query.set("pair", pairKey);
+      window.history.replaceState(null, "", `/?${query}`);
+    }
+  }, [pairKey, params]);
+  useEffect(() => {
+    actionsRef.current?.setReady?.(true);
+    return () => actionsRef.current?.setReady?.(false);
+  }, [actionsRef]);
+  useEffect(() => {
+    actionsRef.current = {
+      ...actionsRef.current,
+      different: () => {
+        if (pair.compared > pair.agree)
+          onFilter(
+            [
+              {
+                where: pair.disagree,
+                label: `${pair.columns.join(" ≠ ")} · ${comparison.tolerance !== null ? `tolerance ${comparison.tolerance}` : "active matching rules"}`,
+              },
+            ],
+            pair.columns,
+          );
+      },
+    };
+    return () => {
+      actionsRef.current = { ...actionsRef.current, different: undefined };
+    };
+  }, [actionsRef, pair, comparison.tolerance, onFilter]);
   const missing = Object.values(pair.coverage).reduce((n, v) => n + v.rows, 0);
   return (
     <div className="flex min-h-0 flex-1 text-sm">
@@ -79,7 +114,7 @@ export function ComparisonResults({
               <Button
                 key={JSON.stringify(p.columns)}
                 variant="ghost"
-                className={`mb-1 h-auto w-full flex-col items-stretch gap-2 px-2 py-3 text-xs ${p === pair ? "bg-accent text-accent-foreground" : ""}`}
+                className={`mb-1 h-auto w-full flex-col items-stretch gap-1.5 px-2 py-2 text-xs ${p === pair ? "bg-accent text-accent-foreground" : ""}`}
                 aria-pressed={p === pair}
                 onClick={() => change("pair", JSON.stringify(p.columns))}
                 onKeyDown={(e) => {
@@ -126,7 +161,8 @@ export function ComparisonResults({
                 />
                 <span className="text-left font-normal text-muted-foreground">
                   {p.numeric ? `Mean abs. difference · ${percent(p.rate)} match · ` : ""}
-                  {formatNumber(p.compared)} / {formatNumber(comparison.rows)} paired
+                  {formatNumber(p.compared - p.agree)} different ·{" "}
+                  {formatNumber(comparison.rows - p.compared)} missing
                 </span>
               </Button>
             ))}
@@ -145,24 +181,53 @@ export function ComparisonResults({
           )}
         </aside>
       )}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <Tabs
+        className="flex min-h-0 min-w-0 flex-1 flex-col gap-0"
+        value={
+          ["differences", "labels", "distribution", "coverage"].includes(detail)
+            ? detail
+            : "differences"
+        }
+        onValueChange={(v) => change("detail", v)}
+      >
         <PaneHeader>
-          <span className="truncate font-medium">{pair.columns.map(columnLabel).join(" → ")}</span>
-          <span className="ml-auto text-xs text-muted-foreground">
-            {ref ? "Reference comparison" : "Pair comparison"}
+          <span className="min-w-0 truncate font-medium" title={pair.columns.join(" → ")}>
+            {pair.columns.map(columnLabel).join(" → ")}
           </span>
+          <TabsList className="ml-auto shrink-0">
+            <TabsTrigger value="differences">Differences</TabsTrigger>
+            {ref && !pair.numeric && <TabsTrigger value="labels">Label metrics</TabsTrigger>}
+            <TabsTrigger value="distribution">Values</TabsTrigger>
+            <TabsTrigger value="coverage">Coverage{missing ? ` · ${missing}` : ""}</TabsTrigger>
+          </TabsList>
+
+          <TooltipButton
+            label="Rates exclude missing answers. A reference is not necessarily ground truth. Select counts to inspect their rows."
+            variant="ghost"
+            size="icon-xs"
+          >
+            <InfoIcon />
+          </TooltipButton>
         </PaneHeader>
         <div className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto max-w-5xl space-y-5 p-5">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b pb-4">
+          <div className="max-w-5xl space-y-3 p-3">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pb-1">
               <div>
-                <span className="font-medium tabular-nums">{percent(pair.rate)}</span>{" "}
+                <span className="font-medium tabular-nums">
+                  {pair.numeric
+                    ? (pair.numeric.mean_absolute_difference?.toLocaleString("en-US", {
+                        maximumSignificantDigits: 4,
+                      }) ?? "—")
+                    : percent(pair.rate)}
+                </span>{" "}
                 <span className="text-muted-foreground">
-                  {comparison.tolerance !== null
-                    ? "within tolerance"
-                    : ref
-                      ? "match reference"
-                      : "agree"}
+                  {pair.numeric
+                    ? "mean absolute difference"
+                    : comparison.tolerance !== null
+                      ? "within tolerance"
+                      : ref
+                        ? "match reference"
+                        : "agree"}
                 </span>
               </div>
               <Count
@@ -178,102 +243,78 @@ export function ComparisonResults({
                 {formatNumber(pair.compared)} / {formatNumber(comparison.rows)} paired
               </span>
             </div>
-            <Tabs
-              value={
-                ["differences", "labels", "distribution", "coverage"].includes(detail)
-                  ? detail
-                  : "differences"
-              }
-              onValueChange={(v) => change("detail", v)}
-            >
-              <TabsList>
-                <TabsTrigger value="differences">Differences</TabsTrigger>
-                {ref && !pair.numeric && <TabsTrigger value="labels">Label metrics</TabsTrigger>}
-                <TabsTrigger value="distribution">Value distribution</TabsTrigger>
-                <TabsTrigger value="coverage">
-                  Coverage{missing ? ` · ${missing} missing` : ""}
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="differences" className="pt-4">
-                {pair.numeric ? (
-                  <NumericComparison
-                    pair={pair}
-                    tolerance={comparison.tolerance}
-                    onFilter={onFilter}
-                  />
-                ) : (
-                  <PairDetail
-                    dataset={dataset}
-                    comparison={comparison}
-                    pair={pair}
-                    reference={ref ? reference : null}
-                    onFilter={onFilter}
-                  />
-                )}
-              </TabsContent>
-              <TabsContent value="labels" className="pt-4">
-                {ref && <LabelMetrics reference={ref} />}
-              </TabsContent>
-              <TabsContent value="distribution" className="pt-4">
+            <TabsContent value="differences" className="pt-2">
+              {pair.numeric ? (
+                <NumericComparison
+                  pair={pair}
+                  tolerance={comparison.tolerance}
+                  onFilter={onFilter}
+                />
+              ) : (
                 <PairDetail
                   dataset={dataset}
                   comparison={comparison}
                   pair={pair}
                   reference={ref ? reference : null}
                   onFilter={onFilter}
-                  distribution
                 />
-              </TabsContent>
-              <TabsContent value="coverage" className="space-y-4 pt-4">
-                <p className="text-xs text-muted-foreground">
-                  Rates use rows with both answers. Missing means NULL; an empty string is an
-                  answer.
-                </p>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Answers missing</TableHead>
-                      <TableHead className="text-right">Rows / inspect</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {Object.entries(pair.coverage).map(([key, value]) => (
-                      <TableRow key={key}>
-                        <TableCell>
-                          {key === "missing_both"
-                            ? "Both columns"
-                            : columnLabel(pair.columns[key === "missing_left" ? 0 : 1])}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Count
-                            rows={value.rows}
-                            where={value.where}
-                            label={key.replaceAll("_", " ")}
-                            columns={pair.columns}
-                            onFilter={onFilter}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                {pair.numeric && (
-                  <p className="text-xs text-muted-foreground">
-                    Numeric diagnostics use {pair.numeric.finite_pairs} finite pairs;{" "}
-                    {pair.numeric.non_finite_pairs} non-finite pairs excluded.
-                  </p>
-                )}
-              </TabsContent>
-            </Tabs>
-            {ref && (
+              )}
+            </TabsContent>
+            <TabsContent value="labels" className="pt-2">
+              {ref && <LabelMetrics reference={ref} />}
+            </TabsContent>
+            <TabsContent value="distribution" className="pt-2">
+              <PairDetail
+                dataset={dataset}
+                comparison={comparison}
+                pair={pair}
+                reference={ref ? reference : null}
+                onFilter={onFilter}
+                distribution
+              />
+            </TabsContent>
+            <TabsContent value="coverage" className="space-y-4 pt-4">
               <p className="text-xs text-muted-foreground">
-                Measured against {columnLabel(reference!)}. A reference is not necessarily ground
-                truth.
+                Rates use rows with both answers. Missing means NULL; an empty string is an answer.
               </p>
-            )}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Answers missing</TableHead>
+                    <TableHead className="text-right">Rows / inspect</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Object.entries(pair.coverage).map(([key, value]) => (
+                    <TableRow key={key}>
+                      <TableCell>
+                        {key === "missing_both"
+                          ? "Both columns"
+                          : columnLabel(pair.columns[key === "missing_left" ? 0 : 1])}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Count
+                          rows={value.rows}
+                          where={value.where}
+                          label={key.replaceAll("_", " ")}
+                          columns={pair.columns}
+                          onFilter={onFilter}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {pair.numeric && (
+                <p className="text-xs text-muted-foreground">
+                  Numeric diagnostics use {pair.numeric.finite_pairs} finite pairs;{" "}
+                  {pair.numeric.non_finite_pairs} non-finite pairs excluded.
+                </p>
+              )}
+            </TabsContent>
           </div>
         </div>
-      </div>
+      </Tabs>
     </div>
   );
 }
@@ -355,10 +396,10 @@ function LabelMetrics({ reference }: { reference: NonNullable<Comparison["refere
           Balanced accuracy <strong>{percent(reference.balanced_accuracy)}</strong>
         </span>
       </div>
-      <Table>
+      <Table className="max-w-2xl table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead>Reference label</TableHead>
+            <TableHead className="w-44">Reference label</TableHead>
             <TableHead className="text-right">Precision</TableHead>
             <TableHead className="text-right">Recall</TableHead>
             <TableHead className="text-right">Support</TableHead>
@@ -406,16 +447,32 @@ function Crosstab({
   const cellMap = new Map(cells.map((c) => [JSON.stringify(c.values), c]));
   const represented = cells.reduce((sum, c) => sum + c.rows, 0);
   const complete = !comparison.crosstab_completeness?.truncated;
-  const max = Math.max(1, ...cells.map((c) => c.rows));
+  const maxError = Math.max(
+    1,
+    ...cells.filter((c) => c.values[0] !== c.values[1]).map((c) => c.rows),
+  );
   return (
     <section className="space-y-2">
-      <h3 className="font-medium">{reference ? "Confusion table" : "Value combinations"}</h3>
-      <p className="text-xs text-muted-foreground">
-        Rows: {columnLabel(a)}
-        {reference ? " (prediction)" : ""} · Columns: {columnLabel(b)}
-        {reference ? " (reference)" : ""}. Stronger tint = more rows. Accent = different values;
-        neutral = matches. Click a count to inspect.
-      </p>
+      <div className="flex items-center gap-2">
+        <h3 className="font-medium">{reference ? "Confusion table" : "Value combinations"}</h3>
+        <span className="text-xs text-muted-foreground">
+          {reference ? "Prediction ↓ · Reference →" : `${columnLabel(a)} ↓ · ${columnLabel(b)} →`}
+        </span>
+        <TooltipButton
+          label="Accent highlights differences; stronger tint means more rows. Matches stay quiet. Select a count to inspect its rows."
+          variant="ghost"
+          size="icon-xs"
+        >
+          <InfoIcon />
+        </TooltipButton>
+      </div>
+      {(comparison.ignore_case || comparison.trim_whitespace) && (
+        <p className="text-xs text-muted-foreground">
+          Normalized labels · {comparison.ignore_case ? "ignore case" : ""}
+          {comparison.ignore_case && comparison.trim_whitespace ? " + " : ""}
+          {comparison.trim_whitespace ? "trim whitespace" : ""}. Source values stay unchanged.
+        </p>
+      )}
       {tolerance !== null && (
         <p className="text-xs text-muted-foreground">
           Raw value combinations; tint shows frequency, not tolerance agreement. The agreement rate
@@ -425,14 +482,14 @@ function Crosstab({
       {!cells.length ? (
         <p className="py-3 text-muted-foreground">No rows have answers in both columns.</p>
       ) : (
-        <Table>
+        <Table className="table-fixed" style={{ width: 144 + 88 * (across.length + 1) }}>
           <TableHeader>
             <TableRow>
-              <TableHead>
-                {columnLabel(a)} ↓ / {columnLabel(b)} →
+              <TableHead className="w-36 truncate" title={columnLabel(a)}>
+                {reference ? "Prediction" : columnLabel(a)}
               </TableHead>
               {across.map((v) => (
-                <TableHead key={v} className="max-w-32 truncate text-right" title={v}>
+                <TableHead key={v} className="w-22 truncate text-right" title={v}>
                   {v || '""'}
                 </TableHead>
               ))}
@@ -455,7 +512,7 @@ function Crosstab({
                           size="sm"
                           className="w-full justify-end gap-1 text-xs tabular-nums"
                           style={{
-                            backgroundColor: `color-mix(in oklch, ${row === col ? "var(--muted-foreground)" : "var(--primary)"} ${8 + (25 * c.rows) / max}%, transparent)`,
+                            backgroundColor: `color-mix(in oklch, ${row === col ? "var(--muted-foreground)" : "var(--primary)"} ${row === col ? 5 : 22 + (23 * c.rows) / maxError}%, transparent)`,
                           }}
                           aria-label={`${columnLabel(a)}: ${row}; ${columnLabel(b)}: ${col}; ${formatNumber(c.rows)} rows`}
                           onClick={() =>
@@ -463,20 +520,22 @@ function Crosstab({
                               [
                                 {
                                   where: c.where,
-                                  label: `${columnLabel(a)} = ${row}, ${columnLabel(b)} = ${col}`,
+                                  label: `${columnLabel(a)} matches ${row}, ${columnLabel(b)} matches ${col}`,
                                 },
                               ],
                               pair.columns,
                             )
                           }
                         >
-                          {tolerance === null && row === col && (
-                            <CheckIcon aria-label="Same value" className="size-3" />
-                          )}
                           {formatNumber(c.rows)}
                         </Button>
                       ) : (
-                        <span className="px-2 text-muted-foreground">{complete ? "0" : "—"}</span>
+                        <span
+                          className="px-2 text-muted-foreground/40"
+                          aria-label={complete ? "0 rows" : "Not shown"}
+                        >
+                          {complete ? "·" : "—"}
+                        </span>
                       )}
                     </TableCell>
                   );
@@ -507,7 +566,6 @@ function Crosstab({
         {!complete && " Some combinations are omitted; — means not shown, not necessarily zero."}
         {comparison.crosstab_completeness?.truncated &&
           ` ${comparison.crosstab_completeness.shown_groups} of ${comparison.crosstab_completeness.total_groups} combinations shown.`}
-        {tolerance === null && " ✓ marks matching values under the active rules."}
       </p>
     </section>
   );
@@ -619,6 +677,7 @@ function Count({
       size="sm"
       className="h-auto px-0 text-xs text-primary hover:text-primary dark:hover:text-primary tabular-nums"
       aria-label={`Inspect ${formatNumber(rows)} rows: ${label}`}
+      title={children === "different" ? "Inspect different rows (⌘↵)" : undefined}
       onClick={() => onFilter([{ where, label }], columns)}
     >
       {formatNumber(rows)}

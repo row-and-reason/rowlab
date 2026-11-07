@@ -33,6 +33,7 @@ import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, type Dataset, type Estimate, type Preset, type Task } from "@/lib/api/client";
+import type { ComparisonActions } from "@/lib/use-comparison";
 import { useModels, useTaskTypes } from "@/lib/catalog";
 import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format";
 import { useDraft } from "@/lib/draft";
@@ -68,6 +69,7 @@ export function DatasetPanels({
   onChanged,
   onOpenDataset,
   actionsRef,
+  comparisonActionsRef,
 }: {
   dataset: Dataset;
   datasets: Dataset[];
@@ -78,6 +80,7 @@ export function DatasetPanels({
   onChanged: () => void;
   onOpenDataset: (datasetId: string) => void;
   actionsRef: React.RefObject<TaskActions | null>;
+  comparisonActionsRef: React.RefObject<ComparisonActions | null>;
 }) {
   const { draft, update, isNew } = useDraft(dataset.id, () => ({
     // A first run on a few rows, so it's cheap.
@@ -287,7 +290,7 @@ export function DatasetPanels({
           </TabsContent>
           {/* Kept mounted, so the columns picked stay picked while looking at their rows. */}
           <TabsContent value="compare" keepMounted className="min-h-0 flex-1 overflow-hidden">
-            <CompareView dataset={dataset} onFilter={showRows} />
+            <CompareView dataset={dataset} onFilter={showRows} actionsRef={comparisonActionsRef} />
           </TabsContent>
           <TabsContent value="lineage" className="min-h-0 flex-1 overflow-auto">
             <Lineage dataset={dataset} datasets={datasets} onOpenDataset={onOpenDataset} />

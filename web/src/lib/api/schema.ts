@@ -1097,6 +1097,8 @@ export interface components {
             lower: number;
             /** Upper */
             upper: number;
+            matched: components["schemas"]["Rows"];
+            different: components["schemas"]["Rows"];
             /** Upper Inclusive */
             upper_inclusive: boolean;
         };
@@ -1179,9 +1181,11 @@ export interface components {
         };
         /** NumericSummary */
         NumericSummary: {
+            matched: components["schemas"]["Rows"];
+            different: components["schemas"]["Rows"];
             /**
              * Difference
-             * @description Signed difference expression; column minus reference when a reference exists, otherwise second minus first.
+             * @description Human-readable signed difference; column minus reference when a reference exists, otherwise second minus first.
              */
             difference: string;
             /** Unit */

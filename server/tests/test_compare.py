@@ -260,3 +260,56 @@ def test_numeric_empty_nonfinite_large_integer_and_dates(client, dataset):
         json={"columns": ["a", "b"], "tolerance": 1, "sql": "SELECT DATE '2026-01-01' a, 1 b"},
     )
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize("code", [9, 10, 11, 12, 13, 32, 160])
+def test_ascii_trim_contract(client, dataset, code):
+    result = compare(
+        client,
+        dataset,
+        columns=["a", "b"],
+        trim_whitespace=True,
+        sql=f"SELECT chr({code}) || 'bug' || chr({code}) a, 'bug' b",
+    )
+    assert result["pairs"][0]["agree"] == (0 if code == 160 else 1)
+
+
+def test_histogram_extremes_and_tolerance_classification(client, dataset):
+    for query, tolerance in [
+        (
+            "SELECT * FROM (VALUES (0::DOUBLE,-1e308::DOUBLE),(0::DOUBLE,1e308::DOUBLE)) t(a,b)",
+            None,
+        ),
+        (
+            "SELECT * FROM (VALUES (0.3::DOUBLE,0.4::DOUBLE),(0.3::DOUBLE,0.40001::DOUBLE),(0.4::DOUBLE,0.3::DOUBLE)) t(a,b)",
+            0.1,
+        ),
+    ]:
+        result = compare(client, dataset, columns=["a", "b"], sql=query, tolerance=tolerance)
+        pair = result["pairs"][0]
+        numeric = pair["numeric"]
+        bins = numeric["histogram"]
+        assert sum(b["rows"] for b in bins) == numeric["finite_pairs"]
+        assert sum(b["matched"]["rows"] for b in bins) == pair["agree"]
+        for b in bins:
+            for subset in [b, b["matched"], b["different"]]:
+                q = f"SELECT count(*) n FROM ({query}) WHERE {subset['where']}"
+                count = client.post(f"/v1/datasets/{dataset['id']}/query", json={"sql": q}).json()[
+                    "rows"
+                ][0]["n"]
+                assert count == subset["rows"]
+        if tolerance is None:
+            assert numeric["bias"] == 0
+            assert numeric["mean_absolute_difference"] == 1e308
+
+
+def test_unsigned_differences_keep_their_sign_and_precision(client, dataset):
+    result = compare(
+        client,
+        dataset,
+        columns=["a", "b"],
+        tolerance=1,
+        sql="SELECT 9007199254740993::UBIGINT a, 9007199254740992::UBIGINT b",
+    )
+    assert result["pairs"][0]["numeric"]["bias"] == -1
+    assert result["pairs"][0]["agree"] == 1

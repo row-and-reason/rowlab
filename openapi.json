@@ -2767,6 +2767,12 @@
             "type": "number",
             "title": "Upper"
           },
+          "matched": {
+            "$ref": "#/components/schemas/Rows"
+          },
+          "different": {
+            "$ref": "#/components/schemas/Rows"
+          },
           "upper_inclusive": {
             "type": "boolean",
             "title": "Upper Inclusive"
@@ -2778,6 +2784,8 @@
           "where",
           "lower",
           "upper",
+          "matched",
+          "different",
           "upper_inclusive"
         ],
         "title": "HistogramBin"
@@ -2954,10 +2962,16 @@
       },
       "NumericSummary": {
         "properties": {
+          "matched": {
+            "$ref": "#/components/schemas/Rows"
+          },
+          "different": {
+            "$ref": "#/components/schemas/Rows"
+          },
           "difference": {
             "type": "string",
             "title": "Difference",
-            "description": "Signed difference expression; column minus reference when a reference exists, otherwise second minus first."
+            "description": "Human-readable signed difference; column minus reference when a reference exists, otherwise second minus first."
           },
           "unit": {
             "type": "string",
@@ -3025,6 +3039,8 @@
         },
         "type": "object",
         "required": [
+          "matched",
+          "different",
           "difference",
           "unit",
           "finite_pairs",
