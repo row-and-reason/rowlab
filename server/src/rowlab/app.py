@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.routing import Mount
 
 from rowlab import __version__
 from rowlab.api import auth, connections, datasets, members, runs, settings, utils
@@ -15,6 +16,7 @@ from rowlab.core import runs as runs_core
 from rowlab.core.config import config
 from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
 from rowlab.core.providers.openrouter import OpenRouterError
+from rowlab.mcp.server import create_server
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -29,7 +31,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Runs execute in this process, unless runners run on their own (`rowlab serve --no-runner`).
     if not os.environ.get("ROWLAB_NO_RUNNER"):
         runs_core.start_runner()
-    yield
+    # The MCP app, mounted below, has sessions to start and stop.
+    async with app.state.mcp.lifespan(app.state.mcp):
+        yield
 
 
 def create_app() -> FastAPI:
@@ -94,9 +98,15 @@ def create_app() -> FastAPI:
     def openrouter_error(request: Request, exc: OpenRouterError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=502)
 
-    # The built web UI, bundled into the package by `make build`. Mounted last so API routes win.
+    # MCP at `/mcp`, with its sign-in metadata at `/.well-known/…`, which must be at the root; the
+    # built web UI (bundled into the package by `make build`) behind it. Mounted last so API routes
+    # win.
+    mcp = create_server()
     if STATIC_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="web")
+        # Where FastMCP keeps the routes `custom_route` adds, with the lowest precedence.
+        mcp._additional_http_routes.append(Mount("/", StaticFiles(directory=STATIC_DIR, html=True)))
+    app.state.mcp = mcp.http_app(path="/mcp")
+    app.mount("/", app.state.mcp)
 
     return app
 

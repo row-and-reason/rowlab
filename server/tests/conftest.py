@@ -89,6 +89,7 @@ def hosted(monkeypatch):
     monkeypatch.setenv("ROWLAB_URL", "http://testserver")
     monkeypatch.setenv("WORKOS_CLIENT_ID", "client_test")
     monkeypatch.setenv("WORKOS_API_KEY", "sk_test")
+    monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", "https://rowlab-test.authkit.app")
     monkeypatch.setenv("ROWLAB_SECRET_KEY", "test secret")
     config.cache_clear()
 

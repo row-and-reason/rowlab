@@ -402,12 +402,25 @@ which only says who someone is and which organisation they are in. Locally, the 
 - Settings → Plans (hosted): Free, Pro and Team as a teaser, "coming soon"; everyone is on Free with
   their own key until billing is built. Plan limits aren't enforced yet.
 
-### 12. MCP and the agent skill
+### 12. MCP and the agent skills ✅
 
-- MCP server: `/mcp` when hosted, `rowlab mcp` (stdio) locally. Tools mirror the API: list and add
-  datasets, query (SQL), compare, estimate, run, run status, export.
-- An agent skill in the agent-skills repo teaching the workflow: look at the data, try a run on a few
-  rows, compare models, run on all, export.
+- MCP server (FastMCP) at `/mcp` in both modes, and `rowlab mcp` over stdio. Fourteen tools, each a
+  thin call into `core` like the API's endpoints: `datasets_list`, `dataset_get` (with a profile),
+  `dataset_add`, `dataset_delete`, `sql_query`, `columns_compare`, `run_preview` (estimate plus the
+  prompt rendered for a few rows), `run_start`, `run_get`, `run_stop`, `run_resume` (the three with
+  `wait_seconds`), `dataset_export`, `task_types_get`, `models_list`. Each description says what the
+  tool does, why it exists and when to use it; session instructions carry the workflow.
+- Hosted, MCP clients sign in with WorkOS (AuthKit as the authorization server, with Dynamic Client
+  Registration; `/.well-known/oauth-protected-resource/mcp` says so) or send an API key. Both come
+  through one token verifier; WorkOS tokens are JWTs checked against AuthKit's keys, issuer and
+  `<ROWLAB_URL>/mcp` as audience (a resource indicator in the dashboard), and their user must have
+  signed in in a browser before. Settings aren't in MCP, nor uploads of file content.
+- Three skills in agent-skills: `rowlab-labeling` (the core workflow), `rowlab-model-selection`
+  (compare models, measure against labels you trust, choose by accuracy against cost) and
+  `rowlab-labeling-at-scale` (cascades, asking once, agreeing a budget). Method, not tool docs.
+- Not yet tried: the WorkOS sign-in from a real MCP client (needs Dynamic Client Registration and the
+  resource indicator on in the WorkOS dashboard, and `WORKOS_AUTHKIT_DOMAIN`). The rest is tested
+  in-process and over stdio.
 
 ### 13. Website: landing, pricing, docs
 

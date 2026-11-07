@@ -68,7 +68,7 @@ needs are on. Everything else is configuration, from environment variables:
 | `ROWLAB_PRIVATE_URLS` | on when `local`, off when `hosted` | whether web sources and S3 endpoints can be private addresses (localhost, the local network, cloud metadata) |
 | `OPENROUTER_API_KEY` | | or save it in Settings |
 | `ROWLAB_URL` | | `hosted` only: where people reach rowlab, e.g. `https://rowlab.example.com` |
-| `WORKOS_CLIENT_ID`, `WORKOS_API_KEY` | | `hosted` only: the WorkOS project people sign in with |
+| `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_AUTHKIT_DOMAIN` | | `hosted` only: the WorkOS project people sign in with, and its AuthKit domain (`https://….authkit.app`) |
 | `ROWLAB_SECRET_KEY` | | encrypts saved keys (OpenRouter, S3); any long random string. Required when `hosted` |
 
 Limits, the same in both modes. They are modest, so a shared server stays up; raise them for bigger
@@ -101,6 +101,32 @@ rowlab runner              # processes runs; start as many as you like
 ```
 
 `rowlab serve` alone runs both, which is all a local setup needs.
+
+## MCP
+
+Agents work with rowlab over MCP: the same data work as the API (list and add datasets, query with SQL,
+compare columns, preview and start runs, export), with instructions that teach the workflow. The server
+is at `/mcp` on a running rowlab, or `rowlab mcp` over stdio. Locally nothing signs in; hosted, the
+client signs in with WorkOS when it first connects, or sends an API key from Settings → API keys.
+
+```sh
+claude mcp add --transport http rowlab http://localhost:8000/mcp          # Claude Code
+claude mcp add --transport http rowlab https://rowlab.example.com/mcp --header "Authorization: Bearer rl_…"
+codex mcp add rowlab --url http://localhost:8000/mcp                       # Codex
+```
+
+Cursor: `.cursor/mcp.json` with `{"mcpServers": {"rowlab": {"url": "http://localhost:8000/mcp"}}}`
+(add `"headers": {"Authorization": "Bearer rl_…"}` for a hosted rowlab). A client that wants a command
+rather than a URL gets `uvx rowlab mcp`.
+
+Hosted, WorkOS needs `WORKOS_AUTHKIT_DOMAIN` set and, under Connect → Configuration → MCP Auth,
+Dynamic Client Registration on and `<ROWLAB_URL>/mcp` listed as a resource indicator, so clients can
+sign in on their own and get tokens that are for rowlab alone. Someone connecting over MCP must have
+signed in to rowlab in a browser once, which is where they join their organisation.
+
+The skills in [agent-skills](https://github.com/row-and-reason/agent-skills) teach agents how to label
+well with it: `npx skills add row-and-reason/agent-skills --skill rowlab-labeling`, and
+`rowlab-model-selection` and `rowlab-labeling-at-scale`.
 
 ## Non-goals
 

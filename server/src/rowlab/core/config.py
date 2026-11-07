@@ -16,7 +16,8 @@ needs are on. Everything else is configuration:
 - `ROWLAB_PRIVATE_URLS`: whether web sources and S3 endpoints may be private addresses (localhost, the
   local network, cloud metadata). On in `local` mode, off in `hosted` mode by default.
 - `ROWLAB_URL`: where people reach rowlab, e.g. `https://rowlab.example.com`; `hosted` mode only.
-- `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`: the WorkOS project people sign in with; `hosted` mode only.
+- `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_AUTHKIT_DOMAIN` (e.g. `https://x.authkit.app`):
+  the WorkOS project people sign in with; `hosted` mode only.
 - `ROWLAB_SECRET_KEY`: encrypts saved keys (OpenRouter, S3); any long random string. Required in
   `hosted` mode; locally, keys are kept as they are without it.
 
@@ -49,6 +50,7 @@ class Config:
     url: str
     workos_client_id: str
     workos_api_key: str
+    workos_authkit_domain: str
     secret_key: str
     duckdb_memory: str
     duckdb_threads: int
@@ -76,7 +78,13 @@ def config() -> Config:
     data_dir = Path(os.environ.get("ROWLAB_DATA_DIR") or "~/.rowlab").expanduser()
     hosted = {
         name: os.environ.get(name, "")
-        for name in ("ROWLAB_URL", "WORKOS_CLIENT_ID", "WORKOS_API_KEY", "ROWLAB_SECRET_KEY")
+        for name in (
+            "ROWLAB_URL",
+            "WORKOS_CLIENT_ID",
+            "WORKOS_API_KEY",
+            "WORKOS_AUTHKIT_DOMAIN",
+            "ROWLAB_SECRET_KEY",
+        )
     }
     missing = [name for name, value in hosted.items() if not value]
     if not local and missing:
@@ -93,6 +101,7 @@ def config() -> Config:
         url=hosted["ROWLAB_URL"].rstrip("/"),
         workos_client_id=hosted["WORKOS_CLIENT_ID"],
         workos_api_key=hosted["WORKOS_API_KEY"],
+        workos_authkit_domain=hosted["WORKOS_AUTHKIT_DOMAIN"].rstrip("/"),
         secret_key=hosted["ROWLAB_SECRET_KEY"],
         duckdb_memory=_size("ROWLAB_DUCKDB_MEMORY", "1GB")[0],
         duckdb_threads=_number("ROWLAB_DUCKDB_THREADS", 2, int),

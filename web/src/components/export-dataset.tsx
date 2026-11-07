@@ -214,6 +214,7 @@ export function ExportDataset({
               {destination === "download" ? (
                 <Button
                   render={<a href={downloadUrl(dataset.id, format, includeRowId, sql)} download />}
+                  nativeButton={false}
                   onClick={() => onOpenChange(false)}
                 >
                   <DownloadIcon data-icon="inline-start" />

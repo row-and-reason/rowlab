@@ -24,6 +24,8 @@ def main() -> None:
         "runner", help="Process queued runs (with Postgres, several can share them)"
     )
 
+    commands.add_parser("mcp", help="Serve MCP over stdio, for an agent on this machine")
+
     commands.add_parser("openapi", help="Print the OpenAPI spec as JSON")
 
     args = parser.parse_args()
@@ -38,6 +40,14 @@ def main() -> None:
         logging.basicConfig(level=logging.INFO)
         runs.recover_interrupted_runs()
         runs.run_forever()
+    elif args.command == "mcp":
+        from rowlab.core import runs
+        from rowlab.mcp.server import create_server
+
+        # Runs made over stdio execute here too, as in `rowlab serve`.
+        if not os.environ.get("ROWLAB_NO_RUNNER"):
+            runs.start_runner()
+        create_server().run(transport="stdio", show_banner=False)
     elif args.command == "openapi":
         from rowlab.app import app
 

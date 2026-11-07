@@ -5,6 +5,7 @@ a call is signed in one of two ways, each acting as one person in one organisati
 
 - A browser session, made when someone signs in with WorkOS (`sign_in`), kept in a cookie.
 - An API key (`rl_…`) someone made, sent as `Authorization: Bearer rl_…`.
+- A WorkOS access token, which MCP clients get by signing in with WorkOS (`me_for_workos_user`).
 
 Roles, each allowed what the one before it is: a verifier reads (and, later, labels by hand); a member
 also adds, runs and exports; an admin also changes settings, connections and members.
@@ -146,6 +147,25 @@ def sign_in(person: SignedIn) -> str:
             ),
         )
     return token
+
+
+def me_for_workos_user(workos_id: str) -> Me:
+    """Who a WorkOS access token's user is: for MCP clients, which sign in with WorkOS. They must
+    have signed in to rowlab in a browser before, which is where organisations are joined."""
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT u.id AS user_id, u.email, u.name AS user_name, m.org_id, o.name AS org_name,"
+            " m.role FROM users u JOIN members m ON m.user_id = u.id JOIN orgs o ON o.id = m.org_id"
+            " WHERE u.workos_id = ? ORDER BY m.created_at LIMIT 1",
+            (workos_id,),
+        ).fetchone()
+    if row is None:
+        raise Unauthorized("Sign in to rowlab in a browser first, then connect again.")
+    return Me(
+        user=User(id=row["user_id"], email=row["email"], name=row["user_name"]),
+        org=Org(id=row["org_id"], name=row["org_name"]),
+        role=row["role"],
+    )
 
 
 def sign_out(session: str) -> str | None:

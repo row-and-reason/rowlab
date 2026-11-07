@@ -71,6 +71,7 @@ function SettingsView() {
             variant="ghost"
             size="icon-sm"
             render={<Link href={back} />}
+            nativeButton={false}
           >
             <ArrowLeftIcon />
           </TooltipButton>
