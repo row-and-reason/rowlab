@@ -25,6 +25,7 @@ export type Me = components["schemas"]["Me"];
 export type Role = Me["role"];
 export type Members = components["schemas"]["Members"];
 export type ApiKey = components["schemas"]["ApiKey"];
+export type Usage = components["schemas"]["Usage"];
 
 // Empty in production: the UI is served by the API server itself.
 // In development, `make dev` points this at the separately running API.

@@ -1,14 +1,16 @@
 import type { Me } from "@/lib/api/client";
 
 const ALL = [
-  { id: "providers", label: "Providers", hostedOnly: false },
-  { id: "storage", label: "Storage", hostedOnly: false },
-  { id: "members", label: "Members", hostedOnly: true },
-  { id: "api-keys", label: "API keys", hostedOnly: true },
+  { id: "providers", label: "Providers", keywords: "openrouter model key", hostedOnly: false },
+  { id: "storage", label: "Storage", keywords: "s3 connections bucket", hostedOnly: false },
+  { id: "usage", label: "Usage", keywords: "spend cost answers tokens", hostedOnly: false },
+  { id: "members", label: "Members", keywords: "people invite roles", hostedOnly: true },
+  { id: "api-keys", label: "API keys", keywords: "tokens scripts", hostedOnly: true },
+  { id: "plans", label: "Plans", keywords: "pricing billing", hostedOnly: true },
 ] as const;
 export type Section = (typeof ALL)[number]["id"];
 
-/** The settings sections there are: members and API keys only where people sign in. */
+/** The settings sections there are: members, API keys and plans only where people sign in. */
 export function sections(me: Me) {
   return ALL.filter((s) => me.user || !s.hostedOnly);
 }

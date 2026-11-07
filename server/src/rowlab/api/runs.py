@@ -18,7 +18,7 @@ def create_run(dataset_id: str, request: RunRequest, me: CanEdit) -> Run:
     A task needs only its `template` and `type`; the result column and models default to ones that
     suit the type (see `GET /v1/utils/task-types`)."""
     datasets.check_access(me.org.id, dataset_id)
-    return runs.create_run(dataset_id, request)
+    return runs.create_run(dataset_id, request, me.user.id if me.user else None)
 
 
 @router.post("/v1/datasets/{dataset_id}/estimate", operation_id="estimateRun")

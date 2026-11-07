@@ -497,6 +497,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Usage
+         * @description A month's answers, spend and tokens (this month by default, as `YYYY-MM`), by day, model and
+         *     person, and the storage the organisation's datasets take. An admin sees the organisation's;
+         *     anyone else their own runs'.
+         */
+        get: operations["getUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/utils/models": {
         parameters: {
             query?: never;
@@ -601,6 +623,58 @@ export interface components {
              * @description For `s3://` sources; without one, the environment's AWS credentials.
              */
             connection_id?: string | null;
+        };
+        /** ByModel */
+        ByModel: {
+            /**
+             * Answers
+             * @description Answers given, from the cache too.
+             */
+            answers: number;
+            /**
+             * Cached
+             * @description Of those, from the cache, for free.
+             */
+            cached: number;
+            /** Failed */
+            failed: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /**
+             * Cost
+             * @description USD.
+             */
+            cost: number;
+            /** Model */
+            model: string;
+        };
+        /** ByPerson */
+        ByPerson: {
+            /**
+             * Answers
+             * @description Answers given, from the cache too.
+             */
+            answers: number;
+            /**
+             * Cached
+             * @description Of those, from the cache, for free.
+             */
+            cached: number;
+            /** Failed */
+            failed: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /**
+             * Cost
+             * @description USD.
+             */
+            cost: number;
+            /** @description Empty for runs started where nobody signs in. */
+            user: components["schemas"]["User"] | null;
         };
         /** Cell */
         Cell: {
@@ -800,6 +874,35 @@ export interface components {
              * @description Model calls the run makes.
              */
             total: number;
+        };
+        /** Day */
+        Day: {
+            /**
+             * Answers
+             * @description Answers given, from the cache too.
+             */
+            answers: number;
+            /**
+             * Cached
+             * @description Of those, from the cache, for free.
+             */
+            cached: number;
+            /** Failed */
+            failed: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /**
+             * Cost
+             * @description USD.
+             */
+            cost: number;
+            /**
+             * Day
+             * @description e.g. `2026-11-07`, in UTC.
+             */
+            day: string;
         };
         /** Estimate */
         Estimate: {
@@ -1269,6 +1372,11 @@ export interface components {
              */
             error: string | null;
             /**
+             * Created By
+             * @description The user who started it; empty locally.
+             */
+            created_by: string | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1481,6 +1589,30 @@ export interface components {
              */
             total_estimate: number;
         };
+        /** Total */
+        Total: {
+            /**
+             * Answers
+             * @description Answers given, from the cache too.
+             */
+            answers: number;
+            /**
+             * Cached
+             * @description Of those, from the cache, for free.
+             */
+            cached: number;
+            /** Failed */
+            failed: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /**
+             * Cost
+             * @description USD.
+             */
+            cost: number;
+        };
         /** TypeInfo */
         TypeInfo: {
             /**
@@ -1509,6 +1641,41 @@ export interface components {
             model: string;
             /** Llm Only */
             llm_only: boolean;
+        };
+        /** Usage */
+        Usage: {
+            /**
+             * Month
+             * @description e.g. `2026-11`.
+             */
+            month: string;
+            /**
+             * Scope
+             * @description An admin sees the organisation's usage; anyone else their own.
+             * @enum {string}
+             */
+            scope: "organisation" | "you";
+            total: components["schemas"]["Total"];
+            /**
+             * By Day
+             * @description Days with usage, in order.
+             */
+            by_day: components["schemas"]["Day"][];
+            /**
+             * By Model
+             * @description Most answers first.
+             */
+            by_model: components["schemas"]["ByModel"][];
+            /**
+             * By Person
+             * @description Most answers first; the organisation's only.
+             */
+            by_person: components["schemas"]["ByPerson"][];
+            /**
+             * Storage Bytes
+             * @description The organisation's datasets, now.
+             */
+            storage_bytes: number;
         };
         /** User */
         User: {
@@ -2486,6 +2653,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getUsage: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usage"];
+                };
             };
             /** @description Validation Error */
             422: {

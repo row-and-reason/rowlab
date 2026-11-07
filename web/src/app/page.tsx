@@ -27,7 +27,7 @@ import { AddDataset, type SourceKind } from "@/components/add-dataset";
 import { DatasetPanels, TABS, type TaskActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
 import { ExportDataset } from "@/components/export-dataset";
-import { useCan } from "@/components/me";
+import { useCan, useMe } from "@/components/me";
 import { PaneHeader } from "@/components/pane";
 import { Keys } from "@/components/tooltip-button";
 import {
@@ -68,7 +68,7 @@ import { datasetTree } from "@/lib/dataset-tree";
 import { loadDraft } from "@/lib/draft";
 import { isActive } from "@/lib/runs";
 import { viewSql } from "@/lib/sql";
-import { type Section, settingsUrl } from "@/lib/settings";
+import { type Section, sections, settingsUrl } from "@/lib/settings";
 
 // The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
 // in the query string (`/?dataset=<id>&tab=rows`), because a static export can't have routes for
@@ -101,6 +101,7 @@ function Workspace() {
   const [palette, setPalette] = useState(false);
   const taskActionsRef = useRef<TaskActions | null>(null);
   const taskTypes = useTaskTypes();
+  const me = useMe();
   // Verifiers read; adding, running and exporting need a member.
   const canEdit = useCan("member");
   // Remembers the column widths you drag to, in localStorage.
@@ -349,14 +350,17 @@ function Workspace() {
                   Add data
                 </CommandItem>
               )}
-              <CommandItem
-                value="settings providers openrouter key storage s3 connections"
-                onSelect={() => command(() => openSettings("providers"))}
-              >
-                <SettingsIcon />
-                Settings
-                <CommandShortcut>⌘,</CommandShortcut>
-              </CommandItem>
+              {sections(me).map((section) => (
+                <CommandItem
+                  key={section.id}
+                  value={`settings ${section.label} ${section.keywords}`}
+                  onSelect={() => command(() => openSettings(section.id))}
+                >
+                  <SettingsIcon />
+                  Settings: {section.label}
+                  {section.id === "providers" && <CommandShortcut>⌘,</CommandShortcut>}
+                </CommandItem>
+              ))}
               <CommandItem
                 onSelect={() =>
                   command(() => setTheme(resolvedTheme === "dark" ? "light" : "dark"))

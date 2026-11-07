@@ -388,13 +388,19 @@ which only says who someone is and which organisation they are in. Locally, the 
 - Built: `core/network.py`, `core/crypto.py`, the limits in `core/config.py` and `storage.connect`,
   migration `003_run_turns.sql`, `tests/test_protections.py`.
 
-### 11. Usage and plans
+### 11. Usage and plans ✅
 
-- A usage ledger: a row per chunk per task and model (organisation, user, run, model, tokens, cost, whose
-  key), recorded for BYOK too.
-- Settings → Usage: answers and spend this month against the plan, by day, model and user; storage.
-  Admins see the organisation, members their own.
-- Plans shown as a teaser ("coming soon"); BYOK only until billing is built.
+- A usage ledger (`usage` table): a row per run, task, model and day, with the organisation, who
+  started the run (`runs.created_by`), answers, cached and failed answers, tokens, cost and whose key
+  paid (`organisation`, or `server` for `OPENROUTER_API_KEY`). Added to as answers come in (every
+  half second, and however a chunk ends), so a stop or an error loses nothing paid for; a hard crash
+  at most half a second. Recorded for BYOK too, and kept when the run's dataset is deleted. Cached
+  answers count as answers, with no cost or tokens; a chunk redone after a stop counts its cached
+  answers again.
+- `GET /v1/settings/usage?month=YYYY-MM`, and Settings → Usage: answers, spend, tokens and storage for
+  a month, by day (a bar chart), model and person. Admins see the organisation, anyone else their own.
+- Settings → Plans (hosted): Free, Pro and Team as a teaser, "coming soon"; everyone is on Free with
+  their own key until billing is built. Plan limits aren't enforced yet.
 
 ### 12. MCP and the agent skill
 

@@ -25,7 +25,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets, db, prompts, settings, sql, storage, tasks
+from rowlab.core import datasets, db, prompts, settings, sql, storage, tasks, usage
 from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest, NotFound
@@ -83,6 +83,7 @@ class Run(BaseModel):
     total: int = Field(description="Model calls the run makes.")
     cost: float = Field(description="USD spent so far; cached answers are free.")
     error: str | None = Field(description="Why the run failed.")
+    created_by: str | None = Field(description="The user who started it; empty locally.")
     created_at: datetime
     updated_at: datetime | None
 
@@ -102,14 +103,17 @@ class _Answer(BaseModel):
     error: str | None = None
     cost: float = 0
     cached: bool = False
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 _wake = threading.Event()
 
 
-def create_run(dataset_id: str, request: RunRequest) -> Run:
-    """Queue a run of every task with every model on the rows the query picks. Its dataset, with
-    every row of the dataset and empty answer columns, is created right away."""
+def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> Run:
+    """Queue a run of every task with every model on the rows the query picks, started by
+    `created_by` (a user; nobody locally). Its dataset, with every row of the dataset and empty
+    answer columns, is created right away."""
     check(dataset_id, request)
     if settings.openrouter_key(datasets.org_of(dataset_id)) is None:
         raise InvalidRequest("Set your OpenRouter API key first.")
@@ -128,8 +132,8 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
         with db.connect() as conn:
             conn.execute(
                 "INSERT INTO runs (id, dataset_id, status, config, columns, costs,"
-                " row_count, total, created_at, queued_at)"
-                " VALUES (?, ?, 'queued', ?, ?, '[]', ?, ?, ?, ?)",
+                " row_count, total, created_at, queued_at, created_by)"
+                " VALUES (?, ?, 'queued', ?, ?, '[]', ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     made_id,
@@ -139,6 +143,7 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
                     len(asked) * sum(len(task.models) for task in request.tasks),
                     datetime.now(UTC).isoformat(),
                     datetime.now(UTC).isoformat(),
+                    created_by,
                 ),
             )
     except BaseException:
@@ -430,28 +435,54 @@ def _process_chunk(
         return True
     stopping = threading.Event()
     answers: list[_Answer | None] = [None] * len(units)
+    # What the answers so far cost, by task and model, until it is added to the usage.
+    spent: dict[tuple[str, str], usage.Spent] = {}
+    spent_lock = threading.Lock()
 
     def ask(i: int) -> None:
         if stopping.is_set():
             return
         row, task, model = units[i]
         prompt = prompts.render(task.template, row, keys)
-        answers[i] = _ask(task, model, prompt, org_id, api_key, fresh=retry)
+        answer = answers[i] = _ask(task, model, prompt, org_id, api_key, fresh=retry)
+        with spent_lock:
+            _count(spent.setdefault((task.id, model), usage.Spent()), answer)
 
-    with ThreadPoolExecutor(CONCURRENCY) as pool:
-        futures = [pool.submit(ask, i) for i in range(len(units))]
-        while not all(f.done() for f in futures):
-            time.sleep(PROGRESS_INTERVAL_SECONDS)
-            # Saving progress also shows other runners this run still has its runner.
-            if retry:
-                _set(run.id)
-            else:
-                _set(run.id, done=done_before + sum(a is not None for a in answers))
-            # A deleted dataset takes its run with it.
-            if _status(run.id) in ("stopping", None):
-                stopping.set()
-        for future in futures:
-            future.result()
+    def record_spent() -> None:
+        """Add what was spent since the last time to the usage: paid is paid, however the chunk
+        ends."""
+        with spent_lock:
+            taken = dict(spent)
+            spent.clear()
+        if taken:
+            with db.connect() as conn:
+                usage.add(
+                    conn,
+                    org_id=org_id,
+                    user_id=run.created_by,
+                    run_id=run.id,
+                    paid_by=settings.paid_by(),
+                    spent=taken,
+                )
+
+    try:
+        with ThreadPoolExecutor(CONCURRENCY) as pool:
+            futures = [pool.submit(ask, i) for i in range(len(units))]
+            while not all(f.done() for f in futures):
+                time.sleep(PROGRESS_INTERVAL_SECONDS)
+                # Saving progress also shows other runners this run still has its runner.
+                if retry:
+                    _set(run.id)
+                else:
+                    _set(run.id, done=done_before + sum(a is not None for a in answers))
+                record_spent()
+                # A deleted dataset takes its run with it.
+                if _status(run.id) in ("stopping", None):
+                    stopping.set()
+            for future in futures:
+                future.result()
+    finally:
+        record_spent()
     if stopping.is_set():
         return False
 
@@ -487,6 +518,17 @@ def _process_chunk(
         cost=sum(c.cost for c in costs.values()),
     )
     return True
+
+
+def _count(spent: usage.Spent, answer: _Answer) -> None:
+    """Add an answer to what was spent. Cached replies cost nothing and used no tokens this time."""
+    spent.answers += answer.error is None
+    spent.failed += answer.error is not None
+    spent.cached += answer.cached and answer.error is None
+    if not answer.cached:
+        spent.cost += answer.cost
+        spent.input_tokens += answer.input_tokens
+        spent.output_tokens += answer.output_tokens
 
 
 def _failed(written: dict[str, Any], task: Task, model: str) -> bool:
@@ -549,7 +591,12 @@ def _ask(
     except openrouter.OpenRouterError as e:
         return _Answer(error=str(e))
     # Paid for even when the reply turns out unusable.
-    answer = _Answer(cost=response.cost, cached=response.cached)
+    answer = _Answer(
+        cost=response.cost,
+        cached=response.cached,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+    )
     try:
         if decision:
             answer.values = tasks.read_decision(task, response.data)
@@ -589,6 +636,7 @@ def _from_row(row) -> Run:
         total=row["total"],
         cost=row["cost"],
         error=row["error"],
+        created_by=row["created_by"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

@@ -5,7 +5,7 @@ lives here.
   `questions`; returns one typed answer per question.
 - Chat completions: `POST /api/v1/chat/completions`, with `response_format` set to a JSON schema.
 
-Both report their cost in USD as `usage.cost`.
+Both report their cost in USD as `usage.cost`, and the tokens used.
 """
 
 import hashlib
@@ -46,6 +46,8 @@ class Response(BaseModel):
     data: Any
     cost: float
     cached: bool
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class OpenRouterError(Exception):
@@ -115,7 +117,7 @@ def decide(
     """Ask a decision model typed questions about `state`. `data` is the answers by question."""
     body = {"model": model, "state": state, "questions": questions}
     response, cached = _cached_post("/alpha/decisions", body, org_id, api_key, fresh=fresh)
-    return Response(data=response["answers"], cost=response["usage"]["cost"], cached=cached)
+    return Response(data=response["answers"], cached=cached, **_usage(response))
 
 
 def complete(
@@ -138,7 +140,17 @@ def complete(
     }
     response, cached = _cached_post("/v1/chat/completions", body, org_id, api_key, fresh=fresh)
     content = (response.get("choices") or [{}])[0].get("message", {}).get("content")
-    return Response(data=content, cost=response.get("usage", {}).get("cost", 0), cached=cached)
+    return Response(data=content, cached=cached, **_usage(response))
+
+
+def _usage(response: dict[str, Any]) -> dict[str, Any]:
+    """Cost and tokens, which the two APIs name differently."""
+    usage = response.get("usage") or {}
+    return {
+        "cost": usage.get("cost") or 0,
+        "input_tokens": usage.get("prompt_tokens") or usage.get("input_tokens") or 0,
+        "output_tokens": usage.get("completion_tokens") or usage.get("output_tokens") or 0,
+    }
 
 
 def _cached_post(

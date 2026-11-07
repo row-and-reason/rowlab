@@ -2,9 +2,10 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from rowlab.api.auth import CanAdmin, CanRead
-from rowlab.core import auth, settings
+from rowlab.core import auth, settings, usage
 from rowlab.core.auth import ApiKey, NewApiKey
 from rowlab.core.settings import Settings
+from rowlab.core.usage import Usage
 
 router = APIRouter(prefix="/v1/settings", tags=["settings"])
 
@@ -44,3 +45,11 @@ def create_api_key(body: ApiKeyRequest, me: CanRead) -> NewApiKey:
 @router.delete("/api-keys/{api_key_id}", operation_id="deleteApiKey", status_code=204)
 def delete_api_key(api_key_id: str, me: CanRead) -> None:
     auth.delete_api_key(me, api_key_id)
+
+
+@router.get("/usage", operation_id="getUsage")
+def get_usage(me: CanRead, month: str | None = None) -> Usage:
+    """A month's answers, spend and tokens (this month by default, as `YYYY-MM`), by day, model and
+    person, and the storage the organisation's datasets take. An admin sees the organisation's;
+    anyone else their own runs'."""
+    return usage.month_usage(me, month)

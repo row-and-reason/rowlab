@@ -10,8 +10,10 @@ import { ApiKeys } from "@/components/api-keys";
 import { useCan, useMe } from "@/components/me";
 import { MembersSettings } from "@/components/members-settings";
 import { PaneHeader } from "@/components/pane";
+import { Plans } from "@/components/plans";
 import { StorageConnections } from "@/components/storage-connections";
 import { TooltipButton } from "@/components/tooltip-button";
+import { UsageSettings } from "@/components/usage-settings";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -113,6 +115,8 @@ function SettingsView() {
             )}
             {section === "members" && <MembersSettings />}
             {section === "api-keys" && <ApiKeys />}
+            {section === "usage" && <UsageSettings />}
+            {section === "plans" && <Plans />}
           </div>
         </div>
       </section>

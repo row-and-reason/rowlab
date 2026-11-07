@@ -41,6 +41,12 @@ def openrouter_key(org_id: str) -> str | None:
     return crypto.decrypt(saved) if saved else None
 
 
+def paid_by() -> Literal["organisation", "server"]:
+    """Whose key model calls go on: the server's (`OPENROUTER_API_KEY`), or else the organisation's
+    own."""
+    return "server" if os.environ.get("OPENROUTER_API_KEY") else "organisation"
+
+
 def save_openrouter_key(org_id: str, key: str) -> Settings:
     key = key.strip()
     openrouter.check_key(key)
