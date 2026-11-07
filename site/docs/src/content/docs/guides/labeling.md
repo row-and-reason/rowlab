@@ -43,3 +43,9 @@ value, or nearly uniform, is a reason to read more examples, not a verdict. A `_
 the task asked for one, explains odd answers.
 
 Then [export](/guides/exporting).
+
+## Inspect a dataset’s origin
+
+Open **Origin** to see the source, selected row count, processed and failed model calls, cost, output
+columns, and recorded prompts. The labeling tools remain on the right. **Edit and run again** loads
+settings onto the parent without starting a run; it asks before replacing an existing draft.

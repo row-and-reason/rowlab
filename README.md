@@ -34,6 +34,14 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
 - [API reference](https://docs.rowlab.dev/api/): the web app uses only the public API, so anything
   it can do, a script can do.
 
+## Dataset origin
+
+The **Origin** tab records where a dataset came from. For runs it shows selected rows, processed model
+calls, failed calls, spend, output columns, and each task's models and prompt. Counts distinguish dataset
+rows from the rows selected for the run. The scope SQL remains available below the recipe. Imported
+files show their source and import time. **Edit and run again** loads the recorded settings onto the
+parent dataset without starting a run; replacing an existing draft requires confirmation.
+
 ## Compare columns
 
 The **Compare** tab keeps the three-pane workspace and labeling tools visible. Its summary table

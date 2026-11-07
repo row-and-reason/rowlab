@@ -16,7 +16,7 @@ import { ColumnProfiles } from "@/components/column-profiles";
 import { CompareView } from "@/components/compare-view";
 import { DatasetExplorer } from "@/components/dataset-explorer";
 import { TaskEditor } from "@/components/task-editor";
-import { Lineage } from "@/components/lineage";
+import { Origin, type OriginActions } from "@/components/origin";
 import { useCan } from "@/components/me";
 import { PaneHeader } from "@/components/pane";
 import { TooltipButton } from "@/components/tooltip-button";
@@ -40,7 +40,7 @@ import { useDraft } from "@/lib/draft";
 import { isActive } from "@/lib/runs";
 import { type View, viewSql, type WhereFilter } from "@/lib/sql";
 
-export const TABS = ["rows", "columns", "compare", "lineage"] as const;
+export const TABS = ["rows", "columns", "compare", "origin"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** What the command palette and shortcuts can do with the selected dataset's next run. */
@@ -55,7 +55,7 @@ export type TaskActions = {
  * The middle and right columns for the selected dataset.
  *
  * The middle shows its rows, which are also the rows the next run asks about (the view: search,
- * filters, sort and limit, or SQL), and its lineage. The right side holds the tasks to run. Both are
+ * filters, sort and limit, or SQL), and its origin. The right side holds the tasks to run. Both are
  * the dataset's draft, kept in this browser. A run makes a new dataset, which opens straight away and
  * fills in as the run goes.
  */
@@ -71,6 +71,7 @@ export function DatasetPanels({
   actionsRef,
   comparisonActionsRef,
   needsKey,
+  originActionsRef,
 }: {
   dataset: Dataset;
   datasets: Dataset[];
@@ -83,6 +84,7 @@ export function DatasetPanels({
   actionsRef: React.RefObject<TaskActions | null>;
   comparisonActionsRef: React.RefObject<ComparisonActions | null>;
   needsKey: boolean;
+  originActionsRef: React.RefObject<OriginActions | null>;
 }) {
   const { draft, update, isNew } = useDraft(dataset.id, () => ({
     // A first run on a few rows, so it's cheap.
@@ -240,8 +242,8 @@ export function DatasetPanels({
                 <TabsTrigger className="dark:data-active:bg-popover" value="compare">
                   Compare
                 </TabsTrigger>
-                <TabsTrigger className="dark:data-active:bg-popover" value="lineage">
-                  Lineage
+                <TabsTrigger className="dark:data-active:bg-popover" value="origin">
+                  Origin
                 </TabsTrigger>
               </TabsList>
               <DropdownMenu>
@@ -251,6 +253,17 @@ export function DatasetPanels({
                   <EllipsisIcon />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onTabChange("origin")}>
+                    View origin
+                  </DropdownMenuItem>
+                  {tab === "origin" &&
+                    canEdit &&
+                    dataset.run &&
+                    datasets.some((d) => d.id === dataset.parent_id) && (
+                      <DropdownMenuItem onClick={() => originActionsRef.current?.edit?.()}>
+                        Edit original run settings
+                      </DropdownMenuItem>
+                    )}
                   <DropdownMenuItem disabled={!canEdit || making} onClick={onExport}>
                     <DownloadIcon />
                     Export…
@@ -287,8 +300,14 @@ export function DatasetPanels({
           <TabsContent value="compare" keepMounted className="min-h-0 flex-1 overflow-hidden">
             <CompareView dataset={dataset} onFilter={showRows} actionsRef={comparisonActionsRef} />
           </TabsContent>
-          <TabsContent value="lineage" className="min-h-0 flex-1 overflow-auto">
-            <Lineage dataset={dataset} datasets={datasets} onOpenDataset={onOpenDataset} />
+          <TabsContent value="origin" className="min-h-0 flex-1 overflow-auto">
+            <Origin
+              dataset={dataset}
+              datasets={datasets}
+              onOpenDataset={onOpenDataset}
+              onInspect={(columns) => showRows([], columns)}
+              actionsRef={originActionsRef}
+            />
           </TabsContent>
         </Tabs>
       </ResizablePanel>

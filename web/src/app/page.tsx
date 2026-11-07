@@ -67,6 +67,7 @@ import { errorMessage } from "@/lib/format";
 import type { ComparisonActions } from "@/lib/use-comparison";
 import { useTaskTypes } from "@/lib/catalog";
 import { datasetTree } from "@/lib/dataset-tree";
+import type { OriginActions } from "@/components/origin";
 import { loadDraft } from "@/lib/draft";
 import { isActive } from "@/lib/runs";
 import { viewSql } from "@/lib/sql";
@@ -101,6 +102,7 @@ function Workspace() {
   const [deleting, setDeleting] = useState<Dataset>();
   const [exporting, setExporting] = useState<Dataset>();
   const [palette, setPalette] = useState(false);
+  const originActionsRef = useRef<OriginActions | null>(null);
   const taskActionsRef = useRef<TaskActions | null>(null);
   const [comparisonReady, setComparisonReady] = useState(false);
   const comparisonActionsRef = useRef<ComparisonActions | null>({ setReady: setComparisonReady });
@@ -222,6 +224,7 @@ function Workspace() {
             actionsRef={taskActionsRef}
             comparisonActionsRef={comparisonActionsRef}
             needsKey={settings?.openrouter_key === null}
+            originActionsRef={originActionsRef}
           />
         ) : (
           <>
@@ -324,6 +327,27 @@ function Workspace() {
                     <GitCompareArrowsIcon />
                     Compare columns
                   </CommandItem>
+                  <CommandItem
+                    onSelect={() =>
+                      command(() => {
+                        const query = new URLSearchParams(window.location.search);
+                        query.set("tab", "origin");
+                        router.push(`/?${query}`);
+                      })
+                    }
+                  >
+                    View origin
+                  </CommandItem>
+                  {tab === "origin" &&
+                    canEdit &&
+                    selected.run &&
+                    datasets?.some((d) => d.id === selected.parent_id) && (
+                      <CommandItem
+                        onSelect={() => command(() => originActionsRef.current?.edit?.())}
+                      >
+                        Edit original run settings
+                      </CommandItem>
+                    )}
                 </>
               )}
               {selected && tab === "compare" && (
