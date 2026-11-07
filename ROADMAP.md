@@ -447,7 +447,8 @@ which only says who someone is and which organisation they are in. Locally, the 
 - A pass over error and empty states across the UI (failed runs, bad SQL, no key, models down).
 - Data handling for the hosted version, kept short: where data lives, what deleting removes, and
   the services data goes through (WorkOS, OpenRouter and the model providers, Cloudflare, PostHog).
-- `rowlab` 0.1.0 on PyPI via GitHub Actions trusted publishing; the repo goes public.
+- ✅ The repo is public (7 November 2026), with private vulnerability reporting on.
+- `rowlab` 0.1.0 on PyPI via GitHub Actions trusted publishing.
 
 ## After launch
 

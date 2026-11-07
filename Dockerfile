@@ -14,8 +14,6 @@ RUN pnpm build
 FROM python:3.13-slim AS wheel
 RUN pip install --no-cache-dir uv
 WORKDIR /src/server
-# server/README.md and server/LICENSE link to these.
-COPY README.md LICENSE /src/
 COPY server .
 COPY --from=web /src/web/out src/rowlab/static
 # The wheel, and the exact versions in uv.lock for it to run with.
