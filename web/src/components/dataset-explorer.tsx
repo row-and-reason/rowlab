@@ -279,7 +279,7 @@ export function DatasetExplorer({
       {/* Data is text you may want to copy, unlike the interface around it. */}
       <div className="min-h-0 flex-1 overflow-auto select-text">
         <Table>
-          <TableHeader>
+          <TableHeader className="bg-muted/40">
             {table.getHeaderGroups().map((group) => (
               <TableRow key={group.id}>
                 {group.headers.map((header) => {
@@ -293,14 +293,14 @@ export function DatasetExplorer({
                   return (
                     <TableHead
                       key={header.id}
-                      className="select-none"
+                      className="w-px px-3 select-none"
                       draggable={header.id !== ROW_ID}
                       onDragStart={(e) => e.dataTransfer.setData("text/plain", `{{${header.id}}}`)}
                     >
                       <Button
                         variant="ghost"
                         size="xs"
-                        className="-ml-2"
+                        className="-ml-2 text-muted-foreground"
                         title={column?.type}
                         // Custom SQL sorts itself.
                         disabled={custom}
@@ -309,7 +309,7 @@ export function DatasetExplorer({
                         {columnLabel(header.id)}
                         <SortIcon
                           data-icon="inline-end"
-                          className={sort?.column !== header.id ? "opacity-30" : undefined}
+                          className={sort?.column !== header.id ? "text-muted-foreground" : undefined}
                         />
                       </Button>
                     </TableHead>
@@ -320,9 +320,9 @@ export function DatasetExplorer({
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id}>
+              <TableRow key={row.id} className="border-border/60">
                 {row.getAllCells().map((cell) => (
-                  <TableCell key={cell.id} className="max-w-80 truncate">
+                  <TableCell key={cell.id} className="max-w-96 truncate px-3 tabular-nums">
                     <table.FlexRender cell={cell} />
                   </TableCell>
                 ))}
@@ -362,7 +362,7 @@ function FilterButton({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button variant="ghost" size="sm" />}>
+      <PopoverTrigger render={<Button variant="ghost" size="sm" className="text-xs" />}>
         <ListFilterIcon data-icon="inline-start" />
         Filter
       </PopoverTrigger>
@@ -411,7 +411,7 @@ function FilterButton({
               />
             )}
           </div>
-          <Button type="submit" size="sm" disabled={!column}>
+          <Button type="submit" size="sm" className="text-xs" disabled={!column}>
             Add filter
           </Button>
         </form>
@@ -435,7 +435,7 @@ function DisplayButton({
   const sort = view.sort[0];
   return (
     <Popover>
-      <PopoverTrigger render={<Button variant="ghost" size="sm" />}>
+      <PopoverTrigger render={<Button variant="ghost" size="sm" className="text-xs" />}>
         <SlidersHorizontalIcon data-icon="inline-start" />
         Display
       </PopoverTrigger>
@@ -513,7 +513,7 @@ function SqlButton({ sql, onApply }: { sql: string; onApply: (sql: string) => vo
         if (next) setText(sql);
       }}
     >
-      <PopoverTrigger render={<Button variant="ghost" size="sm" />}>
+      <PopoverTrigger render={<Button variant="ghost" size="sm" className="text-xs" />}>
         <CodeIcon data-icon="inline-start" />
         SQL
       </PopoverTrigger>
@@ -544,7 +544,7 @@ function SqlButton({ sql, onApply }: { sql: string; onApply: (sql: string) => vo
               <code>disagree([a, b])</code> compare columns.
             </FieldDescription>
           </Field>
-          <Button type="submit" size="sm" className="self-end">
+          <Button type="submit" size="sm" className="self-end text-xs">
             Use this SQL
           </Button>
         </form>

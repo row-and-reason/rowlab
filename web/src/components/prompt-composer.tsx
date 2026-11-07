@@ -73,11 +73,11 @@ export function PromptComposer({
       <Field>
         <FieldLabel>Prompt</FieldLabel>
         <PromptEditor editor={editor} />
-        <FieldDescription>
-          Asked once per row, with that row&apos;s values. Drag columns in from the table, or type{" "}
+        <FieldDescription className="text-xs">
+          Drag a column into the prompt, or type{" "}
           {"{{column}}"}.
-          {shown &&
-            ` ≈ ${formatNumber(Math.round(shown.tokens.avg))} tokens per row, ≈ ${formatNumber(shown.tokens.total_estimate)} for all ${formatNumber(shown.selected_rows)} rows picked.`}
+          {shown && template &&
+            ` ≈ ${formatNumber(Math.round(shown.tokens.avg))} tokens/row · ${formatNumber(shown.tokens.total_estimate)} total.`}
         </FieldDescription>
         {result?.error && (
           <Alert variant="destructive">
@@ -98,7 +98,7 @@ export function PromptComposer({
         <Field>
           <div className="flex items-center justify-between gap-2">
             <FieldLabel>
-              As sent for row {formatNumber(index + 1)} of {formatNumber(shown?.selected_rows ?? 0)}
+              Preview · row {formatNumber(index + 1)} of {formatNumber(shown?.selected_rows ?? 0)}
             </FieldLabel>
             <div className="flex items-center gap-1">
               {loading && <Spinner />}
@@ -123,7 +123,7 @@ export function PromptComposer({
             </div>
           </div>
           <p className="rounded-lg bg-muted p-3 text-sm whitespace-pre-wrap">
-            {row.prompt || <span className="text-muted-foreground">Empty prompt</span>}
+            {row.prompt || <span className="text-muted-foreground">Your prompt preview will appear here.</span>}
           </p>
         </Field>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { PlusIcon, XIcon } from "lucide-react";
+import { InfoIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +21,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -143,16 +144,29 @@ export function AnswerSettings({
         />
       )}
       <Field>
-        <FieldLabel htmlFor={`column-${task.id}`}>Result column</FieldLabel>
+        <div className="flex items-center gap-1">
+          <FieldLabel htmlFor={`column-${task.id}`}>Result column</FieldLabel>
+          <Popover>
+            <PopoverTrigger
+              render={
+                <Button variant="ghost" size="icon-xs" aria-label="How result columns are named" />
+              }
+            >
+              <InfoIcon />
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72 text-sm">
+              {columnsDescription(task)}
+            </PopoverContent>
+          </Popover>
+        </div>
         <Input
           id={`column-${task.id}`}
           value={task.column}
           onChange={(e) => onChange({ ...task, column: e.target.value })}
         />
-        <FieldDescription>{columnsDescription(task)}</FieldDescription>
       </Field>
       {family !== "write" && (
-        <Field orientation="horizontal" data-disabled={!allLlms && !task.reason}>
+        <Field orientation="horizontal">
           <Checkbox
             id={`reason-${task.id}`}
             checked={task.reason}
@@ -161,7 +175,7 @@ export function AnswerSettings({
           />
           <FieldLabel htmlFor={`reason-${task.id}`} className="font-normal">
             Also write why
-            {!allLlms && <span className="text-muted-foreground">(language models only)</span>}
+            {!allLlms && <span className="text-muted-foreground">· LLMs only</span>}
           </FieldLabel>
         </Field>
       )}

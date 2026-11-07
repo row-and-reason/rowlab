@@ -85,18 +85,19 @@ export function TaskEditor({
           onDelete={() => onTasksChange(tasks.filter((t) => t.id !== task.id))}
         />
       ))}
-      <Button variant="ghost" size="sm" className="m-2 self-start" onClick={() => onAddTask()}>
-        <PlusIcon data-icon="inline-start" />
-        Add task
-      </Button>
-
-      {runError ? (
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+        <Button variant="ghost" size="sm" className="text-xs" onClick={() => onAddTask()}>
+          <PlusIcon data-icon="inline-start" />
+          Add task
+        </Button>
+        {!runError && problem && (
+          <p className="text-xs text-muted-foreground">{problem}</p>
+        )}
+      </div>
+      {runError && (
         <Alert variant="destructive" className="mx-3 w-auto">
           <AlertDescription>{runError}</AlertDescription>
         </Alert>
-      ) : (
-        // What still needs doing before it can run, as you type.
-        problem && <p className="mx-4 text-sm text-muted-foreground">{problem}</p>
       )}
     </div>
   );
@@ -149,9 +150,9 @@ function TaskRow({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="border-b">
-      <div className="flex items-center gap-1 px-2 py-1.5">
+      <div className="flex items-center gap-2 px-3 py-2">
         <CollapsibleTrigger
-          render={<Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start" />}
+          render={<Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start text-sm aria-expanded:bg-transparent" />}
         >
           <ChevronRightIcon
             data-icon="inline-start"
@@ -161,7 +162,7 @@ function TaskRow({
         </CollapsibleTrigger>
 
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" size="xs" />}>
+          <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="text-xs" />}>
             {type.label}
             <ChevronDownIcon data-icon="inline-end" />
           </DropdownMenuTrigger>
@@ -214,7 +215,7 @@ function TaskRow({
         </DropdownMenu>
 
         <Popover>
-          <PopoverTrigger render={<Button variant="outline" size="xs" className="max-w-40" />}>
+          <PopoverTrigger render={<Button variant="outline" size="sm" className="max-w-36 text-xs" />}>
             <span className="truncate">
               {slugs[0] ?? "No model"}
               {slugs.length > 1 && ` +${slugs.length - 1}`}
@@ -249,7 +250,7 @@ function TaskRow({
         </DropdownMenu>
       </div>
       <CollapsibleContent>
-        <FieldGroup className="gap-5 px-4 pt-1 pb-4">
+        <FieldGroup className="gap-4 px-3 pt-2 pb-4">
           <PromptComposer
             dataset={dataset}
             sql={sql}
