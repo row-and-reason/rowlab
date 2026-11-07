@@ -14,9 +14,10 @@ dependencies = [
 
 [project.optional-dependencies]
 # For hosted setups: Postgres (`ROWLAB_DATABASE_URL`), datasets on S3 (`ROWLAB_STORAGE_URL`) and
-# sign-in with WorkOS.
+# sign-in with WorkOS, with saved keys encrypted.
 hosted = [
     "boto3>=1.40",
+    "cryptography>=44",
     "psycopg[binary,pool]>=3.2",
     "pyjwt>=2.10",
     "workos>=10.8.0",

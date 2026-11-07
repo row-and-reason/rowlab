@@ -64,16 +64,36 @@ needs are on. Everything else is configuration, from environment variables:
 | `ROWLAB_DATA_DIR` | `~/.rowlab` | local state: temporary files, and the SQLite database by default |
 | `ROWLAB_DATABASE_URL` | a SQLite file in the data folder | or `postgresql://…` |
 | `ROWLAB_STORAGE_URL` | the data folder's `datasets` | or `s3://bucket/prefix`, with the usual `AWS_*` credentials (`AWS_ENDPOINT_URL` for MinIO) |
-| `ROWLAB_SERVER_FILES` | on when `local`, off when `hosted` | whether datasets can be added from, and exported to, paths on the server |
+| `ROWLAB_SERVER_FILES` | on when `local`, off when `hosted` | whether datasets can be added from, and exported to, the server's own files: paths on its disk, and buckets its AWS credentials reach |
+| `ROWLAB_PRIVATE_URLS` | on when `local`, off when `hosted` | whether web sources and S3 endpoints can be private addresses (localhost, the local network, cloud metadata) |
 | `OPENROUTER_API_KEY` | | or save it in Settings |
 | `ROWLAB_URL` | | `hosted` only: where people reach rowlab, e.g. `https://rowlab.example.com` |
 | `WORKOS_CLIENT_ID`, `WORKOS_API_KEY` | | `hosted` only: the WorkOS project people sign in with |
+| `ROWLAB_SECRET_KEY` | | encrypts saved keys (OpenRouter, S3); any long random string. Required when `hosted` |
+
+Limits, the same in both modes. They are modest, so a shared server stays up; raise them for bigger
+data:
+
+| Variable | Default | |
+|---|---|---|
+| `ROWLAB_DUCKDB_MEMORY` | `1GB` | memory per DuckDB connection; past it, DuckDB spills to disk |
+| `ROWLAB_DUCKDB_TEMP` | `10GB` | how much DuckDB may spill to disk |
+| `ROWLAB_DUCKDB_THREADS` | `2` | threads per query |
+| `ROWLAB_QUERY_SECONDS` | `30` | time per query; adding and exporting a dataset get ten times as long |
+| `ROWLAB_MAX_FILE` | `1GB` | the largest file to upload, download or read from S3 |
+| `ROWLAB_RUNS_PER_ORG` | `2` | runs an organisation has going at once; the rest wait their turn |
+| `ROWLAB_RUN_WAIT_SECONDS` | `300` | a run waiting this long goes next; otherwise the run with least left does |
 
 Postgres, S3 and WorkOS need `pip install "rowlab[hosted]"`. In the WorkOS project, add
 `<ROWLAB_URL>/auth/callback` as a redirect URI and `<ROWLAB_URL>/` as the sign-out redirect. The first
 person to sign in gets an organisation of their own as its admin, and invites the others in Settings →
-Members. Scripts use an API key from Settings → API keys: `Authorization: Bearer rl_…`. With Postgres, the API and the runners that process
-runs can be separate processes, and several runners share the queue:
+Members. Scripts use an API key from Settings → API keys: `Authorization: Bearer rl_…`. Rate limits
+per client aren't rowlab's job: put them in front of it (e.g. Cloudflare). Nor, fully, is keeping
+requests off private addresses: rowlab refuses them, but DuckDB follows redirects from S3 endpoints, so
+a hosted setup should also block private addresses (other than its database and storage) in its network.
+
+With Postgres, the API and the runners that process runs can be separate processes, and several runners
+share the queue, taking turns a chunk of 500 rows at a time:
 
 ```sh
 rowlab serve --no-runner   # the API and UI

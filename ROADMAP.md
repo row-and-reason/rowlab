@@ -312,7 +312,8 @@ on so the UI shows only that:
 **Deployed as one image.** The API server serves the UI (a static export), runs as `api` or as
 `runner` (the same image, another command; runners share the queue in Postgres), and serves MCP at
 `/mcp`. Locally: `uvx rowlab`, or `docker compose` with Postgres and MinIO, which is also the reference
-for hosted setups. Row & Reason's runs on k3s. The website is a separate static site.
+for hosted setups. Row & Reason's runs on k3s behind a Cloudflare tunnel, which also rate-limits
+requests. The website is a separate static site.
 
 **Pricing, to start with** (to check against real server costs once it runs). A subscription pays for
 the servers and the product, as BYOK brings no usage to mark up; credits on the platform's model key
@@ -368,13 +369,24 @@ which only says who someone is and which organisation they are in. Locally, the 
   hiding what a role can't do. Tested by signing in as if WorkOS had, on SQLite and on Postgres, and
   end to end against Row & Reason's WorkOS Staging environment.
 
-### 10. Hosted protections
+### 10. Hosted protections ✅
 
-- No files on the server's disk (adding or exporting) unless allowed; URL fetching can't reach private
-  addresses (SSRF).
-- Limits: upload size, DuckDB memory, threads and time per query, API requests per organisation.
-- The runner takes turns across organisations, with model calls in flight capped per organisation.
-- Secrets (model keys, connection keys) encrypted at rest when hosted.
+- The server's own files and credentials are off limits when hosted (`ROWLAB_SERVER_FILES`): no paths
+  on its disk, no buckets reached with its AWS credentials, and never the bucket datasets are kept in.
+- Web sources and S3 endpoints can't reach private addresses (SSRF; `ROWLAB_PRIVATE_URLS`), checked on
+  every redirect of a web source too. Two ways past it need the network to block private addresses as
+  well: DNS rebinding, and S3 endpoints redirecting DuckDB, which follows redirects with no way to stop
+  it. The k3s manifests (milestone 14) include that egress policy.
+- Limits as settings with modest defaults, the same in both modes: DuckDB memory, disk and threads,
+  time per query, file size (checked before an upload is read, while copying, and on S3 objects).
+- Runners take turns, a chunk at a time: a run waiting long goes next, otherwise the one with least
+  left, so a try on a few rows is done at once next to a big run; at most `ROWLAB_RUNS_PER_ORG` runs
+  per organisation going at once (a soft cap: two runners claiming at the same moment can pass it).
+- Saved keys encrypted at rest with `ROWLAB_SECRET_KEY` (required hosted; Fernet). Keys saved before a
+  secret key was set are read as they are, and encrypted when saved again.
+- Rate limits per client are left to what is in front of rowlab: Cloudflare, for Row & Reason's.
+- Built: `core/network.py`, `core/crypto.py`, the limits in `core/config.py` and `storage.connect`,
+  migration `003_run_turns.sql`, `tests/test_protections.py`.
 
 ### 11. Usage and plans
 
@@ -399,7 +411,8 @@ which only says who someone is and which organisation they are in. Locally, the 
 
 ### 14. Launch
 
-- The image (built in CI), `docker-compose.yml`, k3s manifests.
+- The image (built in CI), `docker-compose.yml`, k3s manifests, with a network policy that keeps the
+  API and runners from private addresses other than Postgres and storage (milestone 10).
 - README quickstart; LICENSE (Apache-2.0), CONTRIBUTING (DCO sign-off), code of conduct, security
   policy, issue templates; no telemetry.
 - An end-to-end smoke test against the built package, from adding a file to an export.
@@ -444,6 +457,6 @@ Not planned yet; noted so they aren't lost. Add new ones here.
   flattening step — still to be confirmed.
 - **OpenRouter Decisions API is alpha.** Keeping it behind one module limits the impact of changes.
   Confirm the exact request/response fields and whether the model catalog can be filtered via the API.
-- **Local secret storage** (OpenRouter key, S3 keys) is plaintext in the local data dir — acceptable for
-  a single-user local tool; encrypted at rest when hosted (milestone 10).
+- **Local secret storage** (OpenRouter key, S3 keys) is plaintext in the local data dir unless
+  `ROWLAB_SECRET_KEY` is set — acceptable for a single-user local tool; always encrypted when hosted.
 - **Large files:** 1M+ rows must stay responsive in the explorer and runs; test early with real data.

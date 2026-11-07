@@ -8,6 +8,7 @@ On S3 the credentials come from the environment, as for any AWS tool: `AWS_ACCES
 
 import os
 import shutil
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -17,6 +18,7 @@ from urllib.parse import urlparse
 import duckdb
 
 from rowlab.core.config import config
+from rowlab.core.errors import InvalidRequest
 
 
 def location(dataset_id: str, *names: str) -> str:
@@ -36,11 +38,42 @@ def prepare(dataset_id: str) -> None:
 
 
 @contextmanager
-def connect() -> Iterator[duckdb.DuckDBPyConnection]:
-    """A DuckDB connection that can read and write datasets' files."""
-    with duckdb.connect() as con:
-        configure(con)
-        yield con
+def connect(seconds: float | None = None) -> Iterator[duckdb.DuckDBPyConnection]:
+    """A DuckDB connection that can read and write datasets' files, within the configured memory,
+    threads and disk, and interrupted after `seconds` (by default ten times a query's limit, for
+    adding and exporting datasets)."""
+    limit = seconds or config().query_seconds * 10
+    temp = config().data_dir / "tmp" / "duckdb"
+    temp.mkdir(parents=True, exist_ok=True)
+    settings = {
+        "memory_limit": config().duckdb_memory,
+        "threads": config().duckdb_threads,
+        "temp_directory": str(temp),
+        "max_temp_directory_size": config().duckdb_temp,
+    }
+    with duckdb.connect(config=settings) as con:
+        done = threading.Event()
+
+        def stop_at_the_limit() -> None:
+            # Again and again: an interrupt only stops the statement running at the time.
+            if done.wait(limit):
+                return
+            while True:
+                con.interrupt()
+                if done.wait(0.1):
+                    return
+
+        threading.Thread(target=stop_at_the_limit, daemon=True).start()
+        try:
+            configure(con)
+            yield con
+        except duckdb.InterruptException as e:
+            raise InvalidRequest(
+                f"That took longer than {limit:g} s, rowlab's limit (`ROWLAB_QUERY_SECONDS`). "
+                "Narrow the query, or pick fewer rows."
+            ) from e
+        finally:
+            done.set()
 
 
 def configure(con: duckdb.DuckDBPyConnection) -> None:
@@ -49,7 +82,8 @@ def configure(con: duckdb.DuckDBPyConnection) -> None:
     if not config().s3_storage:
         return
     bucket = urlparse(config().storage_url).netloc
-    options = {"SCOPE": f"s3://{bucket}", "REGION": _region()}
+    # Scopes match as prefixes: the slash keeps it off `s3://<bucket>-other`.
+    options = {"SCOPE": f"s3://{bucket}/", "REGION": _region()}
     if os.environ.get("AWS_ACCESS_KEY_ID"):
         options["KEY_ID"] = os.environ["AWS_ACCESS_KEY_ID"]
         options["SECRET"] = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
@@ -148,3 +182,10 @@ def _region() -> str:
 
 def _quote(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def check_not_storage(uri: str) -> None:
+    """Raise InvalidRequest if an `s3://` source or export is in the bucket rowlab keeps datasets in:
+    rowlab's own credentials reach it, and other organisations' datasets are there."""
+    if config().s3_storage and _split(uri)[0] == _split(config().storage_url)[0]:
+        raise InvalidRequest("That bucket is where rowlab keeps datasets. Use another one.")

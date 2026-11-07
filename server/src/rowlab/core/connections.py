@@ -1,7 +1,8 @@
 """Connections: named credentials for S3-compatible storage (AWS S3, Cloudflare R2, MinIO, …).
 
 Datasets are read from `s3://bucket/key` sources and exported to `s3://` paths with DuckDB, using a
-connection when one is given, or else the usual AWS credentials (environment variables, `~/.aws`).
+connection when one is given, or else the server's own AWS credentials (environment variables, `~/.aws`)
+where its files are allowed (`ROWLAB_SERVER_FILES`), and none otherwise: then only public buckets.
 """
 
 import uuid
@@ -10,7 +11,8 @@ from datetime import UTC, datetime
 import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import db
+from rowlab.core import crypto, db, network
+from rowlab.core.config import config
 from rowlab.core.errors import InvalidRequest, NotFound
 
 
@@ -71,7 +73,7 @@ def create_connection(org_id: str, data: ConnectionInput) -> Connection:
                 data.endpoint.strip(),
                 data.region.strip(),
                 data.access_key_id.strip(),
-                data.secret_access_key.strip(),
+                crypto.encrypt(data.secret_access_key.strip()),
                 datetime.now(UTC).isoformat(),
             ),
         )
@@ -80,7 +82,8 @@ def create_connection(org_id: str, data: ConnectionInput) -> Connection:
 
 def update_connection(org_id: str, connection_id: str, data: ConnectionInput) -> Connection:
     saved = _row(org_id, connection_id)
-    secret = data.secret_access_key or saved["secret_access_key"]
+    # Kept as saved unless a new one is given; encrypted now if it was saved before a secret key.
+    secret = data.secret_access_key or crypto.decrypt(saved["secret_access_key"])
     _check(data)
     with db.connect() as conn:
         conn.execute(
@@ -91,7 +94,7 @@ def update_connection(org_id: str, connection_id: str, data: ConnectionInput) ->
                 data.endpoint.strip(),
                 data.region.strip(),
                 data.access_key_id.strip(),
-                secret.strip(),
+                crypto.encrypt(secret.strip()),
                 connection_id,
             ),
         )
@@ -108,6 +111,9 @@ def configure(con: duckdb.DuckDBPyConnection, org_id: str, connection_id: str | 
     """Let a DuckDB connection read and write `s3://` paths: with the organisation's connection's
     keys, or else with whatever AWS credentials the environment has (none for public buckets)."""
     if connection_id is None:
+        # Hosted, the server's own credentials aren't anyone's to use: only public buckets.
+        if not config().server_files:
+            return
         try:
             con.execute("CREATE TEMPORARY SECRET (TYPE s3, PROVIDER credential_chain)")
         except duckdb.Error:
@@ -115,9 +121,11 @@ def configure(con: duckdb.DuckDBPyConnection, org_id: str, connection_id: str | 
         return
     row = _row(org_id, connection_id)
     endpoint = row["endpoint"]
+    if endpoint:
+        _check_endpoint(endpoint)
     options = {
         "KEY_ID": row["access_key_id"],
-        "SECRET": row["secret_access_key"],
+        "SECRET": crypto.decrypt(row["secret_access_key"]),
         "REGION": row["region"],
     }
     if endpoint:
@@ -141,6 +149,12 @@ def _check(data: ConnectionInput) -> None:
         raise InvalidRequest("Enter the access key ID.")
     if not data.region.strip():
         raise InvalidRequest("Enter the region, e.g. us-east-1, or auto for Cloudflare R2.")
+    if data.endpoint.strip():
+        _check_endpoint(data.endpoint.strip())
+
+
+def _check_endpoint(endpoint: str) -> None:
+    network.check_url(endpoint if "://" in endpoint else f"https://{endpoint}")
 
 
 def _row(org_id: str, connection_id: str):

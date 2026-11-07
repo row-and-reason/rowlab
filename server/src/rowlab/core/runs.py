@@ -1,12 +1,17 @@
-"""Runs: a job executed on the rows in its scope, making a new dataset, by one runner thread.
+"""Runs: tasks asked about the rows a query picks, making a new dataset, by runners taking turns.
 
 Starting a run copies every row of the dataset into a new one, which shows up straight away; the rows
-in the job's scope get their answers as the run goes, the others keep empty answer columns. The run keeps
-a frozen copy of the job's settings. The runner processes queued runs oldest first, one at a time, in
-chunks of the rows in scope by `__row_id` (chunk k is always the same rows). A chunk's answers are written to the dataset's `parts/part-{k}.parquet` in one go, and only then
-does the run's bookmark (`next_chunk`) move on. So a stop, a crash or a restart loses at most the chunk
-in progress, and redoing it costs nothing: answers come from the response cache. When every chunk is
-written, the dataset is written out as one Parquet file.
+the query picks get their answers as the run goes, the others keep empty answer columns. The run keeps
+a frozen copy of its query and tasks. It works in chunks of those rows by `__row_id` (chunk k is always
+the same rows). A chunk's answers are written to the dataset's `parts/part-{k}.parquet` in one go, and
+only then does the run's bookmark (`next_chunk`) move on. So a stop, a crash or a restart loses at most
+the chunk in progress, and redoing it costs nothing: answers come from the response cache. When every
+chunk is written, the dataset is written out as one Parquet file.
+
+Runners take turns: a runner does one chunk of a run, then puts it back in the queue (`process_next`).
+The next turn goes to a run that has waited long (`ROWLAB_RUN_WAIT_SECONDS`), or else to the one with
+the least left to do, so a try on a few rows is done at once, even next to a big run. An organisation
+has at most `ROWLAB_RUNS_PER_ORG` runs going at once.
 """
 
 import json
@@ -123,7 +128,8 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
         with db.connect() as conn:
             conn.execute(
                 "INSERT INTO runs (id, dataset_id, status, config, columns, costs,"
-                " row_count, total, created_at) VALUES (?, ?, 'queued', ?, ?, '[]', ?, ?, ?)",
+                " row_count, total, created_at, queued_at)"
+                " VALUES (?, ?, 'queued', ?, ?, '[]', ?, ?, ?, ?)",
                 (
                     run_id,
                     made_id,
@@ -131,6 +137,7 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
                     json.dumps([c for task in request.tasks for c in tasks.result_columns(task)]),
                     len(asked),
                     len(asked) * sum(len(task.models) for task in request.tasks),
+                    datetime.now(UTC).isoformat(),
                     datetime.now(UTC).isoformat(),
                 ),
             )
@@ -266,7 +273,14 @@ def resume_run(run_id: str) -> Run:
         raise InvalidRequest(f"The run is {run.status}, with nothing to resume.")
     if run.status == "done":
         datasets.reopen_run_dataset(run.dataset_id)
-    _set(run_id, status="queued", error=None)
+    _set(
+        run_id,
+        status="queued",
+        error=None,
+        queued_at=datetime.now(UTC).isoformat(),
+        # Its failed answers are asked again first, chunk by chunk.
+        retry_chunk=0 if failed and run.next_chunk else None,
+    )
     _wake.set()
     return get_run(run_id)
 
@@ -296,13 +310,26 @@ def recover_interrupted_runs(stale_after: float | None = None) -> None:
 
 
 def process_next() -> bool:
-    """Claim the oldest queued run, if there is one, and process it. Returns whether there was.
+    """Claim the next run, if there is one, and do one chunk of it. Returns whether there was one.
     Several runners can share the queue: each claims a different run."""
+    now = datetime.now(UTC)
+    long_ago = (now - timedelta(seconds=config().run_wait_seconds)).isoformat()
+    # Chunks left, counting failed answers still to ask again.
+    left = (
+        f"(r.row_count + {CHUNK_ROWS - 1}) / {CHUNK_ROWS} - r.next_chunk"
+        " + coalesce(r.next_chunk - r.retry_chunk, 0)"
+    )
     with db.connect() as conn:
         row = conn.execute(
-            "UPDATE runs SET status = 'running', updated_at = ? WHERE id = (SELECT id FROM runs"
-            f" WHERE status = 'queued' ORDER BY created_at LIMIT 1{db.skip_locked()}) RETURNING id",
-            (datetime.now(UTC).isoformat(),),
+            "UPDATE runs SET status = 'running', updated_at = ? WHERE id = ("
+            " SELECT r.id FROM runs r JOIN datasets d ON d.id = r.dataset_id"
+            " WHERE r.status = 'queued' AND ("
+            "  SELECT count(*) FROM runs o JOIN datasets od ON od.id = o.dataset_id"
+            "  WHERE od.org_id = d.org_id AND o.status IN ('running', 'stopping')) < ?"
+            " ORDER BY CASE WHEN r.queued_at <= ? THEN 0 ELSE 1 END,"
+            f" CASE WHEN r.queued_at <= ? THEN 0 ELSE {left} END, r.queued_at"
+            f" LIMIT 1{db.skip_locked('r')}) RETURNING id",
+            (now.isoformat(), config().runs_per_org, long_ago, long_ago),
         ).fetchone()
     if row is None:
         return False
@@ -311,8 +338,8 @@ def process_next() -> bool:
 
 
 def run_forever() -> None:
-    """Process queued runs, oldest first, one at a time; `rowlab runner` runs just this. While idle,
-    runs whose runner stopped (another process that crashed) are queued again."""
+    """Process queued runs a chunk at a time; `rowlab runner` runs just this. While idle, runs whose
+    runner stopped (another process that crashed) are queued again."""
     while True:
         try:
             if process_next():
@@ -326,33 +353,52 @@ def run_forever() -> None:
 
 
 def _process(run_id: str) -> None:
+    """One turn of a claimed run: one chunk of failed answers to ask again, or else the next chunk.
+    Then it waits in the queue again, or is done."""
     run = get_run(run_id)
-    _set(run_id, status="running")
+    retry = _retry_chunk(run_id)
+    if retry is not None and (retry >= run.next_chunk or not any(c.failed for c in run.costs)):
+        retry = None
+    chunks = -(-run.row_count // CHUNK_ROWS)
     try:
         org_id = datasets.org_of(run.dataset_id)
         api_key = settings.openrouter_key(org_id)
         if api_key is None:
             raise InvalidRequest("Set your OpenRouter API key first.")
         keys = {path: k for path, (_, k) in datasets.dataset_fields(run.dataset_id).items()}
-        # Answers that failed in the chunks already written are asked again first.
-        for chunk in range(run.next_chunk):
-            if not any(c.failed for c in run.costs):
-                break
-            if not _process_chunk(run, chunk, keys, org_id, api_key, retry=True):
-                _set(run_id, status="stopped")
-                return
-            run = get_run(run_id)
-        chunks = -(-run.row_count // CHUNK_ROWS)
-        for chunk in range(run.next_chunk, chunks):
-            if not _process_chunk(run, chunk, keys, org_id, api_key):
-                _set(run_id, status="stopped")
-                return
-            run = get_run(run_id)
-        datasets.finish_run_dataset(run.dataset_id)
-        _set(run_id, status="done")
+        if retry is not None:
+            finished = _process_chunk(run, retry, keys, org_id, api_key, retry=True)
+            retry += 1
+        else:
+            finished = run.next_chunk >= chunks or _process_chunk(
+                run, run.next_chunk, keys, org_id, api_key
+            )
+        if not finished:
+            _set(run_id, status="stopped")
+            return
+        run = get_run(run_id)
+        retry = retry if retry is not None and retry < run.next_chunk else None
+        if retry is None and run.next_chunk >= chunks:
+            datasets.finish_run_dataset(run.dataset_id)
+            _set(run_id, status="done", retry_chunk=None)
+            return
+        # Back in the queue, unless it was stopped meanwhile.
+        now = datetime.now(UTC).isoformat()
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE runs SET status = CASE WHEN status = 'stopping' THEN 'stopped'"
+                " ELSE 'queued' END, retry_chunk = ?, queued_at = ?, updated_at = ? WHERE id = ?",
+                (retry, now, now, run_id),
+            )
     except Exception as e:
         _set(run_id, status="failed", error=str(e))
         raise
+
+
+def _retry_chunk(run_id: str) -> int | None:
+    with db.connect() as conn:
+        row = conn.execute("SELECT retry_chunk FROM runs WHERE id = ?", (run_id,)).fetchone()
+    return row["retry_chunk"]
 
 
 def _process_chunk(

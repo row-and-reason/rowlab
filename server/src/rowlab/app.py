@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from rowlab import __version__
 from rowlab.api import auth, connections, datasets, members, runs, settings, utils
 from rowlab.core import runs as runs_core
+from rowlab.core.config import config
 from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
 from rowlab.core.providers.openrouter import OpenRouterError
 
@@ -43,6 +44,20 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    # Uploads past the file limit are refused before they are read, so they never fill the disk:
+    # the server reads no more than an upload's stated length, which must be given.
+    @app.middleware("http")
+    async def limit_uploads(request: Request, call_next):
+        length = request.headers.get("content-length", "")
+        if request.headers.get("content-type", "").startswith("multipart/") and not length:
+            return JSONResponse({"detail": "Send uploads with a Content-Length."}, status_code=411)
+        if length.isdigit() and int(length) > config().max_file_bytes + 1_000_000:
+            return JSONResponse(
+                {"detail": "The file is bigger than rowlab's limit (`ROWLAB_MAX_FILE`)."},
+                status_code=413,
+            )
+        return await call_next(request)
 
     @app.get("/v1/health", operation_id="getHealth")
     def health() -> Health:

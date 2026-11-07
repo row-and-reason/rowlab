@@ -4,6 +4,7 @@ import pytest
 from conftest import stored, stored_datasets
 
 from rowlab.core import runs
+from rowlab.core.config import config
 from rowlab.core.providers import openrouter
 
 CSV = "review,stars\nTerrible product,1\nLove it,5\nBroke after a day,1\n"
@@ -338,6 +339,7 @@ def test_a_run_killed_mid_way_completes_after_a_restart_without_paying_twice(
     monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
     fake.crash_on = "Is this review negative? Love it"  # row 1, the second chunk
     created = start(client, job)
+    assert runs.process_next()  # A turn: the first chunk.
     with pytest.raises(KeyboardInterrupt):
         runs.process_next()
     cut_off = client.get(f"/v1/runs/{created['id']}").json()
@@ -590,6 +592,8 @@ def test_runners_claiming_at_once_never_take_the_same_run(client, job, api_key, 
     import threading
     import time
 
+    monkeypatch.setenv("ROWLAB_RUNS_PER_ORG", "10")
+    config.cache_clear()
     created = [
         start(client, update(job, sql=f"SELECT * FROM data LIMIT {n}"))["id"] for n in (1, 2, 3)
     ]
@@ -609,3 +613,51 @@ def test_an_estimate_gives_the_cost_before_a_key_is_set(client, dataset):
     assert estimate["problem"] == "Set your OpenRouter API key first."
     assert (estimate["rows"], estimate["calls"]) == (2, 2)
     assert estimate["cost"] > 0
+
+
+def turns(monkeypatch):
+    """The runs given a turn, in order, as the runner processes them."""
+    taken = []
+    process = runs._process
+    monkeypatch.setattr(runs, "_process", lambda run_id: (taken.append(run_id), process(run_id)))
+    return taken
+
+
+def test_the_run_with_least_left_goes_next(client, job, api_key, monkeypatch):
+    monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
+    taken = turns(monkeypatch)
+    big = start(client, job)["id"]  # three chunks
+    small = start(client, update(job, sql="SELECT * FROM data LIMIT 1"))["id"]  # one
+    while runs.process_next():
+        pass
+    # A try on a few rows is done at once, though it came second; a run gives up its turn per chunk.
+    assert taken == [small, big, big, big]
+    assert {client.get(f"/v1/runs/{r}").json()["status"] for r in (big, small)} == {"done"}
+
+
+def test_a_run_waiting_long_goes_first(client, job, api_key, monkeypatch):
+    monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
+    monkeypatch.setenv("ROWLAB_RUN_WAIT_SECONDS", "0.000001")
+    config.cache_clear()
+    taken = turns(monkeypatch)
+    big = start(client, job)["id"]
+    small = start(client, update(job, sql="SELECT * FROM data LIMIT 1"))["id"]
+    runs.process_next()
+    # Both have waited long: the one waiting longest goes first, however much it has left.
+    assert taken == [big]
+    runs.process_next()
+    assert taken == [big, small]
+
+
+def test_an_organisation_has_a_few_runs_going_at_once(client, job, api_key, monkeypatch):
+    monkeypatch.setenv("ROWLAB_RUNS_PER_ORG", "1")
+    config.cache_clear()
+    start(client, job)
+    start(client, update(job, sql="SELECT * FROM data LIMIT 1"))
+    claimed = []
+    monkeypatch.setattr(runs, "_process", claimed.append)  # stays running
+    assert runs.process_next()
+    # The other waits while the first has its turn.
+    assert not runs.process_next()
+    runs._set(claimed[0], status="queued")
+    assert runs.process_next()

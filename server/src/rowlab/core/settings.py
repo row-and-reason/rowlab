@@ -1,11 +1,12 @@
-"""Each organisation's settings, kept in the database. Secrets are never returned by the API."""
+"""Each organisation's settings, kept in the database. Secrets are encrypted at rest when
+`ROWLAB_SECRET_KEY` is set, and never returned by the API."""
 
 import os
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from rowlab.core import db
+from rowlab.core import crypto, db
 from rowlab.core.config import config
 from rowlab.core.providers import openrouter
 
@@ -34,7 +35,10 @@ def get_settings(org_id: str) -> Settings:
 
 def openrouter_key(org_id: str) -> str | None:
     """`OPENROUTER_API_KEY` if set, for every organisation, otherwise the organisation's own."""
-    return os.environ.get("OPENROUTER_API_KEY") or _get(org_id, OPENROUTER_KEY)
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return os.environ["OPENROUTER_API_KEY"]
+    saved = _get(org_id, OPENROUTER_KEY)
+    return crypto.decrypt(saved) if saved else None
 
 
 def save_openrouter_key(org_id: str, key: str) -> Settings:
@@ -44,7 +48,7 @@ def save_openrouter_key(org_id: str, key: str) -> Settings:
         conn.execute(
             "INSERT INTO settings (org_id, key, value) VALUES (?, ?, ?)"
             " ON CONFLICT (org_id, key) DO UPDATE SET value = excluded.value",
-            (org_id, OPENROUTER_KEY, key),
+            (org_id, OPENROUTER_KEY, crypto.encrypt(key)),
         )
     return get_settings(org_id)
 

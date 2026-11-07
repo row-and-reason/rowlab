@@ -63,10 +63,11 @@ def close() -> None:
     _migrated.clear()
 
 
-def skip_locked() -> str:
-    """For a `SELECT … LIMIT 1` that claims a row: on Postgres, so several runners each claim a
-    different one. SQLite has one runner, and no such clause."""
-    return " FOR UPDATE SKIP LOCKED" if config().postgres else ""
+def skip_locked(table: str) -> str:
+    """For a `SELECT … LIMIT 1` that claims a row of `table` (its name or alias in the query): on
+    Postgres, so several runners each claim a different one. SQLite has one runner, and no such
+    clause."""
+    return f" FOR UPDATE OF {table} SKIP LOCKED" if config().postgres else ""
 
 
 @contextmanager

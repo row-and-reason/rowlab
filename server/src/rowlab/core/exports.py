@@ -105,6 +105,7 @@ def export_to_path(dataset_id: str, request: ExportRequest) -> ExportResult:
 def _export_to_s3(dataset_id: str, request: ExportRequest) -> ExportResult:
     """Write the dataset to S3. An object appears complete or not at all, so no temporary name."""
     uri = request.path
+    storage.check_not_storage(uri)
     if uri.endswith("/"):
         uri += file_name(dataset_id, request.format)
     try:

@@ -10,7 +10,6 @@ a copy of the parent's) joined with the answers written so far (`parts/*.parquet
 import gzip
 import json
 import os
-import shutil
 import tempfile
 import uuid
 from collections.abc import Iterator
@@ -20,14 +19,12 @@ from pathlib import Path
 from typing import Any, BinaryIO, Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 import duckdb
 import duckdb.sqltypes
 from pydantic import BaseModel, Field
 
-from rowlab import __version__
-from rowlab.core import connections, db, storage
+from rowlab.core import connections, db, network, storage
 from rowlab.core.config import config
 from rowlab.core.errors import InvalidRequest, NotFound
 
@@ -98,6 +95,7 @@ def create_dataset(org_id: str, source: str, connection_id: str | None = None) -
     """Ingest a local file path, a public http(s) URL, or an `s3://bucket/key` object, read with the
     given connection or else the environment's AWS credentials."""
     if connections.is_s3(source):
+        storage.check_not_storage(source)
         name = source.rstrip("/").rsplit("/", 1)[-1]
         return _ingest(
             org_id,
@@ -116,6 +114,8 @@ def create_dataset(org_id: str, source: str, connection_id: str | None = None) -
     path = Path(source).expanduser().resolve()
     if not path.is_file():
         raise InvalidRequest(f"File not found: {path}")
+    if path.stat().st_size > config().max_file_bytes:
+        raise InvalidRequest(_too_big(path.name))
     return _ingest_file(org_id, path, name=path.name, source=str(path))
 
 
@@ -156,10 +156,8 @@ def name_without_extension(filename: str) -> str:
 
 def _download_dataset(org_id: str, url: str) -> Dataset:
     name = Path(urlparse(url).path).name or "download"
-    # Some hosts reject Python's default user agent.
-    request = Request(url, headers={"User-Agent": f"rowlab/{__version__}"})
     try:
-        with urlopen(request, timeout=60) as response, _temp_copy(response, name) as path:
+        with network.open_url(url, timeout=60) as response, _temp_copy(response, name) as path:
             return _ingest_file(org_id, path, name=name, source=url)
     except HTTPError as e:
         raise InvalidRequest(f"Could not download {url}: HTTP {e.code} {e.reason}") from e
@@ -174,9 +172,21 @@ def _temp_copy(file: BinaryIO, filename: str) -> Iterator[Path]:
     tmp_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=tmp_dir) as directory:
         path = Path(directory) / filename
+        copied = 0
         with path.open("wb") as out:
-            shutil.copyfileobj(file, out)
+            while chunk := file.read(1024 * 1024):
+                copied += len(chunk)
+                if copied > config().max_file_bytes:
+                    raise InvalidRequest(_too_big(filename))
+                out.write(chunk)
         yield path
+
+
+def _too_big(name: str) -> str:
+    return (
+        f"{name} is bigger than {config().max_file_bytes / 1e9:g} GB, rowlab's limit "
+        "(`ROWLAB_MAX_FILE`)."
+    )
 
 
 # Objects in S3 are read where they are, so their content can't be looked at first: each reader is tried
@@ -210,15 +220,17 @@ def _ingest(
     storage.prepare(dataset_id)
     try:
         with storage.connect() as con:
-            con.execute("SET temp_directory = ?", [str(db.data_dir() / "tmp")])
             if connections.is_s3(location):
                 connections.configure(con, org_id, connection_id)
+                size = con.execute("SELECT size FROM read_blob(?)", [location]).fetchone()[0]
+                if size > config().max_file_bytes:
+                    raise InvalidRequest(_too_big(name))
             for i, (_, reader) in enumerate(readers):
                 try:
                     # A table keeps the file's row order, so `rowid` becomes a stable row id.
                     con.execute(f"CREATE TABLE src AS SELECT * FROM {reader}", [location])
                     break
-                except duckdb.HTTPException:
+                except (duckdb.HTTPException, duckdb.InterruptException):
                     raise
                 except duckdb.Error as e:
                     if i == len(readers) - 1:

@@ -21,6 +21,7 @@ import duckdb
 from pydantic import BaseModel, Field
 
 from rowlab.core import datasets, storage
+from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID, Column, sql_string
 from rowlab.core.errors import InvalidRequest
 
@@ -66,7 +67,7 @@ def connect(dataset_id: str) -> Iterator[duckdb.DuckDBPyConnection]:
     nothing else and write nothing at all."""
     datasets.get_dataset(dataset_id)
     source = datasets.dataset_source(dataset_id)
-    with storage.connect() as con:
+    with storage.connect(config().query_seconds) as con:
         con.execute(f"CREATE VIEW data AS SELECT * FROM {source}")
         for macro in _MACROS:
             con.execute(macro)
@@ -91,6 +92,8 @@ def execute(con: duckdb.DuckDBPyConnection, sql: str, params: list | None = None
     """Run SQL built around a user's query, with its errors as invalid requests."""
     try:
         return con.execute(sql, params or [])
+    except duckdb.InterruptException:
+        raise  # Took too long: `storage.connect` says so.
     except duckdb.Error as e:
         raise InvalidRequest(f"The SQL has an error: {e}") from e
 
