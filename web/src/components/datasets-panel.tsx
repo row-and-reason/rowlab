@@ -60,6 +60,7 @@ export function DatasetsPanel({
   settings,
   onAdd,
   onExport,
+  onRename,
   onDelete,
   onSettings,
 }: {
@@ -68,6 +69,7 @@ export function DatasetsPanel({
   settings: Settings | undefined;
   onAdd: () => void;
   onExport: (dataset: Dataset) => void;
+  onRename: (dataset: Dataset) => void;
   onDelete: (dataset: Dataset) => void;
   onSettings: (section: Section) => void;
 }) {
@@ -162,6 +164,9 @@ export function DatasetsPanel({
                     </ItemContent>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
+                    <ContextMenuItem disabled={!canEdit} onClick={() => onRename(dataset)}>
+                      Rename…
+                    </ContextMenuItem>
                     <ContextMenuItem
                       disabled={!canEdit || (!!dataset.run && isActive(dataset.run))}
                       onClick={() => onExport(dataset)}

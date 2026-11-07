@@ -73,6 +73,7 @@ def test_organisations_dont_see_each_others_things(hosted):
         alan.get(f"/v1/datasets/{dataset['id']}"),
         alan.post(f"/v1/datasets/{dataset['id']}/query", json={"sql": "SELECT * FROM data"}),
         alan.delete(f"/v1/datasets/{dataset['id']}"),
+        alan.patch(f"/v1/datasets/{dataset['id']}", json={"name": "stolen"}),
     ):
         assert response.status_code == 404
 
@@ -101,6 +102,8 @@ def test_invited_people_join_with_their_role(hosted):
     members = ada.get("/v1/settings/members").json()
     assert [m["role"] for m in members["members"]] == ["admin", "verifier"]
     assert members["invites"] == []
+
+    assert bob.patch(f"/v1/datasets/{dataset['id']}", json={"name": "changed"}).status_code == 403
 
     # A verifier reads, but doesn't add, run or export.
     assert bob.get(f"/v1/datasets/{dataset['id']}").status_code == 200

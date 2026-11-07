@@ -8,6 +8,8 @@ workflow. It is at `/mcp` on a running rowlab, or `rowlab mcp` over stdio.
 
 ## Connect
 
+**Settings → Connect agents** has copyable commands for this server, including skill installation.
+
 A local rowlab (`uvx rowlab`) needs no sign-in:
 
 ```sh
@@ -31,6 +33,7 @@ in their organisation:
 
 ```sh
 claude mcp add --transport http rowlab https://app.rowlab.dev/mcp && claude mcp login rowlab
+codex mcp add rowlab --url https://app.rowlab.dev/mcp && codex mcp login rowlab
 ```
 
 Or it sends an API key from **Settings → API keys**, for a script or a server that can't sign in:
@@ -48,7 +51,7 @@ organisation.
 | Tool                                             | What it does                                                                |
 | ------------------------------------------------ | --------------------------------------------------------------------------- |
 | `datasets_list`, `dataset_get`                   | the datasets, and one dataset with its columns, lineage and profile         |
-| `dataset_add`, `dataset_delete`                  | add a file from a path, URL or S3; delete                                   |
+| `dataset_add`, `dataset_rename`, `dataset_delete`                  | add a file from a path, URL or S3; rename; delete                                   |
 | `sql_query`                                      | rows from one DuckDB `SELECT` over `data`                                   |
 | `columns_compare`                                | agreement between answer columns, and accuracy against a reference          |
 | `run_preview`                                    | the estimate and the rendered prompts for a run, before it costs anything   |
@@ -59,3 +62,8 @@ organisation.
 Each tool's description says why it exists and when to use it, and the server's instructions give the
 order of work: read the dataset, run on a few rows, read the answers, then run on all. The
 [skills](/agents/skills) go further.
+
+`models_list` returns `{models, total, next_offset}`: 20 models by default, at most 100 per page.
+Use `search` and `kind` to narrow results and `offset` to continue. `columns_compare` keeps per-class
+precision and recall in its default summary; `detail="full"` includes distributions and all row
+filters. New run datasets contain only the selected source rows, keeping their original row IDs.

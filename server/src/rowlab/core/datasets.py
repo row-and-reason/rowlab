@@ -1,8 +1,8 @@
 """Datasets: files ingested once into Parquet with a stable `__row_id`, then explored with DuckDB.
 
-A run makes a new dataset: every row of the parent, with the run's answer columns added, empty for rows
-outside the run's scope. While the run is under way, that dataset is read from its rows (`rows.parquet`,
-a copy of the parent's) joined with the answers written so far (`parts/*.parquet`, one file per chunk);
+A run makes a new dataset: the selected rows of the parent, with the run's answer columns added.
+While the run is under way, that dataset is read from its rows (`rows.parquet`, a copy of the selected
+source rows) joined with the answers written so far (`parts/*.parquet`, one file per chunk);
 `asked.parquet` lists the rows the run asks about. When the run finishes, the two are written out once as
 `data.parquet`, like any other dataset.
 """
@@ -274,9 +274,24 @@ def _ingest(
     return _register(dataset_id, org_id=org_id, name=name_without_extension(name), source=source)
 
 
+class RenameDataset(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+def rename_dataset(dataset_id: str, request: RenameDataset) -> Dataset:
+    """Change a display name without changing its data, lineage or descendants' names."""
+    name = request.name.strip()
+    if not name:
+        raise InvalidRequest("Give the dataset a name.")
+    get_dataset(dataset_id)
+    with db.connect() as conn:
+        conn.execute("UPDATE datasets SET name = ? WHERE id = ?", (name, dataset_id))
+    return get_dataset(dataset_id)
+
+
 def write_run_rows(parent_id: str, asked: list[int]) -> str:
-    """Start the dataset a run makes: copy the parent's rows, so it doesn't depend on the parent, and
-    list the ones the run asks about. Returns its id; it is recorded once the run's first (empty)
+    """Start the dataset a run makes: copy the selected parent rows independently,
+    and list the ones the run asks about. Returns its id; it is recorded once the run's first (empty)
     part is written."""
     dataset_id = uuid.uuid4().hex
     storage.prepare(dataset_id)
@@ -284,8 +299,9 @@ def write_run_rows(parent_id: str, asked: list[int]) -> str:
         with storage.connect() as con:
             storage.write(
                 con,
-                f"SELECT * FROM {dataset_source(parent_id)}",
+                f"SELECT * FROM {dataset_source(parent_id)} WHERE {ROW_ID} IN (SELECT unnest(?::BIGINT[]))",
                 storage.location(dataset_id, "rows.parquet"),
+                [asked],
             )
             storage.write(
                 con,
@@ -302,8 +318,8 @@ def write_run_rows(parent_id: str, asked: list[int]) -> str:
 def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
     """Record the dataset a run makes, once its rows and first (empty) part are written. It is named
     after its branch, numbered like an outline: `titanic__1` for the first made from `titanic`,
-    `titanic__1.2` for the second made from `titanic__1`. Numbers aren't reused, so a name always
-    means one dataset."""
+    `titanic__1.2` for the second made from `titanic__1`. Branch numbers are never reused;
+    display names can be changed independently."""
     parent = get_dataset(parent_id)
     with db.connect() as conn:
         made = conn.execute(

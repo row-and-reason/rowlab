@@ -7,6 +7,7 @@ are used as they are, so `{{first name}}` works without quoting.
 import difflib
 import functools
 import json
+import os
 import re
 from typing import Any
 
@@ -14,6 +15,7 @@ import tiktoken
 from pydantic import BaseModel, Field
 
 from rowlab.core import datasets, sql
+from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID
 
 PLACEHOLDER = re.compile(r"\{\{\s*(.+?)\s*\}\}")
@@ -132,6 +134,8 @@ def count_tokens(text: str) -> int:
 
 @functools.cache
 def _encoding() -> tiktoken.Encoding:
+    # Hosted filesystems may have no writable system temporary directory.
+    os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(config().data_dir / "tiktoken"))
     return tiktoken.get_encoding("o200k_base")
 
 

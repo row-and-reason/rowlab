@@ -3,6 +3,7 @@ import gzip
 import http.server
 import json
 import threading
+from pathlib import Path
 
 import duckdb
 import pytest
@@ -312,3 +313,27 @@ def test_hosted_mode_reads_and_writes_no_paths_on_the_server(hosted, csv_file):
         json={"format": "csv", "path": str(csv_file.parent)},
     )
     assert export.status_code == 400
+
+
+def test_rename_keeps_dataset_and_rejects_empty_names(client, dataset):
+    url = f"/v1/datasets/{dataset['id']}"
+    before = query(client, dataset["id"])
+    response = client.patch(url, json={"name": "  AG News  "})
+    assert response.status_code == 200
+    assert response.json() == {**dataset, "name": "AG News"}
+    assert query(client, dataset["id"]) == before
+    assert client.patch(url, json={"name": "   "}).status_code == 400
+    assert client.patch(url, json={"name": "x" * 201}).status_code == 422
+    assert client.patch("/v1/datasets/missing", json={"name": "new"}).status_code == 404
+
+
+def test_renamed_dataset_exports_a_filename_not_a_path(client, dataset, tmp_path):
+    from rowlab.core.exports import file_name
+
+    client.patch(f"/v1/datasets/{dataset['id']}", json={"name": "../../AG News"})
+    assert "/" not in file_name(dataset["id"], "csv")
+    result = client.post(
+        f"/v1/datasets/{dataset['id']}/export", json={"path": str(tmp_path), "format": "csv"}
+    )
+    assert result.status_code == 200
+    assert Path(result.json()["path"]).parent == tmp_path

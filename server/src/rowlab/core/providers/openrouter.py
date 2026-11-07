@@ -90,6 +90,31 @@ def models() -> list[Model]:
     return _catalog[1]
 
 
+class ModelPage(BaseModel):
+    models: list[Model]
+    total: int
+    next_offset: int | None
+
+
+def list_models(
+    search: str = "",
+    kind: Literal["decision", "llm"] | None = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> ModelPage:
+    needle = search.lower()
+    found = [
+        m
+        for m in models()
+        if (kind is None or m.kind == kind) and (needle in m.id.lower() or needle in m.name.lower())
+    ]
+    return ModelPage(
+        models=found[offset : offset + limit],
+        total=len(found),
+        next_offset=offset + limit if offset + limit < len(found) else None,
+    )
+
+
 def model_kind(model_id: str) -> Literal["decision", "llm"]:
     for model in models():
         if model.id == model_id:

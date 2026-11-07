@@ -242,7 +242,8 @@ function RunDetails({
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums">
           <span>
-            {formatNumber(run.row_count)} / {formatNumber(dataset.row_count)} rows selected
+            {formatNumber(run.row_count)} rows selected
+            {parent ? ` of ${formatNumber(parent.row_count)} source rows` : ""}
           </span>
           <span>
             {formatNumber(run.done)} / {formatNumber(run.total)} calls processed
@@ -375,11 +376,10 @@ function RunDetails({
           </section>
         );
       })}
-      <Collapsible className="border-t pt-2" defaultOpen={run.row_count < dataset.row_count}>
+      <Collapsible className="border-t pt-2" defaultOpen={run.config.sql !== "SELECT * FROM data"}>
         <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="px-0 text-xs" />}>
           <ChevronDownIcon className="size-3" />
-          Scope query ·{" "}
-          {run.row_count === dataset.row_count ? "all rows" : `${formatNumber(run.row_count)} rows`}
+          Scope query · {`${formatNumber(run.row_count)} rows`}
         </CollapsibleTrigger>
         <CollapsibleContent>
           <pre className="pt-2 font-mono text-xs whitespace-pre-wrap break-all select-text">

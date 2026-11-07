@@ -12,7 +12,7 @@ same when they are no further apart. Empty values never count as a disagreement.
 
 import itertools
 import math
-from typing import Literal
+from typing import Any, Literal
 
 import duckdb
 from pydantic import BaseModel, Field
@@ -597,3 +597,17 @@ def _numeric(
         max_absolute_difference=maximum,
         histogram=bins,
     )
+
+
+def compact_comparison(result: Comparison) -> dict[str, Any]:
+    """Agent summary: retain metrics and per-class scores; omit repeated drill-down details."""
+    data = result.model_dump()
+    data.pop("values")
+    data.pop("values_completeness")
+    data.pop("crosstab", None)
+    data.pop("crosstab_completeness", None)
+    for pair in data["pairs"]:
+        pair["coverage"] = {key: value["rows"] for key, value in pair["coverage"].items()}
+        if pair["numeric"] is not None:
+            pair["numeric"].pop("histogram")
+    return data

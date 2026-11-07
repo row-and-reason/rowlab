@@ -38,7 +38,7 @@ from rowlab.core.tasks import Task, TaskTypes
 
 INSTRUCTIONS = (
     "rowlab labels tabular data with AI: it asks a question of every row of a dataset and writes "
-    "the answers as new columns. A run never changes a dataset; it makes a new one, with every row "
+    "the answers as new columns. A run never changes a dataset; it makes a new one, with the selected rows "
     "of the original and the answer columns added, named after its place in the tree (reviews__1, "
     "reviews__1.2). Rows are picked with one DuckDB SELECT over the table `data`; the same SQL "
     "views, runs on and exports. Work in this order: read the dataset (dataset_get), run on a few "
@@ -192,6 +192,14 @@ def create_server() -> FastMCP:
         return datasets.create_dataset(me.org.id, source, connection_id)
 
     @tool
+    def dataset_rename(dataset_id: DatasetId, name: str) -> Dataset:
+        """Give a dataset a descriptive display name. Its id, data and lineage stay the same;
+        descendants keep their own names. Use this to distinguish imports and experiments."""
+        me = _me("member")
+        datasets.check_access(me.org.id, dataset_id)
+        return datasets.rename_dataset(dataset_id, datasets.RenameDataset(name=name))
+
+    @tool
     def dataset_delete(dataset_id: DatasetId) -> None:
         """Delete a dataset and the run that made it; datasets made from it stay. Use it to clean
         up tries the user no longer needs, when they ask."""
@@ -237,10 +245,16 @@ def create_server() -> FastMCP:
             bool, Field(description="Trim surrounding ASCII whitespace in text columns.")
         ] = False,
         sql: Sql = ALL_ROWS,
-    ) -> Comparison:
+        detail: Annotated[
+            Literal["summary", "full"],
+            Field(
+                description="Summary keeps per-class precision/recall; full adds distributions and drill-down filters."
+            ),
+        ] = "summary",
+    ) -> Comparison | dict[str, Any]:
         """How often columns give the same value per row: models against each other, or against
         labels you trust, with each column's accuracy. Use it to pick a model or judge quality;
-        every count comes with a `where` clause, to see those rows with sql_query."""
+        request detail="full" for every count's `where` clause and full distributions."""
         me = _me()
         datasets.check_access(me.org.id, dataset_id)
         request = compare.CompareRequest(
@@ -251,7 +265,8 @@ def create_server() -> FastMCP:
             trim_whitespace=trim_whitespace,
             sql=sql,
         )
-        return compare.compare(dataset_id, request)
+        result = compare.compare(dataset_id, request)
+        return result if detail == "full" else compare.compact_comparison(result)
 
     @tool
     def run_preview(
@@ -369,18 +384,14 @@ def create_server() -> FastMCP:
             Literal["decision", "llm"] | None,
             Field(description="Decision models (fast, cheap, classify only) or LLMs."),
         ] = None,
-    ) -> list[openrouter.Model]:
-        """Models a task can use, with prices per token, cheapest first. Use it to pick a model by
-        name or price; the defaults from task_types_get are fine to start with."""
+        offset: Annotated[int, Field(ge=0)] = 0,
+        limit: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> openrouter.ModelPage:
+        """A page of models with per-token prices: decision models then LLMs, cheapest first in
+        each kind. Search by name or kind; follow next_offset for more. Defaults from
+        task_types_get are fine to start with."""
         _me()
-        found = openrouter.models()
-        needle = search.lower()
-        return [
-            m
-            for m in found
-            if (kind is None or m.kind == kind)
-            and (needle in m.id.lower() or needle in m.name.lower())
-        ]
+        return openrouter.list_models(search, kind, offset, limit)
 
     return mcp
 

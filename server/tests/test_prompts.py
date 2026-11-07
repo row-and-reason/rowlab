@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -111,3 +112,37 @@ def test_renders_only_the_rows_the_query_picks(client, dataset):
     assert result["selected_rows"] == 1
     assert result["tokens"]["sample_size"] == 1
     assert result["tokens"]["total_estimate"] == 1
+
+
+def test_cold_tokenizer_without_system_temp(client, dataset, monkeypatch):
+    import hashlib
+    import os
+    import tempfile
+
+    import tiktoken.load
+    import tiktoken.registry
+
+    from rowlab.core import prompts
+    from rowlab.core.config import config
+
+    # Seed the real tokenizer's cache, then force a cold load with system temp unavailable.
+    count_tokens("warm up")
+    url = "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
+    cache_key = hashlib.sha1(url.encode()).hexdigest()
+    cache = Path(os.environ.get("TIKTOKEN_CACHE_DIR", str(config().data_dir / "tiktoken")))
+    content = (cache / cache_key).read_bytes()
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.setattr(tiktoken.registry, "ENCODINGS", {})
+    monkeypatch.setattr(tiktoken.load, "read_file", lambda _: content)
+
+    def unavailable():
+        raise FileNotFoundError("No usable temporary directory")
+
+    monkeypatch.setattr(tempfile, "gettempdir", unavailable)
+    prompts._encoding.cache_clear()
+    try:
+        result = render(client, dataset, "{{name}}")
+        assert result["rows"][0]["tokens"] > 0
+        assert (config().data_dir / "tiktoken" / cache_key).is_file()
+    finally:
+        prompts._encoding.cache_clear()

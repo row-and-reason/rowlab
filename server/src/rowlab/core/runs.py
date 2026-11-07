@@ -1,7 +1,7 @@
 """Runs: tasks asked about the rows a query picks, making a new dataset, by runners taking turns.
 
-Starting a run copies every row of the dataset into a new one, which shows up straight away; the rows
-the query picks get their answers as the run goes, the others keep empty answer columns. The run keeps
+Starting a run copies the selected rows into a new dataset, which shows up straight away;
+they get their answers as the run goes. The run keeps
 a frozen copy of its query and tasks. It works in chunks of those rows by `__row_id` (chunk k is always
 the same rows). A chunk's answers are written to the dataset's `parts/part-{k}.parquet` in one go, and
 only then does the run's bookmark (`next_chunk`) move on. So a stop, a crash or a restart loses at most
@@ -112,7 +112,7 @@ _wake = threading.Event()
 
 def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> Run:
     """Queue a run of every task with every model on the rows the query picks, started by
-    `created_by` (a user; nobody locally). Its dataset, with every row of the dataset and empty
+    `created_by` (a user; nobody locally). Its dataset, with the selected rows of the dataset and empty
     answer columns, is created right away."""
     check(dataset_id, request)
     if settings.openrouter_key(datasets.org_of(dataset_id)) is None:
