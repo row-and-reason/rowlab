@@ -1,8 +1,8 @@
 """How this rowlab runs, read once from the environment.
 
 There are two modes. `local` is one person on their own machine: no sign-in, files on the server's disk
-allowed. `hosted` is shared: the protections a shared server needs are on (and sign-in, once it exists).
-Everything else is configuration:
+allowed. `hosted` is shared: people sign in with WorkOS, and the protections a shared server needs are
+on. Everything else is configuration:
 
 - `ROWLAB_MODE`: `local` (the default) or `hosted`.
 - `ROWLAB_DATA_DIR`: where rowlab keeps local state (temporary files, the SQLite database by default);
@@ -12,6 +12,8 @@ Everything else is configuration:
   `s3://bucket/prefix`, with AWS credentials from the environment (`AWS_ENDPOINT_URL` for MinIO).
 - `ROWLAB_SERVER_FILES`: whether datasets can be added from, and exported to, paths on the server's
   disk: on in `local` mode, off in `hosted` mode by default.
+- `ROWLAB_URL`: where people reach rowlab, e.g. `https://rowlab.example.com`; `hosted` mode only.
+- `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`: the WorkOS project people sign in with; `hosted` mode only.
 """
 
 import functools
@@ -28,6 +30,9 @@ class Config:
     database_url: str
     storage_url: str
     server_files: bool
+    url: str
+    workos_client_id: str
+    workos_api_key: str
 
     @property
     def postgres(self) -> bool:
@@ -45,6 +50,13 @@ def config() -> Config:
         raise ValueError(f"ROWLAB_MODE must be local or hosted, not {mode!r}.")
     data_dir = Path(os.environ.get("ROWLAB_DATA_DIR") or "~/.rowlab").expanduser()
     server_files = os.environ.get("ROWLAB_SERVER_FILES")
+    hosted = {
+        name: os.environ.get(name, "")
+        for name in ("ROWLAB_URL", "WORKOS_CLIENT_ID", "WORKOS_API_KEY")
+    }
+    missing = [name for name, value in hosted.items() if not value]
+    if mode == "hosted" and missing:
+        raise ValueError(f"Hosted mode needs {', '.join(missing)}.")
     return Config(
         mode=mode,
         data_dir=data_dir,
@@ -55,4 +67,7 @@ def config() -> Config:
         server_files=mode == "local"
         if server_files is None
         else server_files.lower() in ("1", "true", "yes"),
+        url=hosted["ROWLAB_URL"].rstrip("/"),
+        workos_client_id=hosted["WORKOS_CLIENT_ID"],
+        workos_api_key=hosted["WORKOS_API_KEY"],
     )

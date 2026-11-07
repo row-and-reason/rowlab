@@ -23,6 +23,36 @@
         }
       }
     },
+    "/v1/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get Me",
+        "description": "Who is calling: their organisation and role. Locally, always the one implicit admin.",
+        "operationId": "getMe",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
     "/v1/settings/connections": {
       "get": {
         "tags": [
@@ -46,7 +76,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -85,7 +123,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
       }
     },
     "/v1/settings/connections/{connection_id}": {
@@ -96,6 +142,14 @@
         "summary": "Update Connection",
         "description": "Change a connection; leave out `secret_access_key` to keep the saved one.",
         "operationId": "updateConnection",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "connection_id",
@@ -146,6 +200,14 @@
         ],
         "summary": "Delete Connection",
         "operationId": "deleteConnection",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "connection_id",
@@ -196,7 +258,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -235,7 +305,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
       }
     },
     "/v1/datasets/{dataset_id}": {
@@ -245,6 +323,14 @@
         ],
         "summary": "Get Dataset",
         "operationId": "getDataset",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -285,6 +371,14 @@
         ],
         "summary": "Delete Dataset",
         "operationId": "deleteDataset",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -320,6 +414,14 @@
         ],
         "summary": "Profile Dataset",
         "operationId": "getDatasetProfile",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -367,6 +469,14 @@
         "summary": "Query Dataset",
         "description": "Run one DuckDB `SELECT` over the table `data`, the dataset, and return a page of its rows,\ne.g. `SELECT * FROM data WHERE stars = 1 ORDER BY review LIMIT 20`. It can read nothing but the\ndataset. `agree([a, b, \u2026])` and `disagree([a, b, \u2026])` compare columns in a row; see\n`POST /v1/datasets/{id}/compare`.",
         "operationId": "queryDataset",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -420,6 +530,14 @@
         "summary": "Compare Columns",
         "description": "How often two or more columns give the same value in each row: several models' answers,\na model against labels someone already has, or any columns at all. With a `reference`, also\neach column's accuracy against it. Every count comes with the filter for its rows, to use in a\nquery's WHERE clause: to see them (`query`) or to ask about them again (`runs`).",
         "operationId": "compareColumns",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -473,6 +591,14 @@
         "summary": "Render Prompt",
         "description": "Render a prompt template for a page of rows, with warnings and token estimates.",
         "operationId": "renderPrompt",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -526,6 +652,14 @@
         "summary": "Download Dataset",
         "description": "Download the dataset as a CSV, JSONL or Parquet file, named after it. Nested values are JSON\ntext in CSV. A dataset still being made can't be exported until its run is done.",
         "operationId": "downloadDataset",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -605,6 +739,14 @@
         "summary": "Export Dataset",
         "description": "Write the dataset as CSV, JSONL or Parquet to a file on the server, or to S3.",
         "operationId": "exportDataset",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -650,6 +792,232 @@
         }
       }
     },
+    "/v1/settings/members": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List Members",
+        "description": "The organisation's members, and the people invited to it.",
+        "operationId": "listMembers",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Members"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/settings/members/{user_id}": {
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Change Role",
+        "description": "Make someone an admin, member or verifier. The organisation always keeps an admin.",
+        "operationId": "changeRole",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Member"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Remove Member",
+        "description": "Remove someone from the organisation, with their API keys.",
+        "operationId": "removeMember",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/invites": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Invite Member",
+        "description": "Invite an email address. Nobody is emailed: they join when they first sign in.",
+        "operationId": "inviteMember",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invite"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/settings/invites/{invite_id}": {
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Delete Invite",
+        "operationId": "deleteInvite",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "invite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Invite Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/datasets/{dataset_id}/runs": {
       "post": {
         "tags": [
@@ -658,6 +1026,14 @@
         "summary": "Create Run",
         "description": "Queue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with every row; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
         "operationId": "createRun",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -711,6 +1087,14 @@
         "summary": "Estimate Run",
         "description": "What `POST /v1/datasets/{id}/runs` with the same body would take and roughly cost, and why\nit can't run as it is, if so. Nothing is asked.",
         "operationId": "estimateRun",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "dataset_id",
@@ -763,6 +1147,14 @@
         ],
         "summary": "Get Run",
         "operationId": "getRun",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "run_id",
@@ -806,6 +1198,14 @@
         "summary": "Stop Run",
         "description": "Stop after the calls in flight. The chunk in progress is redone on resume, for free.",
         "operationId": "stopRun",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "run_id",
@@ -849,6 +1249,14 @@
         "summary": "Resume Run",
         "description": "Continue a stopped or failed run, or a done one with failed answers: its failed answers are\nasked again first, then it continues from its first unwritten chunk.",
         "operationId": "resumeRun",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "parameters": [
           {
             "name": "run_id",
@@ -902,7 +1310,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
       }
     },
     "/v1/settings/openrouter-key": {
@@ -911,7 +1327,7 @@
           "settings"
         ],
         "summary": "Save Openrouter Key",
-        "description": "Check the key with OpenRouter and save it locally.",
+        "description": "Check the key with OpenRouter and save it for the organisation.",
         "operationId": "saveOpenRouterKey",
         "requestBody": {
           "content": {
@@ -933,6 +1349,139 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/settings/api-keys": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List Api Keys",
+        "description": "Your own API keys. Hosted only: locally the API needs no key.",
+        "operationId": "listApiKeys",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKey"
+                  },
+                  "type": "array",
+                  "title": "Response Listapikeys"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Create Api Key",
+        "description": "A key acting as you, with your role, sent as `Authorization: Bearer rl_\u2026`. The key itself is\nreturned only this once.",
+        "operationId": "createApiKey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewApiKey"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/settings/api-keys/{api_key_id}": {
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Delete Api Key",
+        "operationId": "deleteApiKey",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "api_key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Api Key Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -970,7 +1519,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
       }
     },
     "/v1/utils/task-types": {
@@ -992,7 +1549,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
       }
     }
   },
@@ -1040,6 +1605,56 @@
           "rate"
         ],
         "title": "Agreement"
+      },
+      "ApiKey": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "last_used_at"
+        ],
+        "title": "ApiKey"
+      },
+      "ApiKeyRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ApiKeyRequest"
       },
       "Body_createDataset": {
         "properties": {
@@ -1796,6 +2411,151 @@
         ],
         "title": "Health"
       },
+      "Invite": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "verifier",
+              "member",
+              "admin"
+            ],
+            "title": "Role"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "role",
+          "created_at"
+        ],
+        "title": "Invite"
+      },
+      "InviteRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "verifier",
+              "member",
+              "admin"
+            ],
+            "title": "Role",
+            "default": "member"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "InviteRequest"
+      },
+      "Me": {
+        "properties": {
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/User"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Empty locally, where nobody signs in."
+          },
+          "org": {
+            "$ref": "#/components/schemas/Org"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "verifier",
+              "member",
+              "admin"
+            ],
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "org",
+          "role"
+        ],
+        "title": "Me",
+        "description": "Who is calling."
+      },
+      "Member": {
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "verifier",
+              "member",
+              "admin"
+            ],
+            "title": "Role"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When they joined."
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "role",
+          "created_at"
+        ],
+        "title": "Member"
+      },
+      "Members": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "invites": {
+            "items": {
+              "$ref": "#/components/schemas/Invite"
+            },
+            "type": "array",
+            "title": "Invites"
+          }
+        },
+        "type": "object",
+        "required": [
+          "members",
+          "invites"
+        ],
+        "title": "Members"
+      },
       "Model": {
         "properties": {
           "id": {
@@ -1838,6 +2598,24 @@
         ],
         "title": "Model"
       },
+      "NewApiKey": {
+        "properties": {
+          "api_key": {
+            "$ref": "#/components/schemas/ApiKey"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "The key itself, `rl_\u2026`. It is shown only this once."
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key",
+          "key"
+        ],
+        "title": "NewApiKey"
+      },
       "OpenRouterKey": {
         "properties": {
           "key": {
@@ -1868,6 +2646,24 @@
           "name"
         ],
         "title": "Option"
+      },
+      "Org": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Org"
       },
       "Pair": {
         "properties": {
@@ -2165,6 +2961,24 @@
           "values"
         ],
         "title": "RenderedRow"
+      },
+      "RoleChange": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "verifier",
+              "member",
+              "admin"
+            ],
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "RoleChange"
       },
       "Rows": {
         "properties": {
@@ -2729,6 +3543,29 @@
         ],
         "title": "TypeInfo"
       },
+      "User": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "name"
+        ],
+        "title": "User"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -2852,6 +3689,19 @@
           "counts"
         ],
         "title": "ValueCounts"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "description": "An API key, `rl_\u2026`. Hosted only.",
+        "scheme": "bearer"
+      },
+      "APIKeyCookie": {
+        "type": "apiKey",
+        "description": "Set by signing in. Hosted only.",
+        "in": "cookie",
+        "name": "rowlab_session"
       }
     }
   }

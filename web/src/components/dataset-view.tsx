@@ -17,6 +17,7 @@ import { CompareView } from "@/components/compare-view";
 import { DatasetExplorer } from "@/components/dataset-explorer";
 import { TaskEditor } from "@/components/task-editor";
 import { Lineage } from "@/components/lineage";
+import { useCan } from "@/components/me";
 import { PaneHeader } from "@/components/pane";
 import { TooltipButton } from "@/components/tooltip-button";
 import { Button } from "@/components/ui/button";
@@ -117,6 +118,8 @@ export function DatasetPanels({
   }
   // A dataset still being made can't be run on yet: its answers aren't all in.
   const making = !!run && isActive(run);
+  // Verifiers read; running, exporting and deleting need a member.
+  const canEdit = useCan("member");
 
   async function changeRun(action: "stop" | "resume") {
     if (!run) return;
@@ -135,7 +138,7 @@ export function DatasetPanels({
   const [opened, setOpened] = useState<string>();
 
   const startRun = useCallback(async () => {
-    if (starting || making) return;
+    if (!canEdit || starting || making) return;
     setStarting(true);
     setRunError(undefined);
     const { data, error } = await api.POST("/v1/datasets/{dataset_id}/runs", {
@@ -149,7 +152,7 @@ export function DatasetPanels({
     }
     onChanged();
     onOpenDataset(data.dataset_id);
-  }, [sql, draft.tasks, dataset.id, starting, making, onChanged, onOpenDataset]);
+  }, [canEdit, sql, draft.tasks, dataset.id, starting, making, onChanged, onOpenDataset]);
 
   const types = useTaskTypes();
   const models = useModels();
@@ -169,7 +172,7 @@ export function DatasetPanels({
     },
     [draft.tasks, types, models, addTask],
   );
-  const estimate = useEstimate(dataset.id, sql, draft.tasks);
+  const estimate = useEstimate(dataset.id, sql, draft.tasks, canEdit);
 
   // Starts over with one empty task, on the rows you have picked.
   const clearTasks = useCallback(() => {
@@ -204,19 +207,19 @@ export function DatasetPanels({
               {formatNumber(dataset.row_count)} rows · {formatBytes(dataset.size_bytes)}
             </span>
             <div className="ml-auto flex items-center gap-1">
-              {run && (run.status === "queued" || run.status === "running") && (
+              {canEdit && run && (run.status === "queued" || run.status === "running") && (
                 <Button size="sm" variant="ghost" onClick={() => changeRun("stop")}>
                   <SquareIcon data-icon="inline-start" />
                   Stop
                 </Button>
               )}
-              {run && (run.status === "stopped" || run.status === "failed") && (
+              {canEdit && run && (run.status === "stopped" || run.status === "failed") && (
                 <Button size="sm" variant="ghost" onClick={() => changeRun("resume")}>
                   <PlayIcon data-icon="inline-start" />
                   Resume
                 </Button>
               )}
-              {run && run.status === "done" && run.failed > 0 && (
+              {canEdit && run && run.status === "done" && run.failed > 0 && (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -240,12 +243,12 @@ export function DatasetPanels({
                   <EllipsisIcon />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled={making} onClick={onExport}>
+                  <DropdownMenuItem disabled={!canEdit || making} onClick={onExport}>
                     <DownloadIcon />
                     Export…
                     <DropdownMenuShortcut>E</DropdownMenuShortcut>
                   </DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                  <DropdownMenuItem variant="destructive" disabled={!canEdit} onClick={onDelete}>
                     <Trash2Icon />
                     Delete dataset
                   </DropdownMenuItem>
@@ -281,17 +284,19 @@ export function DatasetPanels({
             <span className="font-medium">New run</span>
             <TooltipButton
               label={
-                making
-                  ? "This dataset is still being made"
-                  : (estimate?.problem ??
-                    (estimate
-                      ? `About ${formatUsd(estimate.cost)} for ${formatNumber(estimate.rows)} rows, making a new dataset`
-                      : "Run every task on the rows in the table, making a new dataset"))
+                !canEdit
+                  ? "Running tasks needs the member role"
+                  : making
+                    ? "This dataset is still being made"
+                    : (estimate?.problem ??
+                      (estimate
+                        ? `About ${formatUsd(estimate.cost)} for ${formatNumber(estimate.rows)} rows, making a new dataset`
+                        : "Run every task on the rows in the table, making a new dataset"))
               }
               keys={["⌘", "↵"]}
               size="sm"
               className="ml-auto"
-              disabled={starting || making}
+              disabled={!canEdit || starting || making}
               onClick={startRun}
             >
               {starting ? (
@@ -334,10 +339,16 @@ function emptyTask(existing: Task[]): Task {
 }
 
 /** What running the draft would take and cost, or why it can't run: fetched again as it changes. */
-function useEstimate(datasetId: string, sql: string, tasks: Task[]): Estimate | undefined {
+function useEstimate(
+  datasetId: string,
+  sql: string,
+  tasks: Task[],
+  enabled: boolean,
+): Estimate | undefined {
   const [estimate, setEstimate] = useState<{ key: string; estimate: Estimate }>();
   const key = JSON.stringify([sql, tasks]);
   useEffect(() => {
+    if (!enabled) return;
     let current = true;
     const timer = setTimeout(() => {
       api
@@ -355,7 +366,7 @@ function useEstimate(datasetId: string, sql: string, tasks: Task[]): Estimate | 
     };
     // The key stands for the query and tasks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datasetId, key]);
+  }, [datasetId, key, enabled]);
   return estimate?.estimate;
 }
 

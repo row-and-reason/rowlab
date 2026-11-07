@@ -1613,6 +1613,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyjwt"
+version = "2.15.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/ea/5194e52748b0da83d71e082d75496eaec6e58f419f5e184786ded517e6a9/pyjwt-2.15.1.tar.gz", hash = "sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8", size = 121252, upload-time = "2026-09-28T18:40:42.598Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/50/ca/44de4e75f8aadc457f0634be3b542815078ded46dca30efb960edeecad6e/pyjwt-2.15.1-py3-none-any.whl", hash = "sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193", size = 33860, upload-time = "2026-09-28T18:40:41.429Z" },
+]
+
+[[package]]
 name = "pyparsing"
 version = "3.3.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1990,6 +1999,8 @@ dependencies = [
 hosted = [
     { name = "boto3" },
     { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pyjwt" },
+    { name = "workos" },
 ]
 
 [package.dev-dependencies]
@@ -2006,7 +2017,9 @@ requires-dist = [
     { name = "duckdb", specifier = ">=2.0.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.162.0" },
     { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'hosted'", specifier = ">=3.2" },
+    { name = "pyjwt", marker = "extra == 'hosted'", specifier = ">=2.10" },
     { name = "tiktoken", specifier = ">=0.14.0" },
+    { name = "workos", marker = "extra == 'hosted'", specifier = ">=10.8.0" },
 ]
 provides-extras = ["hosted"]
 
@@ -2520,6 +2533,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a4/34/4dd12fc8bb7d61c91467ec3efe415ffa7d5456f799954b40c5bbaeae470e/werkzeug-3.1.9.tar.gz", hash = "sha256:55ca7c70a75689be937aa27f8ff4b018f06ff4838fc73045560bf0f5a1291060", size = 940188, upload-time = "2026-09-27T18:33:41.637Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a1/38/df03f564f43cec2684823f3cccae1a652ee7face1cbaa76fb223096e64d7/werkzeug-3.1.9-py3-none-any.whl", hash = "sha256:6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab", size = 228700, upload-time = "2026-09-27T18:33:39.685Z" },
+]
+
+[[package]]
+name = "workos"
+version = "10.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "httpx2" },
+    { name = "pyjwt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b9/78/f7025e6ae9fc49fe614dcf8f53cebb93470df962925cbb7ab6cffab74c3b/workos-10.8.0.tar.gz", hash = "sha256:146cd00a31c9e511c9f229763ac58815cdf44227664dd89a20ec2c9d5ebc7a3b", size = 428560, upload-time = "2026-11-05T19:59:45.1Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/3a/d91c97898163898c60769dcb448f5557fbc319c338c0c4f7046d29e2ef10/workos-10.8.0-py3-none-any.whl", hash = "sha256:94d7f86d2ebefd92dc43c1fc0e980c88a98675b15dba42ba8f4c0e6f429419a7", size = 1026777, upload-time = "2026-11-05T19:59:43.716Z" },
 ]
 
 [[package]]

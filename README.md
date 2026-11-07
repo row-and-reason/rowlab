@@ -54,8 +54,9 @@ rowlab keeps its state (SQLite database, ingested datasets as Parquet) in `~/.ro
 ## Configuration
 
 rowlab runs in one of two modes. `local` (the default) is one person on their own machine: no sign-in,
-and files on the server's disk can be read and written. `hosted` is a shared server: the protections it
-needs are on, and sign-in (coming). Everything else is configuration, from environment variables:
+and files on the server's disk can be read and written. `hosted` is a shared server: people sign in with
+[WorkOS](https://workos.com), everything belongs to an organisation, and the protections a shared server
+needs are on. Everything else is configuration, from environment variables:
 
 | Variable | Default | |
 |---|---|---|
@@ -65,8 +66,13 @@ needs are on, and sign-in (coming). Everything else is configuration, from envir
 | `ROWLAB_STORAGE_URL` | the data folder's `datasets` | or `s3://bucket/prefix`, with the usual `AWS_*` credentials (`AWS_ENDPOINT_URL` for MinIO) |
 | `ROWLAB_SERVER_FILES` | on when `local`, off when `hosted` | whether datasets can be added from, and exported to, paths on the server |
 | `OPENROUTER_API_KEY` | | or save it in Settings |
+| `ROWLAB_URL` | | `hosted` only: where people reach rowlab, e.g. `https://rowlab.example.com` |
+| `WORKOS_CLIENT_ID`, `WORKOS_API_KEY` | | `hosted` only: the WorkOS project people sign in with |
 
-Postgres and S3 need `pip install "rowlab[hosted]"`. With Postgres, the API and the runners that process
+Postgres, S3 and WorkOS need `pip install "rowlab[hosted]"`. In the WorkOS project, add
+`<ROWLAB_URL>/auth/callback` as a redirect URI and `<ROWLAB_URL>/` as the sign-out redirect. The first
+person to sign in gets an organisation of their own as its admin, and invites the others in Settings →
+Members. Scripts use an API key from Settings → API keys: `Authorization: Bearer rl_…`. With Postgres, the API and the runners that process
 runs can be separate processes, and several runners share the queue:
 
 ```sh

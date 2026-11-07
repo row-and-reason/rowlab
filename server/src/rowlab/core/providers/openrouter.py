@@ -104,11 +104,17 @@ def check_key(api_key: str) -> None:
 
 
 def decide(
-    model: str, state: str, questions: dict[str, Any], *, api_key: str, fresh: bool = False
+    model: str,
+    state: str,
+    questions: dict[str, Any],
+    *,
+    org_id: str,
+    api_key: str,
+    fresh: bool = False,
 ) -> Response:
     """Ask a decision model typed questions about `state`. `data` is the answers by question."""
     body = {"model": model, "state": state, "questions": questions}
-    response, cached = _cached_post("/alpha/decisions", body, api_key, fresh=fresh)
+    response, cached = _cached_post("/alpha/decisions", body, org_id, api_key, fresh=fresh)
     return Response(data=response["answers"], cost=response["usage"]["cost"], cached=cached)
 
 
@@ -117,6 +123,7 @@ def complete(
     messages: list[dict[str, str]],
     schema: dict[str, Any],
     *,
+    org_id: str,
     api_key: str,
     fresh: bool = False,
 ) -> Response:
@@ -129,18 +136,19 @@ def complete(
             "json_schema": {"name": "answer", "strict": True, "schema": schema},
         },
     }
-    response, cached = _cached_post("/v1/chat/completions", body, api_key, fresh=fresh)
+    response, cached = _cached_post("/v1/chat/completions", body, org_id, api_key, fresh=fresh)
     content = (response.get("choices") or [{}])[0].get("message", {}).get("content")
     return Response(data=content, cost=response.get("usage", {}).get("cost", 0), cached=cached)
 
 
 def _cached_post(
-    path: str, body: dict[str, Any], api_key: str, *, fresh: bool = False
+    path: str, body: dict[str, Any], org_id: str, api_key: str, *, fresh: bool = False
 ) -> tuple[dict[str, Any], bool]:
-    """POST, unless the identical request was answered before: a paid call is never made twice.
-    `fresh` asks again anyway, e.g. when the cached reply was unusable, and caches the new reply."""
+    """POST, unless the organisation asked the identical request before: a paid call is never made
+    twice. Each organisation has its own answers, which nobody else sees or gets for free. `fresh`
+    asks again anyway, e.g. when the cached reply was unusable, and caches the new reply."""
     key = hashlib.sha256(
-        json.dumps({"path": path, "body": body}, sort_keys=True).encode()
+        json.dumps({"org": org_id, "path": path, "body": body}, sort_keys=True).encode()
     ).hexdigest()
     with db.connect() as conn:
         row = conn.execute("SELECT response FROM responses WHERE key = ?", (key,)).fetchone()

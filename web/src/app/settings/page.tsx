@@ -6,6 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { ApiKeys } from "@/components/api-keys";
+import { useCan, useMe } from "@/components/me";
+import { MembersSettings } from "@/components/members-settings";
 import { PaneHeader } from "@/components/pane";
 import { StorageConnections } from "@/components/storage-connections";
 import { TooltipButton } from "@/components/tooltip-button";
@@ -23,7 +26,7 @@ import { Item, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Settings } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
-import { type Section, SECTIONS, settingsUrl } from "@/lib/settings";
+import { type Section, sections, settingsUrl } from "@/lib/settings";
 
 // App-wide settings: sections on the left, the picked one on the right. Esc goes back.
 export default function SettingsPage() {
@@ -37,7 +40,8 @@ export default function SettingsPage() {
 function SettingsView() {
   const router = useRouter();
   const params = useSearchParams();
-  const section: Section = SECTIONS.find((s) => s.id === params.get("section"))?.id ?? "providers";
+  const shown = sections(useMe());
+  const section: Section = shown.find((s) => s.id === params.get("section"))?.id ?? "providers";
   const back = `/?${params.get("from") ?? ""}`;
   const [settings, setSettings] = useState<Settings>();
 
@@ -71,7 +75,7 @@ function SettingsView() {
           <span className="font-semibold">Settings</span>
         </PaneHeader>
         <ItemGroup className="gap-0.5 p-2">
-          {SECTIONS.map((s) => (
+          {shown.map((s) => (
             <Item
               key={s.id}
               size="xs"
@@ -87,11 +91,11 @@ function SettingsView() {
       </nav>
       <section className="flex min-w-0 flex-1 flex-col">
         <PaneHeader>
-          <span className="font-medium">{SECTIONS.find((s) => s.id === section)!.label}</span>
+          <span className="font-medium">{shown.find((s) => s.id === section)!.label}</span>
         </PaneHeader>
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <div className="max-w-xl">
-            {section === "providers" ? (
+            {section === "providers" && (
               <FieldSet>
                 <FieldLegend>OpenRouter</FieldLegend>
                 <FieldDescription>
@@ -99,13 +103,16 @@ function SettingsView() {
                 </FieldDescription>
                 <OpenRouterKey settings={settings} onSaved={setSettings} />
               </FieldSet>
-            ) : (
+            )}
+            {section === "storage" && (
               <FieldSet>
                 <FieldLegend>S3-compatible</FieldLegend>
                 <FieldDescription>AWS S3, Cloudflare R2, MinIO and others.</FieldDescription>
                 <StorageConnections />
               </FieldSet>
             )}
+            {section === "members" && <MembersSettings />}
+            {section === "api-keys" && <ApiKeys />}
           </div>
         </div>
       </section>
@@ -124,6 +131,7 @@ function OpenRouterKey({
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const canAdmin = useCan("admin");
 
   async function save() {
     setSaving(true);
@@ -139,6 +147,13 @@ function OpenRouterKey({
     toast.success("OpenRouter key saved");
   }
 
+  if (!canAdmin) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {settings?.openrouter_key ? "A key is set." : "No key is set yet."} Admins change it.
+      </p>
+    );
+  }
   if (settings?.openrouter_key === "environment") {
     return (
       <p className="text-sm text-muted-foreground">

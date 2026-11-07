@@ -277,11 +277,8 @@ def test_profile_includes_nested_fields(client, tmp_path):
     assert profile["actor.id"]["max"] == "2"
 
 
-def test_hosted_mode_reads_and_writes_no_paths_on_the_server(client, csv_file, monkeypatch):
-    from rowlab.core.config import config
-
-    monkeypatch.setenv("ROWLAB_MODE", "hosted")
-    config.cache_clear()
+def test_hosted_mode_reads_and_writes_no_paths_on_the_server(hosted, csv_file):
+    client = hosted("ada@example.com")
     assert client.get("/v1/settings").json()["mode"] == "hosted"
     added = client.post("/v1/datasets", data={"source": str(csv_file)})
     assert added.status_code == 400

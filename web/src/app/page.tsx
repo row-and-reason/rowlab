@@ -27,6 +27,7 @@ import { AddDataset, type SourceKind } from "@/components/add-dataset";
 import { DatasetPanels, TABS, type TaskActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
 import { ExportDataset } from "@/components/export-dataset";
+import { useCan } from "@/components/me";
 import { PaneHeader } from "@/components/pane";
 import { Keys } from "@/components/tooltip-button";
 import {
@@ -100,6 +101,8 @@ function Workspace() {
   const [palette, setPalette] = useState(false);
   const taskActionsRef = useRef<TaskActions | null>(null);
   const taskTypes = useTaskTypes();
+  // Verifiers read; adding, running and exporting need a member.
+  const canEdit = useCan("member");
   // Remembers the column widths you drag to, in localStorage.
   const layout = useDefaultLayout({ id: "rowlab.workspace" });
 
@@ -125,7 +128,7 @@ function Workspace() {
 
   const selected = datasets?.find((d) => d.id === selectedId);
   // A dataset a run is still making can't be exported yet.
-  const exportable = !!selected && !(selected.run && isActive(selected.run));
+  const exportable = canEdit && !!selected && !(selected.run && isActive(selected.run));
   const select = useCallback((id: string) => router.push(`/?dataset=${id}`), [router]);
 
   // Keyboard shortcuts. ⌘K and ⌘↵ work everywhere; single keys only when not typing.
@@ -223,26 +226,31 @@ function Workspace() {
                       <EmptyMedia variant="icon">
                         <DatabaseIcon />
                       </EmptyMedia>
-                      <EmptyTitle>Add your first dataset</EmptyTitle>
+                      <EmptyTitle>
+                        {canEdit ? "Add your first dataset" : "No datasets yet"}
+                      </EmptyTitle>
                       <EmptyDescription>
-                        A CSV, TSV, JSON, JSONL or Parquet file, from this computer, S3 or the web.
-                        Then ask questions about each of its rows.
+                        {canEdit
+                          ? "A CSV, TSV, JSON, JSONL or Parquet file, from this computer, S3 or the web. Then ask questions about each of its rows."
+                          : "A member of your organisation adds them."}
                       </EmptyDescription>
                     </EmptyHeader>
-                    <EmptyContent className="flex-row justify-center">
-                      <Button size="sm" onClick={() => setAdding("file")}>
-                        <UploadIcon data-icon="inline-start" />
-                        Upload a file
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setAdding("s3")}>
-                        <CloudIcon data-icon="inline-start" />
-                        From S3
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setAdding("web")}>
-                        <GlobeIcon data-icon="inline-start" />
-                        From the web
-                      </Button>
-                    </EmptyContent>
+                    {canEdit && (
+                      <EmptyContent className="flex-row justify-center">
+                        <Button size="sm" onClick={() => setAdding("file")}>
+                          <UploadIcon data-icon="inline-start" />
+                          Upload a file
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setAdding("s3")}>
+                          <CloudIcon data-icon="inline-start" />
+                          From S3
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setAdding("web")}>
+                          <GlobeIcon data-icon="inline-start" />
+                          From the web
+                        </Button>
+                      </EmptyContent>
+                    )}
                   </Empty>
                 ) : (
                   <Empty className="flex-1">
@@ -289,7 +297,7 @@ function Workspace() {
           <CommandList>
             <CommandEmpty>Nothing found.</CommandEmpty>
             <CommandGroup heading="Actions">
-              {selected && (
+              {selected && canEdit && (
                 <>
                   <CommandItem onSelect={() => command(() => taskActionsRef.current?.run())}>
                     <PlayIcon />
@@ -335,10 +343,12 @@ function Workspace() {
                   )}
                 </>
               )}
-              <CommandItem onSelect={() => command(() => setAdding("choose"))}>
-                <PlusIcon />
-                Add data
-              </CommandItem>
+              {canEdit && (
+                <CommandItem onSelect={() => command(() => setAdding("choose"))}>
+                  <PlusIcon />
+                  Add data
+                </CommandItem>
+              )}
               <CommandItem
                 value="settings providers openrouter key storage s3 connections"
                 onSelect={() => command(() => openSettings("providers"))}

@@ -28,10 +28,13 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useCan, useMe } from "@/components/me";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
@@ -39,7 +42,7 @@ import {
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Spinner } from "@/components/ui/spinner";
 import { ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
-import type { Dataset, Settings } from "@/lib/api/client";
+import { type Dataset, type Settings, signOut } from "@/lib/api/client";
 import { datasetTree } from "@/lib/dataset-tree";
 import type { Section } from "@/lib/settings";
 import { formatNumber } from "@/lib/format";
@@ -69,6 +72,9 @@ export function DatasetsPanel({
   onSettings: (section: Section) => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
+  const me = useMe();
+  const canEdit = useCan("member");
+  const canAdmin = useCan("admin");
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const rows = useMemo(() => datasetTree(datasets ?? [], collapsed), [datasets, collapsed]);
   // A run brings its dataset's family to the top: it slides there.
@@ -86,15 +92,17 @@ export function DatasetsPanel({
     <div className="flex h-full flex-col">
       <PaneHeader>
         <span className="font-semibold">rowlab</span>
-        <TooltipButton
-          label="Add data"
-          variant="ghost"
-          size="icon-sm"
-          className="ml-auto"
-          onClick={onAdd}
-        >
-          <PlusIcon />
-        </TooltipButton>
+        {canEdit && (
+          <TooltipButton
+            label="Add data"
+            variant="ghost"
+            size="icon-sm"
+            className="ml-auto"
+            onClick={onAdd}
+          >
+            <PlusIcon />
+          </TooltipButton>
+        )}
       </PaneHeader>
 
       <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -150,13 +158,17 @@ export function DatasetsPanel({
                   </ContextMenuTrigger>
                   <ContextMenuContent>
                     <ContextMenuItem
-                      disabled={!!dataset.run && isActive(dataset.run)}
+                      disabled={!canEdit || (!!dataset.run && isActive(dataset.run))}
                       onClick={() => onExport(dataset)}
                     >
                       <DownloadIcon />
                       Export…
                     </ContextMenuItem>
-                    <ContextMenuItem variant="destructive" onClick={() => onDelete(dataset)}>
+                    <ContextMenuItem
+                      variant="destructive"
+                      disabled={!canEdit}
+                      onClick={() => onDelete(dataset)}
+                    >
                       <Trash2Icon />
                       Delete
                     </ContextMenuItem>
@@ -169,15 +181,24 @@ export function DatasetsPanel({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 border-t p-2">
-        {/* Will show who is signed in, once there are accounts. */}
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="min-w-0" />}>
             <CircleUserIcon data-icon="inline-start" />
-            Your account
+            <span className="truncate">{me.user?.name ?? "Your account"}</span>
             <ChevronUpIcon data-icon="inline-end" />
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-64">
-            {settings && !settings.openrouter_key && (
+            {me.user && (
+              <>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="truncate">
+                    {me.user.email} · {me.org.name} · {me.role}
+                  </DropdownMenuLabel>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            {canAdmin && settings && !settings.openrouter_key && (
               <DropdownMenuItem onClick={() => onSettings("providers")}>
                 <KeyRoundIcon />
                 Set your OpenRouter key…
@@ -188,17 +209,19 @@ export function DatasetsPanel({
               Settings…
               <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
             </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              <PlugIcon />
-              API keys & MCP connections
-              <DropdownMenuShortcut>Soon</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled>
-              <LogOutIcon />
-              Log out
-              <DropdownMenuShortcut>Soon</DropdownMenuShortcut>
-            </DropdownMenuItem>
+            {me.user && (
+              <>
+                <DropdownMenuItem onClick={() => onSettings("api-keys")}>
+                  <PlugIcon />
+                  API keys…
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={signOut}>
+                  <LogOutIcon />
+                  Log out
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
         <TooltipButton

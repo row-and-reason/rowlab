@@ -13,9 +13,11 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
+from rowlab.api.auth import SESSION_COOKIE
 from rowlab.app import create_app
-from rowlab.core import db, storage
+from rowlab.core import auth, db, storage
 from rowlab.core.config import config
+from rowlab.core.providers.workos import SignedIn
 
 
 @pytest.fixture(scope="session")
@@ -77,6 +79,28 @@ def data_dir(tmp_path, monkeypatch, s3_storage):
 @pytest.fixture
 def client():
     return TestClient(create_app())
+
+
+@pytest.fixture
+def hosted(monkeypatch):
+    """Hosted mode. Returns `sign_in(email)`, which gives a client signed in as that person, as if
+    WorkOS had signed them in."""
+    monkeypatch.setenv("ROWLAB_MODE", "hosted")
+    monkeypatch.setenv("ROWLAB_URL", "http://testserver")
+    monkeypatch.setenv("WORKOS_CLIENT_ID", "client_test")
+    monkeypatch.setenv("WORKOS_API_KEY", "sk_test")
+    config.cache_clear()
+
+    def sign_in(email: str) -> TestClient:
+        name = email.split("@")[0].title()
+        token = auth.sign_in(
+            SignedIn(workos_id=f"user_{name}", email=email, name=name, email_verified=True)
+        )
+        signed_in = TestClient(create_app())
+        signed_in.cookies.set(SESSION_COOKIE, token)
+        return signed_in
+
+    return sign_in
 
 
 def stored(dataset_id, *names):

@@ -10,9 +10,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from rowlab import __version__
-from rowlab.api import connections, datasets, runs, settings, utils
+from rowlab.api import auth, connections, datasets, members, runs, settings, utils
 from rowlab.core import runs as runs_core
-from rowlab.core.errors import InvalidRequest, NotFound
+from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
 from rowlab.core.providers.openrouter import OpenRouterError
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -48,8 +48,10 @@ def create_app() -> FastAPI:
     def health() -> Health:
         return Health(status="ok", version=__version__)
 
+    app.include_router(auth.router)
     app.include_router(connections.router)
     app.include_router(datasets.router)
+    app.include_router(members.router)
     app.include_router(runs.router)
     app.include_router(settings.router)
     app.include_router(utils.router)
@@ -62,6 +64,16 @@ def create_app() -> FastAPI:
     @app.exception_handler(InvalidRequest)
     def invalid_request(request: Request, exc: InvalidRequest) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=400)
+
+    @app.exception_handler(Unauthorized)
+    def unauthorized(request: Request, exc: Unauthorized) -> JSONResponse:
+        return JSONResponse(
+            {"detail": str(exc)}, status_code=401, headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    @app.exception_handler(Forbidden)
+    def forbidden(request: Request, exc: Forbidden) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=403)
 
     @app.exception_handler(OpenRouterError)
     def openrouter_error(request: Request, exc: OpenRouterError) -> JSONResponse:

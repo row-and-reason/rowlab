@@ -304,7 +304,7 @@ on so the UI shows only that:
 | `ROWLAB_MODE` | `local` · `hosted` |
 | Database | SQLite file · Postgres URL |
 | Dataset storage | local folder · S3 bucket (MinIO, R2, AWS) |
-| Sign-in (hosted) | WorkOS · API tokens · generic OIDC later |
+| Sign-in (hosted) | WorkOS (browser and MCP) · API keys (scripts) |
 | Model keys | BYOK (only option at launch) |
 | Billing | off; plans shown as "coming soon" |
 | Files on the server's disk | on in `local`, off by default in `hosted` |
@@ -348,13 +348,25 @@ which only says who someone is and which organisation they are in. Locally, the 
   `rowlab runner`, the `rowlab[hosted]` extra, `make test-hosted` and a CI job with Postgres. The suite
   passes on SQLite with datasets on disk, and in CI on Postgres with datasets on S3.
 
-### 9. Organisations, sign-in and roles
+### 9. Organisations, sign-in and roles ✅
 
 - Everything (datasets, runs, connections, settings, the response cache) belongs to an organisation;
-  locally there is one, implicit.
-- Sign-in in `hosted` mode: WorkOS (Row & Reason's), or API tokens; API tokens work in every mode, for
-  scripts and MCP ("API keys & MCP connections" in the account menu).
-- Roles (Admin, Member, Verifier) checked on every endpoint; users and invites in Settings.
+  locally there is one, implicit (`local`), and every call is its admin.
+- Hosted, the app talks to WorkOS directly, no proxy: browsers sign in with AuthKit (`/auth/sign-in`,
+  `/auth/callback`, `/auth/sign-out`) and get a session cookie; scripts send an API key
+  (`Authorization: Bearer rl_…`) made in Settings → API keys. MCP will sign in with WorkOS's OAuth
+  (milestone 12). Self-hosters who want sign-in bring their own WorkOS project.
+- The first sign-in makes an organisation with that person as its admin; an invited address joins its
+  organisation instead (nobody is emailed). An organisation always keeps an admin. One organisation per
+  person for now; the tables allow several.
+- Roles checked on every endpoint: any role reads; members add, run and export; admins change settings,
+  connections and members.
+- Built: migration `002_organisations.sql` (orgs, users, members, invites, sessions, API keys; `org_id`
+  on datasets, connections and settings), `core/auth.py` (who is calling, sign-in, sessions, API keys),
+  `core/members.py`, `core/providers/workos.py`, `api/auth.py` (`CanRead`, `CanEdit`, `CanAdmin`),
+  `GET /v1/me`, Settings → Members and API keys, the account menu showing who is signed in, and the UI
+  hiding what a role can't do. Tested by signing in as if WorkOS had, on SQLite and on Postgres, and
+  end to end against Row & Reason's WorkOS Staging environment.
 
 ### 10. Hosted protections
 
@@ -420,6 +432,8 @@ Not planned yet; noted so they aren't lost. Add new ones here.
 - **More kinds of storage.** S3-compatible storage is the first (milestone 7); Settings → Storage is
   where others would go: Google Cloud Storage, Azure Blob Storage, and maybe databases or warehouses
   (Postgres, BigQuery) as sources and destinations.
+- **Other sign-in providers.** WorkOS is the only one; a generic OIDC login (Keycloak, Authentik,
+  Google) would let self-hosters sign in without a WorkOS project, if they ask for it.
 - **Recommended models first.** In the model picker, show a short "Recommended for <type>" group at the
   top, picked by the task's type (e.g. fast decision models for Classify, LLMs good at structured output
   for Extract), then the rest sorted as now.

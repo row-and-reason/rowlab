@@ -43,27 +43,30 @@ def is_s3(location: str) -> bool:
     return location.startswith("s3://")
 
 
-def list_connections() -> list[Connection]:
+def list_connections(org_id: str) -> list[Connection]:
     with db.connect() as conn:
-        rows = conn.execute("SELECT * FROM connections ORDER BY name").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM connections WHERE org_id = ? ORDER BY name", (org_id,)
+        ).fetchall()
     return [_from_row(row) for row in rows]
 
 
-def get_connection(connection_id: str) -> Connection:
-    return _from_row(_row(connection_id))
+def get_connection(org_id: str, connection_id: str) -> Connection:
+    return _from_row(_row(org_id, connection_id))
 
 
-def create_connection(data: ConnectionInput) -> Connection:
+def create_connection(org_id: str, data: ConnectionInput) -> Connection:
     _check(data)
     if not data.secret_access_key:
         raise InvalidRequest("Enter the secret access key.")
     connection_id = uuid.uuid4().hex
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO connections (id, name, endpoint, region, access_key_id, secret_access_key,"
-            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO connections (id, org_id, name, endpoint, region, access_key_id,"
+            " secret_access_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 connection_id,
+                org_id,
                 data.name.strip(),
                 data.endpoint.strip(),
                 data.region.strip(),
@@ -72,11 +75,12 @@ def create_connection(data: ConnectionInput) -> Connection:
                 datetime.now(UTC).isoformat(),
             ),
         )
-    return get_connection(connection_id)
+    return get_connection(org_id, connection_id)
 
 
-def update_connection(connection_id: str, data: ConnectionInput) -> Connection:
-    secret = data.secret_access_key or _row(connection_id)["secret_access_key"]
+def update_connection(org_id: str, connection_id: str, data: ConnectionInput) -> Connection:
+    saved = _row(org_id, connection_id)
+    secret = data.secret_access_key or saved["secret_access_key"]
     _check(data)
     with db.connect() as conn:
         conn.execute(
@@ -91,25 +95,25 @@ def update_connection(connection_id: str, data: ConnectionInput) -> Connection:
                 connection_id,
             ),
         )
-    return get_connection(connection_id)
+    return get_connection(org_id, connection_id)
 
 
-def delete_connection(connection_id: str) -> None:
-    _row(connection_id)
+def delete_connection(org_id: str, connection_id: str) -> None:
+    _row(org_id, connection_id)
     with db.connect() as conn:
         conn.execute("DELETE FROM connections WHERE id = ?", (connection_id,))
 
 
-def configure(con: duckdb.DuckDBPyConnection, connection_id: str | None) -> None:
-    """Let a DuckDB connection read and write `s3://` paths: with the given connection's keys, or
-    else with whatever AWS credentials the environment has (none for public buckets)."""
+def configure(con: duckdb.DuckDBPyConnection, org_id: str, connection_id: str | None) -> None:
+    """Let a DuckDB connection read and write `s3://` paths: with the organisation's connection's
+    keys, or else with whatever AWS credentials the environment has (none for public buckets)."""
     if connection_id is None:
         try:
             con.execute("CREATE TEMPORARY SECRET (TYPE s3, PROVIDER credential_chain)")
         except duckdb.Error:
             pass  # No credentials around: public buckets still work.
         return
-    row = _row(connection_id)
+    row = _row(org_id, connection_id)
     endpoint = row["endpoint"]
     options = {
         "KEY_ID": row["access_key_id"],
@@ -139,9 +143,11 @@ def _check(data: ConnectionInput) -> None:
         raise InvalidRequest("Enter the region, e.g. us-east-1, or auto for Cloudflare R2.")
 
 
-def _row(connection_id: str):
+def _row(org_id: str, connection_id: str):
     with db.connect() as conn:
-        row = conn.execute("SELECT * FROM connections WHERE id = ?", (connection_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM connections WHERE id = ? AND org_id = ?", (connection_id, org_id)
+        ).fetchone()
     if row is None:
         raise NotFound(f"Connection {connection_id} not found")
     return row

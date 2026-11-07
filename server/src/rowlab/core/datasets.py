@@ -94,30 +94,35 @@ class ColumnProfile(BaseModel):
     null_percentage: float | None
 
 
-def create_dataset(source: str, connection_id: str | None = None) -> Dataset:
+def create_dataset(org_id: str, source: str, connection_id: str | None = None) -> Dataset:
     """Ingest a local file path, a public http(s) URL, or an `s3://bucket/key` object, read with the
     given connection or else the environment's AWS credentials."""
     if connections.is_s3(source):
         name = source.rstrip("/").rsplit("/", 1)[-1]
         return _ingest(
-            source, name=name, source=source, readers=_S3_READERS, connection_id=connection_id
+            org_id,
+            source,
+            name=name,
+            source=source,
+            readers=_S3_READERS,
+            connection_id=connection_id,
         )
     if connection_id:
         raise InvalidRequest("A connection is only for s3:// sources.")
     if source.startswith(("http://", "https://")):
-        return _download_dataset(source)
+        return _download_dataset(org_id, source)
     if not config().server_files:
         raise InvalidRequest("Paths on the server can't be read here. Upload the file instead.")
     path = Path(source).expanduser().resolve()
     if not path.is_file():
         raise InvalidRequest(f"File not found: {path}")
-    return _ingest_file(path, name=path.name, source=str(path))
+    return _ingest_file(org_id, path, name=path.name, source=str(path))
 
 
-def upload_dataset(file: BinaryIO, filename: str) -> Dataset:
+def upload_dataset(org_id: str, file: BinaryIO, filename: str) -> Dataset:
     name = Path(filename).name
     with _temp_copy(file, name) as path:
-        return _ingest_file(path, name=name, source=f"upload:{name}")
+        return _ingest_file(org_id, path, name=name, source=f"upload:{name}")
 
 
 def detect_format(path: Path) -> tuple[Format, bool]:
@@ -149,13 +154,13 @@ def name_without_extension(filename: str) -> str:
     return (stem if extension.lower() in EXTENSIONS else name) or "dataset"
 
 
-def _download_dataset(url: str) -> Dataset:
+def _download_dataset(org_id: str, url: str) -> Dataset:
     name = Path(urlparse(url).path).name or "download"
     # Some hosts reject Python's default user agent.
     request = Request(url, headers={"User-Agent": f"rowlab/{__version__}"})
     try:
         with urlopen(request, timeout=60) as response, _temp_copy(response, name) as path:
-            return _ingest_file(path, name=name, source=url)
+            return _ingest_file(org_id, path, name=name, source=url)
     except HTTPError as e:
         raise InvalidRequest(f"Could not download {url}: HTTP {e.code} {e.reason}") from e
     except (URLError, TimeoutError) as e:
@@ -183,14 +188,15 @@ _S3_READERS: list[tuple[Format, str]] = [
 ]
 
 
-def _ingest_file(path: Path, *, name: str, source: str) -> Dataset:
+def _ingest_file(org_id: str, path: Path, *, name: str, source: str) -> Dataset:
     """Ingest a local file, read as the format its content shows."""
     fmt, gzipped = detect_format(path)
     reader = READERS[fmt].format(compression="gzip" if gzipped else "none")
-    return _ingest(str(path), name=name, source=source, readers=[(fmt, reader)])
+    return _ingest(org_id, str(path), name=name, source=source, readers=[(fmt, reader)])
 
 
 def _ingest(
+    org_id: str,
     location: str,
     *,
     name: str,
@@ -206,7 +212,7 @@ def _ingest(
         with storage.connect() as con:
             con.execute("SET temp_directory = ?", [str(db.data_dir() / "tmp")])
             if connections.is_s3(location):
-                connections.configure(con, connection_id)
+                connections.configure(con, org_id, connection_id)
             for i, (_, reader) in enumerate(readers):
                 try:
                     # A table keeps the file's row order, so `rowid` becomes a stable row id.
@@ -233,7 +239,7 @@ def _ingest(
         storage.delete_dataset(dataset_id)
         raise
 
-    return _register(dataset_id, name=name_without_extension(name), source=source)
+    return _register(dataset_id, org_id=org_id, name=name_without_extension(name), source=source)
 
 
 def write_run_rows(parent_id: str, asked: list[int]) -> str:
@@ -275,6 +281,7 @@ def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
     base = parent.name.removesuffix(f"__{parent.branch}") if parent.branch else parent.name
     return _register(
         dataset_id,
+        org_id=org_of(parent_id),
         name=f"{base}__{branch}",
         source=f"Made from {parent.name}",
         parent_id=parent_id,
@@ -329,6 +336,7 @@ def read_run_rows(dataset_id: str, *, offset: int, limit: int) -> list[dict[str,
 def _register(
     dataset_id: str,
     *,
+    org_id: str,
     name: str,
     source: str,
     parent_id: str | None = None,
@@ -347,10 +355,11 @@ def _register(
         row_count = con.execute(f"SELECT count(*) FROM {source_sql}").fetchone()[0]
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO datasets (id, name, source, row_count, size_bytes, columns, created_at,"
-            " parent_id, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO datasets (id, org_id, name, source, row_count, size_bytes, columns,"
+            " created_at, parent_id, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 dataset_id,
+                org_id,
                 name,
                 source,
                 row_count,
@@ -372,10 +381,12 @@ FROM datasets d LEFT JOIN runs r ON r.dataset_id = d.id
 """
 
 
-def list_datasets() -> list[Dataset]:
-    """Every dataset, newest first."""
+def list_datasets(org_id: str) -> list[Dataset]:
+    """The organisation's datasets, newest first."""
     with db.connect() as conn:
-        rows = conn.execute(f"{_SELECT} ORDER BY d.created_at DESC").fetchall()
+        rows = conn.execute(
+            f"{_SELECT} WHERE d.org_id = ? ORDER BY d.created_at DESC", (org_id,)
+        ).fetchall()
     return [_from_row(row) for row in rows]
 
 
@@ -385,6 +396,21 @@ def get_dataset(dataset_id: str) -> Dataset:
     if row is None:
         raise NotFound(f"Dataset {dataset_id} not found")
     return _from_row(row)
+
+
+def org_of(dataset_id: str) -> str:
+    """The organisation a dataset belongs to."""
+    with db.connect() as conn:
+        row = conn.execute("SELECT org_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+    if row is None:
+        raise NotFound(f"Dataset {dataset_id} not found")
+    return row["org_id"]
+
+
+def check_access(org_id: str, dataset_id: str) -> None:
+    """Raise NotFound unless the dataset is the organisation's: others' are as good as missing."""
+    if org_of(dataset_id) != org_id:
+        raise NotFound(f"Dataset {dataset_id} not found")
 
 
 def delete_dataset(dataset_id: str) -> None:

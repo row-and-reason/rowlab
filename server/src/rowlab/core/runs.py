@@ -106,7 +106,7 @@ def create_run(dataset_id: str, request: RunRequest) -> Run:
     """Queue a run of every task with every model on the rows the query picks. Its dataset, with
     every row of the dataset and empty answer columns, is created right away."""
     check(dataset_id, request)
-    if settings.openrouter_key() is None:
+    if settings.openrouter_key(datasets.org_of(dataset_id)) is None:
         raise InvalidRequest("Set your OpenRouter API key first.")
     with sql.connect(dataset_id) as con:
         query = sql.row_ids(con, request.sql)
@@ -200,7 +200,7 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
     if problem or not rows:
         return Estimate(rows=total, calls=calls, cost=0, problem=problem)
     # The cost is worth knowing before a key is set, too.
-    if settings.openrouter_key() is None:
+    if settings.openrouter_key(datasets.org_of(dataset_id)) is None:
         problem = "Set your OpenRouter API key first."
 
     keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
@@ -237,6 +237,14 @@ def get_run(run_id: str) -> Run:
     if row is None:
         raise NotFound(f"Run {run_id} not found")
     return _from_row(row)
+
+
+def check_access(org_id: str, run_id: str) -> None:
+    """Raise NotFound unless the run makes one of the organisation's datasets."""
+    try:
+        datasets.check_access(org_id, get_run(run_id).dataset_id)
+    except NotFound:
+        raise NotFound(f"Run {run_id} not found") from None
 
 
 def stop_run(run_id: str) -> Run:
@@ -321,7 +329,8 @@ def _process(run_id: str) -> None:
     run = get_run(run_id)
     _set(run_id, status="running")
     try:
-        api_key = settings.openrouter_key()
+        org_id = datasets.org_of(run.dataset_id)
+        api_key = settings.openrouter_key(org_id)
         if api_key is None:
             raise InvalidRequest("Set your OpenRouter API key first.")
         keys = {path: k for path, (_, k) in datasets.dataset_fields(run.dataset_id).items()}
@@ -329,13 +338,13 @@ def _process(run_id: str) -> None:
         for chunk in range(run.next_chunk):
             if not any(c.failed for c in run.costs):
                 break
-            if not _process_chunk(run, chunk, keys, api_key, retry=True):
+            if not _process_chunk(run, chunk, keys, org_id, api_key, retry=True):
                 _set(run_id, status="stopped")
                 return
             run = get_run(run_id)
         chunks = -(-run.row_count // CHUNK_ROWS)
         for chunk in range(run.next_chunk, chunks):
-            if not _process_chunk(run, chunk, keys, api_key):
+            if not _process_chunk(run, chunk, keys, org_id, api_key):
                 _set(run_id, status="stopped")
                 return
             run = get_run(run_id)
@@ -347,7 +356,13 @@ def _process(run_id: str) -> None:
 
 
 def _process_chunk(
-    run: Run, chunk: int, keys: dict[str, list[str]], api_key: str, *, retry: bool = False
+    run: Run,
+    chunk: int,
+    keys: dict[str, list[str]],
+    org_id: str,
+    api_key: str,
+    *,
+    retry: bool = False,
 ) -> bool:
     """Ask every task and model for the chunk's rows and write its part file. With `retry`, the part
     is already written: only its failed answers are asked again, past the response cache, and it is
@@ -375,7 +390,7 @@ def _process_chunk(
             return
         row, task, model = units[i]
         prompt = prompts.render(task.template, row, keys)
-        answers[i] = _ask(task, model, prompt, api_key, fresh=retry)
+        answers[i] = _ask(task, model, prompt, org_id, api_key, fresh=retry)
 
     with ThreadPoolExecutor(CONCURRENCY) as pool:
         futures = [pool.submit(ask, i) for i in range(len(units))]
@@ -468,17 +483,23 @@ def _write_part(
         )
 
 
-def _ask(task: Task, model: str, prompt: str, api_key: str, *, fresh: bool = False) -> _Answer:
+def _ask(
+    task: Task, model: str, prompt: str, org_id: str, api_key: str, *, fresh: bool = False
+) -> _Answer:
     """One task for one row from one model, as base columns. `fresh` asks past the cache."""
     decision = openrouter.model_kind(model) == "decision"
     try:
         if decision:
             questions = tasks.decision_questions(task)
-            response = openrouter.decide(model, prompt, questions, api_key=api_key, fresh=fresh)
+            response = openrouter.decide(
+                model, prompt, questions, org_id=org_id, api_key=api_key, fresh=fresh
+            )
         else:
             messages = tasks.llm_messages(task, prompt)
             schema = tasks.llm_schema(task)
-            response = openrouter.complete(model, messages, schema, api_key=api_key, fresh=fresh)
+            response = openrouter.complete(
+                model, messages, schema, org_id=org_id, api_key=api_key, fresh=fresh
+            )
     except openrouter.OpenRouterError as e:
         return _Answer(error=str(e))
     # Paid for even when the reply turns out unusable.

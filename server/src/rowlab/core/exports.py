@@ -109,7 +109,7 @@ def _export_to_s3(dataset_id: str, request: ExportRequest) -> ExportResult:
         uri += file_name(dataset_id, request.format)
     try:
         with storage.connect() as con:
-            connections.configure(con, request.connection_id)
+            connections.configure(con, datasets.org_of(dataset_id), request.connection_id)
             _write(
                 con,
                 dataset_id,

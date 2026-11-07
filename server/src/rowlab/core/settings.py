@@ -1,4 +1,4 @@
-"""App settings stored in the local database. Secrets are never returned by the API."""
+"""Each organisation's settings, kept in the database. Secrets are never returned by the API."""
 
 import os
 from typing import Literal
@@ -24,32 +24,34 @@ class Settings(BaseModel):
     )
 
 
-def get_settings() -> Settings:
+def get_settings(org_id: str) -> Settings:
     if os.environ.get("OPENROUTER_API_KEY"):
         key = "environment"
     else:
-        key = "saved" if _get(OPENROUTER_KEY) else None
+        key = "saved" if _get(org_id, OPENROUTER_KEY) else None
     return Settings(openrouter_key=key, mode=config().mode, server_files=config().server_files)
 
 
-def openrouter_key() -> str | None:
-    """`OPENROUTER_API_KEY` if set, otherwise the key saved in the UI."""
-    return os.environ.get("OPENROUTER_API_KEY") or _get(OPENROUTER_KEY)
+def openrouter_key(org_id: str) -> str | None:
+    """`OPENROUTER_API_KEY` if set, for every organisation, otherwise the organisation's own."""
+    return os.environ.get("OPENROUTER_API_KEY") or _get(org_id, OPENROUTER_KEY)
 
 
-def save_openrouter_key(key: str) -> Settings:
+def save_openrouter_key(org_id: str, key: str) -> Settings:
     key = key.strip()
     openrouter.check_key(key)
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO settings (key, value) VALUES (?, ?)"
-            " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            (OPENROUTER_KEY, key),
+            "INSERT INTO settings (org_id, key, value) VALUES (?, ?, ?)"
+            " ON CONFLICT (org_id, key) DO UPDATE SET value = excluded.value",
+            (org_id, OPENROUTER_KEY, key),
         )
-    return get_settings()
+    return get_settings(org_id)
 
 
-def _get(key: str) -> str | None:
+def _get(org_id: str, key: str) -> str | None:
     with db.connect() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        row = conn.execute(
+            "SELECT value FROM settings WHERE org_id = ? AND key = ?", (org_id, key)
+        ).fetchone()
     return row["value"] if row else None

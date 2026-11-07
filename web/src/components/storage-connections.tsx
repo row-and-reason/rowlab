@@ -4,6 +4,7 @@ import { DatabaseIcon, EllipsisIcon, PencilIcon, PlusIcon, Trash2Icon } from "lu
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { useCan } from "@/components/me";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -45,6 +46,7 @@ export function StorageConnections() {
   const [connections, setConnections] = useState<Connection[]>();
   // The connection being edited, or "new" while adding one.
   const [editing, setEditing] = useState<Connection | "new">();
+  const canAdmin = useCan("admin");
 
   const load = useCallback(async () => {
     const { data } = await api.GET("/v1/settings/connections");
@@ -79,12 +81,14 @@ export function StorageConnections() {
               credentials in its environment, if any.
             </EmptyDescription>
           </EmptyHeader>
-          <EmptyContent>
-            <Button size="sm" onClick={() => setEditing("new")}>
-              <PlusIcon data-icon="inline-start" />
-              Add connection
-            </Button>
-          </EmptyContent>
+          {canAdmin && (
+            <EmptyContent>
+              <Button size="sm" onClick={() => setEditing("new")}>
+                <PlusIcon data-icon="inline-start" />
+                Add connection
+              </Button>
+            </EmptyContent>
+          )}
         </Empty>
       ) : (
         <div className="flex flex-col gap-2">
@@ -98,39 +102,43 @@ export function StorageConnections() {
                     {connection.access_key_id}
                   </ItemDescription>
                 </ItemContent>
-                <ItemActions>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button variant="ghost" size="icon-sm" aria-label="Connection actions" />
-                      }
-                    >
-                      <EllipsisIcon />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setEditing(connection)}>
-                        <PencilIcon />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem variant="destructive" onClick={() => remove(connection)}>
-                        <Trash2Icon />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </ItemActions>
+                {canAdmin && (
+                  <ItemActions>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button variant="ghost" size="icon-sm" aria-label="Connection actions" />
+                        }
+                      >
+                        <EllipsisIcon />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setEditing(connection)}>
+                          <PencilIcon />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" onClick={() => remove(connection)}>
+                          <Trash2Icon />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </ItemActions>
+                )}
               </Item>
             ))}
           </ItemGroup>
-          <Button
-            variant="outline"
-            size="sm"
-            className="self-start"
-            onClick={() => setEditing("new")}
-          >
-            <PlusIcon data-icon="inline-start" />
-            Add connection
-          </Button>
+          {canAdmin && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-start"
+              onClick={() => setEditing("new")}
+            >
+              <PlusIcon data-icon="inline-start" />
+              Add connection
+            </Button>
+          )}
         </div>
       )}
       {editing && (
@@ -253,7 +261,7 @@ function ConnectionDialog({
               {error ? (
                 <FieldError>{error}</FieldError>
               ) : (
-                <FieldDescription>Stored on this machine and never shown again.</FieldDescription>
+                <FieldDescription>Kept by rowlab and never shown again.</FieldDescription>
               )}
             </Field>
             <Button type="submit" className="self-end" disabled={saving}>

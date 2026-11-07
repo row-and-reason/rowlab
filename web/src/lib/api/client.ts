@@ -21,12 +21,34 @@ export type Preset = TaskTypes["presets"][number];
 export type Estimate = components["schemas"]["Estimate"];
 export type Connection = components["schemas"]["Connection"];
 export type Comparison = components["schemas"]["Comparison"];
+export type Me = components["schemas"]["Me"];
+export type Role = Me["role"];
+export type Members = components["schemas"]["Members"];
+export type ApiKey = components["schemas"]["ApiKey"];
 
 // Empty in production: the UI is served by the API server itself.
 // In development, `make dev` points this at the separately running API.
 const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export const api = createClient<paths>({ baseUrl });
+
+// Signed out (hosted only): to the sign-in page, which comes back here signed in.
+api.use({
+  onResponse({ response }) {
+    // A page of the API server, not of this app.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    if (response.status === 401) window.location.href = `${baseUrl}/auth/sign-in`;
+  },
+});
+
+/** Sign out: a form post, since it ends at WorkOS's sign-out page. */
+export function signOut() {
+  const form = document.createElement("form");
+  form.method = "post";
+  form.action = `${baseUrl}/auth/sign-out`;
+  document.body.append(form);
+  form.submit();
+}
 
 export type ExportFormat = components["schemas"]["ExportRequest"]["format"];
 
