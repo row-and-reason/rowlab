@@ -1,0 +1,38 @@
+name: Bug report
+description: Something doesn't work as the docs say it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description:
+        What you did, what you expected, and what happened instead. Error messages and screenshots
+        help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description:
+        The smaller the better. A few rows of made-up data are fine; please don't paste real
+        personal data or keys.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`rowlab --version`, the image tag, or the commit."
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: How you run it
+      options:
+        - uvx / pip (local mode)
+        - Docker or Compose
+        - A shared server (hosted mode)
+        - app.rowlab.dev
+    validations:
+      required: true

@@ -435,25 +435,31 @@ which only says who someone is and which organisation they are in. Locally, the 
 
 ### 14. Launch
 
-- The image (built in CI), `docker-compose.yml`, k3s manifests, with a network policy that keeps the
-  API and runners from private addresses other than Postgres and storage (milestone 10).
-- README quickstart; LICENSE (Apache-2.0), CONTRIBUTING (DCO sign-off), code of conduct, security
-  policy, issue templates; no telemetry.
+- ✅ The image (`Dockerfile`; amd64 and arm64, runs as any user on a read-only filesystem) and
+  `rowlab-site`, both pushed to `ghcr.io/row-and-reason` by CI; `docker-compose.yml` with Postgres
+  and S3 (VersityGW). Row & Reason's own deployment (k3s, with a network policy that keeps the API
+  and runners from private addresses other than Postgres and storage) lives in the company's
+  infrastructure repository, not here.
+- ✅ README quickstart; LICENSE (Apache-2.0), CONTRIBUTING (DCO sign-off, checked on pull
+  requests), code of conduct, security policy, issue templates. Self-hosted rowlab sends nothing
+  home; product analytics exist only where `ROWLAB_POSTHOG_TOKEN` is set, which is the hosted app.
 - An end-to-end smoke test against the built package, from adding a file to an export.
 - A pass over error and empty states across the UI (failed runs, bad SQL, no key, models down).
-- Data handling for the hosted version: where data lives, retention and deletion, GDPR, subprocessors
-  (OpenRouter and model providers), OpenRouter's zero-data-retention options.
+- Data handling for the hosted version, kept short: where data lives, what deleting removes, and
+  the services data goes through (WorkOS, OpenRouter and the model providers, Cloudflare, PostHog).
 - `rowlab` 0.1.0 on PyPI via GitHub Actions trusted publishing; the repo goes public.
 
 ## After launch
 
-Discover → label (LLM proposes
-categories) · one-click cascades (low-confidence rows escalated to an LLM; already possible by hand
-through the workflow loop) · provider batch APIs.
+Discover → label (LLM proposes categories) · one-click cascades (low-confidence rows escalated to an
+LLM; already possible by hand through the workflow loop) · provider batch APIs.
 
 - **Human review.** A UI for people to label or correct rows, which writes a label column like any
   task does. With comparisons in place it is just another way to make a column: marked as a
   comparison's reference, it turns agreement into accuracy. Ideas to be written up.
+- **Data processing terms for the hosted version:** a DPA, a retention policy, GDPR requests.
+- **The smoke test's run step in CI,** with a low-limit OpenRouter key as a secret; until then it
+  runs only locally.
 
 ### Ideas
 

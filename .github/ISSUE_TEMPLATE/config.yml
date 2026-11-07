@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Docs
+    url: https://docs.rowlab.dev
+    about: How rowlab works, guides, and every setting.
+  - name: A security problem
+    url: https://github.com/row-and-reason/rowlab/security/advisories/new
+    about: Report it privately, not in an issue.

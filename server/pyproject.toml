@@ -3,8 +3,10 @@ name = "rowlab"
 version = "0.1.0"
 description = "AI labeling, filtering and analysis for tabular data"
 authors = [
-    { name = "Ekku Leivonen", email = "ekku.leivonen@gmail.com" }
+    { name = "Row & Reason", email = "support@rowandreason.com" }
 ]
+license = "Apache-2.0"
+readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "duckdb>=2.0.0",
@@ -23,6 +25,11 @@ hosted = [
     "pyjwt>=2.10",
     "workos>=10.8.0",
 ]
+
+[project.urls]
+Homepage = "https://rowlab.dev"
+Documentation = "https://docs.rowlab.dev"
+Source = "https://github.com/row-and-reason/rowlab"
 
 [project.scripts]
 rowlab = "rowlab.cli:main"

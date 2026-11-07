@@ -6,9 +6,12 @@ import sys
 
 import uvicorn
 
+from rowlab import __version__
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="rowlab")
+    parser.add_argument("--version", action="version", version=f"rowlab {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
     serve = commands.add_parser("serve", help="Run the API and web UI")
