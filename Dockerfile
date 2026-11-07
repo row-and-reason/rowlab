@@ -27,7 +27,9 @@ COPY --from=wheel /dist /tmp/dist
 RUN pip install --no-cache-dir -r /tmp/dist/requirements.txt \
     && pip install --no-cache-dir --no-deps /tmp/dist/*.whl \
     && rm -rf /tmp/dist
+ENV TIKTOKEN_CACHE_DIR=/home/rowlab/tiktoken
 USER rowlab
+RUN python -c "import tiktoken; tiktoken.get_encoding('o200k_base')"
 # DuckDB's S3 support, installed now rather than downloaded when first used.
 RUN python -c "import duckdb; duckdb.sql('INSTALL httpfs')" && chmod -R a+rX /home/rowlab
 ENV ROWLAB_DATA_DIR=/data HOME=/home/rowlab PYTHONUNBUFFERED=1

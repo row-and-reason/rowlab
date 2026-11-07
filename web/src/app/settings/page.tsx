@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { ConnectAgents } from "@/components/connect-agents";
 import { ApiKeys } from "@/components/api-keys";
 import { useCan, useMe } from "@/components/me";
 import { MembersSettings } from "@/components/members-settings";
@@ -165,6 +166,7 @@ function SettingsView() {
                   <OpenRouterKey settings={settings} onSaved={setSettings} />
                 </FieldSet>
               ))}
+            {section === "agents" && <ConnectAgents />}
             {section === "storage" && <StorageSettings />}
             {section === "members" && <MembersSettings />}
             {section === "api-keys" && <ApiKeys />}

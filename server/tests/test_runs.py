@@ -193,7 +193,7 @@ def test_run_answers_each_row(client, job, api_key, fake):
     }
 
 
-def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
+def test_a_run_makes_a_dataset_of_selected_rows_that_fills_in_as_it_goes(
     client, dataset, job, api_key, data_dir
 ):
     job = update(job, sql="SELECT * FROM data WHERE stars = 1")
@@ -217,17 +217,16 @@ def test_a_run_makes_a_dataset_of_every_row_that_fills_in_as_it_goes(
         "review",
         "stars",
     ]
-    # Every row is carried over; only the rows the query picks get asked.
-    assert (made["row_count"], created["row_count"]) == (3, 2)
+    # Only selected rows are copied, keeping their original row IDs.
+    assert (made["row_count"], created["row_count"]) == (2, 2)
     # It is listed first, as the newest dataset, before a single answer is in.
     assert client.get("/v1/datasets").json()[0]["id"] == made["id"]
-    assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [None] * 3
+    assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [None] * 2
 
     while runs.process_next():
         pass
     assert [(i, r["negative__jev-1.14"]) for i, r in rows(client, created).items()] == [
         (0, True),
-        (1, None),
         (2, True),
     ]
     done = client.get(f"/v1/datasets/{made['id']}").json()

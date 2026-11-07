@@ -20,10 +20,14 @@ content, so the file name doesn't matter. Sources:
 
 ## The tree
 
-A run never changes a dataset. It makes a new one, with every row of the original and the answer
+A run never changes a dataset. It makes a new one, with the selected rows of the original and the answer
 columns added, and records which dataset it came from and how. Names say where a dataset sits:
 `reviews` → `reviews__1` → `reviews__1.2`. The datasets list shows the tree, and each dataset's page
 says what made it: the SQL, the tasks and the models.
+
+A 100-row run makes a 100-row result, with the original `__row_id` values. Existing results
+keep their stored rows. Rename a dataset from its menu or with MCP `dataset_rename`; IDs and
+lineage stay unchanged, and descendants keep their own names.
 
 This is deliberately not versioning. rowlab is a workspace between your storage and your storage;
 keep the source and the exports where you keep data, and delete datasets here when you are done.

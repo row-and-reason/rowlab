@@ -120,7 +120,8 @@ export interface paths {
         delete: operations["deleteDataset"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Rename Dataset */
+        patch: operations["renameDataset"];
         trace?: never;
     };
     "/v1/datasets/{dataset_id}/profile": {
@@ -324,7 +325,7 @@ export interface paths {
         /**
          * Create Run
          * @description Queue a run of every task with every model on the rows in the scope (all rows if none is
-         *     given). It makes a new dataset (`dataset_id`), created right away with every row; the answer
+         *     given). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer
          *     columns of the rows in scope fill in as the run works through them in the background: poll
          *     `GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the
          *     response cache.
@@ -1336,6 +1337,11 @@ export interface components {
              */
             values: components["schemas"]["ValueAccuracy"][];
         };
+        /** RenameDataset */
+        RenameDataset: {
+            /** Name */
+            name: string;
+        };
         /** RenderRequest */
         RenderRequest: {
             /** Template */
@@ -2144,6 +2150,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renameDataset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameDataset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dataset"];
+                };
             };
             /** @description Validation Error */
             422: {

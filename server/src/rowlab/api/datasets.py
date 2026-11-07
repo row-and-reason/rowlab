@@ -52,6 +52,12 @@ def get_dataset(dataset_id: str, me: CanRead) -> Dataset:
     return datasets.get_dataset(dataset_id)
 
 
+@router.patch("/{dataset_id}", operation_id="renameDataset")
+def rename_dataset(dataset_id: str, request: datasets.RenameDataset, me: CanEdit) -> Dataset:
+    datasets.check_access(me.org.id, dataset_id)
+    return datasets.rename_dataset(dataset_id, request)
+
+
 @router.delete("/{dataset_id}", operation_id="deleteDataset", status_code=204)
 def delete_dataset(dataset_id: str, me: CanEdit) -> None:
     datasets.check_access(me.org.id, dataset_id)

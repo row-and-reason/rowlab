@@ -1,6 +1,12 @@
 import type { Me } from "@/lib/api/client";
 
 const ALL = [
+  {
+    id: "agents",
+    label: "Connect agents",
+    keywords: "mcp codex claude skills setup",
+    hostedOnly: false,
+  },
   { id: "providers", label: "Providers", keywords: "openrouter model key", hostedOnly: false },
   {
     id: "storage",

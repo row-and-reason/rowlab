@@ -65,6 +65,7 @@ export function DatasetPanels({
   tab,
   onTabChange,
   onExport,
+  onRename,
   onDelete,
   onChanged,
   onOpenDataset,
@@ -78,6 +79,7 @@ export function DatasetPanels({
   tab: Tab;
   onTabChange: (tab: Tab) => void;
   onExport: () => void;
+  onRename: () => void;
   onDelete: () => void;
   onChanged: () => void;
   onOpenDataset: (datasetId: string) => void;
@@ -269,6 +271,9 @@ export function DatasetPanels({
                     Export…
                     <DropdownMenuShortcut>E</DropdownMenuShortcut>
                   </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!canEdit} onClick={onRename}>
+                    Rename dataset…
+                  </DropdownMenuItem>
                   <DropdownMenuItem variant="destructive" disabled={!canEdit} onClick={onDelete}>
                     <Trash2Icon />
                     Delete dataset
@@ -384,7 +389,11 @@ function useEstimate(
 ): { estimate?: Estimate; problem?: string } {
   // What the API says the run would cost, and why it can't start, if it can't: its own answer, or
   // the request's error (e.g. OpenRouter can't be reached).
-  const [estimate, setEstimate] = useState<{ key: string; estimate?: Estimate; problem?: string }>();
+  const [estimate, setEstimate] = useState<{
+    key: string;
+    estimate?: Estimate;
+    problem?: string;
+  }>();
   const key = JSON.stringify([sql, tasks]);
   useEffect(() => {
     if (!enabled) return;

@@ -1,6 +1,7 @@
 """Exports: a dataset written out as a CSV, JSONL or Parquet file, the format picked at export time."""
 
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Literal
@@ -49,7 +50,8 @@ class ExportResult(BaseModel):
 
 
 def file_name(dataset_id: str, fmt: ExportFormat) -> str:
-    return datasets.get_dataset(dataset_id).name + EXTENSIONS[fmt]
+    name = re.sub(r"[\\/\x00-\x1f\x7f]", "_", datasets.get_dataset(dataset_id).name)
+    return (name.strip(". ") or "dataset") + EXTENSIONS[fmt]
 
 
 def export_to_temp(

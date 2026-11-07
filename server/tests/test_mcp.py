@@ -13,12 +13,12 @@ from rowlab.mcp import server
 CSV = b"review\nTerrible product\nLove it\nBroke after a day\n"
 
 
-def call(mcp, name, **arguments):
+def call(mcp, tool_name, **arguments):
     """Call a tool as an agent would, in-process, and return its result."""
 
     async def go():
         async with Client(mcp) as client:
-            result = (await client.call_tool(name, arguments)).structured_content
+            result = (await client.call_tool(tool_name, arguments)).structured_content
             # A list or a bare value comes wrapped.
             return result["result"] if set(result) == {"result"} else result
 
@@ -51,6 +51,7 @@ def test_every_tool_says_what_it_is_for(mcp):
         "dataset_get",
         "dataset_add",
         "dataset_delete",
+        "dataset_rename",
         "sql_query",
         "columns_compare",
         "run_preview",
@@ -109,8 +110,8 @@ def test_the_catalog_tools(mcp):
     types = call(mcp, "task_types_get")
     assert len(types["types"]) >= 3 and types["presets"]
     decision = call(mcp, "models_list", kind="decision")
-    assert {m["kind"] for m in decision} == {"decision"}
-    assert [m["id"] for m in call(mcp, "models_list", search="haiku")] == [
+    assert {m["kind"] for m in decision["models"]} == {"decision"}
+    assert [m["id"] for m in call(mcp, "models_list", search="haiku")["models"]] == [
         "anthropic/claude-haiku-5.5"
     ]
 
@@ -172,3 +173,56 @@ def test_comparison_text_rules_and_numeric_diagnostics_through_mcp(mcp, tmp_path
     assert result["pairs"][0]["numeric"]["finite_pairs"] == 2
     with pytest.raises(ToolError):
         call(mcp, "columns_compare", dataset_id=dataset["id"], columns=["x", "y"], tolerance=-1)
+
+
+def test_model_pages_and_rename(mcp, tmp_path):
+    first = call(mcp, "models_list", limit=1)
+    assert len(first["models"]) == 1
+    assert first["next_offset"] == 1
+    second = call(mcp, "models_list", offset=first["next_offset"], limit=1)
+    assert second["total"] == first["total"]
+    assert first["models"][0]["id"] != second["models"][0]["id"]
+    assert call(mcp, "models_list", offset=first["total"])["next_offset"] is None
+    path = tmp_path / "test.csv"
+    path.write_bytes(CSV)
+    added = call(mcp, "dataset_add", source=str(path))
+    renamed = call(mcp, "dataset_rename", dataset_id=added["id"], name="AG News")
+    assert renamed == {**added, "name": "AG News"}
+
+
+def test_comparison_summary_preserves_class_metrics(mcp, tmp_path):
+    path = tmp_path / "compare.csv"
+    path.write_text("a,b,c,label\nyes,yes,no,yes\nno,yes,no,no\n")
+    dataset = call(mcp, "dataset_add", source=str(path))
+    args = {"dataset_id": dataset["id"], "columns": ["a", "b", "c"], "reference": "label"}
+    summary = call(mcp, "columns_compare", **args)
+    full = call(mcp, "columns_compare", **args, detail="full")
+    assert summary["reference"] == full["reference"]
+    assert "values" not in summary
+    assert summary["pairs"][0]["coverage"]["missing_left"] == 0
+    assert full["pairs"][0]["coverage"]["missing_left"]["rows"] == 0
+
+
+def test_model_default_is_bounded_and_filters_before_paging(mcp, monkeypatch):
+    catalog = [
+        openrouter.Model(
+            id=f"llm-{i}",
+            name=f"Model {i}",
+            kind="llm",
+            prompt_price=0,
+            completion_price=0,
+            context_length=1000,
+        )
+        for i in range(423)
+    ]
+    monkeypatch.setattr(openrouter, "models", lambda: catalog)
+    page = call(mcp, "models_list")
+    assert len(page["models"]) == 20
+    assert page["total"] == 423
+    assert page["next_offset"] == 20
+    page = call(mcp, "models_list", search="llm-42", offset=1)
+    assert [m["id"] for m in page["models"]] == ["llm-420", "llm-421", "llm-422"]
+    assert page["total"] == 4
+    assert page["next_offset"] is None
+    with pytest.raises(ToolError):
+        call(mcp, "models_list", limit=101)

@@ -39,9 +39,8 @@ appears under its parent in the dataset list straight away and fills in as the r
 on the new labels and label again, e.g. a cheap yes/no filter first, then an LLM extraction on the "yes"
 rows only.
 
-- A run's dataset holds **every row of its parent**, with the parent's columns plus the result columns.
-  Only the rows the run's query picks are asked; the others keep empty result columns. So each step is the
-  complete data with every label so far, and the last one is the one to export. `__row_id` is kept from
+- A run's dataset holds **only the selected rows of its parent**, with the parent's columns plus the
+  result columns. A 100-row sample makes a 100-row result. `__row_id` is kept from
   the parent, so every row can be traced back to the original file.
 - It records its parent dataset and the run that made it: it sits under its parent in the dataset list,
   and its Lineage tab shows what it was made from and how (query, tasks, models, costs). Its rows are
@@ -199,7 +198,7 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 ### 4. Runs: start, stop, resume ✅
 
 - `POST /v1/datasets/{id}/runs` queues a run and returns at once with the dataset it makes (`dataset_id`):
-  every row of the parent is copied into it (`rows.parquet`) and the rows its query picks listed
+  only the selected parent rows are copied into it (`rows.parquet`) and their IDs listed
   (`asked.parquet`); it is named after its place in the tree (`titanic__1.2`), with empty
   answer columns. The run keeps a frozen copy of its query and tasks.
   `GET /v1/runs/{id}` returns its status (`queued`, `running`, `stopping`, `stopped`, `done`, `failed`),

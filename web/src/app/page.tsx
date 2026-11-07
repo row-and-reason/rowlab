@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { AddDataset, type SourceKind } from "@/components/add-dataset";
 import { DatasetPanels, TABS, type TaskActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
+import { RenameDataset } from "@/components/rename-dataset";
 import { ExportDataset } from "@/components/export-dataset";
 import { useCan, useMe } from "@/components/me";
 import { PaneHeader } from "@/components/pane";
@@ -99,6 +100,7 @@ function Workspace() {
     (section: Section) => router.push(settingsUrl(params, section)),
     [router, params],
   );
+  const [renaming, setRenaming] = useState<Dataset>();
   const [deleting, setDeleting] = useState<Dataset>();
   const [exporting, setExporting] = useState<Dataset>();
   const [palette, setPalette] = useState(false);
@@ -202,6 +204,7 @@ function Workspace() {
             settings={settings}
             onAdd={() => setAdding("choose")}
             onExport={setExporting}
+            onRename={setRenaming}
             onDelete={setDeleting}
             onSettings={openSettings}
           />
@@ -218,6 +221,7 @@ function Workspace() {
               router.push(`/?${query}`, { scroll: false });
             }}
             onExport={() => setExporting(selected)}
+            onRename={() => setRenaming(selected)}
             onDelete={() => setDeleting(selected)}
             onChanged={load}
             onOpenDataset={select}
@@ -315,6 +319,12 @@ function Workspace() {
             <CommandGroup heading="Actions">
               {selected && (
                 <>
+                  <CommandItem
+                    disabled={!canEdit}
+                    onSelect={() => command(() => setRenaming(selected))}
+                  >
+                    Rename dataset…
+                  </CommandItem>
                   <CommandItem
                     onSelect={() =>
                       command(() => {
@@ -491,6 +501,14 @@ function Workspace() {
           tableSql={tableSql(exporting)}
           open
           onOpenChange={(open) => !open && setExporting(undefined)}
+        />
+      )}
+      {renaming && (
+        <RenameDataset
+          key={renaming.id}
+          dataset={renaming}
+          onClose={() => setRenaming(undefined)}
+          onSaved={load}
         />
       )}
       <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(undefined)}>
