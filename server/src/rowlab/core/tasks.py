@@ -30,6 +30,7 @@ from rowlab.core.datasets import sql_ident
 from rowlab.core.errors import InvalidRequest
 
 AnswerType = Literal["yes_no", "pick_one", "pick_any", "scale", "extract", "write"]
+GenerationPreset = Literal["summarize", "translate"]
 FieldType = Literal["text", "number", "boolean", "date", "list", "items"]
 
 CLASSIFY = ("yes_no", "pick_one", "pick_any", "scale")
@@ -78,8 +79,15 @@ class Task(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
     template: str = Field("", description="The prompt, e.g. “Is this review negative? {{review}}”.")
     type: AnswerType = "yes_no"
+    preset: GenerationPreset | None = Field(
+        None,
+        description="Selected generation preset, for display. The template controls the output.",
+    )
     column: str = Field(
         "answer", description="Base name of the result columns. Defaults to one for the type."
+    )
+    extraction_mode: Literal["single", "structure"] = Field(
+        "structure", description="Extraction editor: one scalar value or named, typed fields."
     )
     options: list[Option] = Field(
         [],
@@ -127,7 +135,7 @@ class TypeInfo(BaseModel):
 class Preset(BaseModel):
     """A starting point for a write task: its prompt, to finish by adding the row's columns."""
 
-    id: str
+    id: GenerationPreset
     label: str
     column: str
     template: str
@@ -216,37 +224,6 @@ PRESETS = [
         column="translation",
         template="Translate into English:\n\n",
     ),
-    Preset(
-        id="rewrite",
-        label="Rewrite",
-        column="rewrite",
-        template="Rewrite in plain, friendly language:\n\n",
-    ),
-    Preset(
-        id="redact",
-        label="Redact",
-        column="redacted",
-        template="Repeat this text with every name, email address, phone number and street address "
-        "replaced by [REDACTED]:\n\n",
-    ),
-    Preset(
-        id="clean_up",
-        label="Clean up",
-        column="clean",
-        template="Fix typos, casing and spacing without changing the meaning:\n\n",
-    ),
-    Preset(
-        id="answer",
-        label="Answer a question",
-        column="answer",
-        template="In one sentence, what is this person asking for?\n\n",
-    ),
-    Preset(
-        id="draft",
-        label="Draft a reply",
-        column="reply",
-        template="Draft a short, friendly reply to this message:\n\n",
-    ),
 ]
 
 _FIELD_TYPES = [
@@ -300,6 +277,10 @@ def check(task: Task) -> None:
             raise InvalidRequest("Write tasks have no reason column.")
         return
     if task.type == "extract":
+        if task.extraction_mode == "single" and (
+            len(task.fields) != 1 or task.fields[0].type in ("list", "items")
+        ):
+            raise InvalidRequest("Single value extraction needs exactly one scalar field.")
         _check_fields(task.fields, "fields")
         return
     if task.type == "yes_no":

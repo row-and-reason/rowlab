@@ -2902,6 +2902,10 @@
         "properties": {
           "id": {
             "type": "string",
+            "enum": [
+              "summarize",
+              "translate"
+            ],
             "title": "Id"
           },
           "label": {
@@ -3436,11 +3440,37 @@
             "title": "Type",
             "default": "yes_no"
           },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "summarize",
+                  "translate"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset",
+            "description": "Selected generation preset, for display. The template controls the output."
+          },
           "column": {
             "type": "string",
             "title": "Column",
             "description": "Base name of the result columns. Defaults to one for the type.",
             "default": "answer"
+          },
+          "extraction_mode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "structure"
+            ],
+            "title": "Extraction Mode",
+            "description": "Extraction editor: one scalar value or named, typed fields.",
+            "default": "structure"
           },
           "options": {
             "items": {
@@ -3506,11 +3536,37 @@
             "title": "Type",
             "default": "yes_no"
           },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "summarize",
+                  "translate"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset",
+            "description": "Selected generation preset, for display. The template controls the output."
+          },
           "column": {
             "type": "string",
             "title": "Column",
             "description": "Base name of the result columns. Defaults to one for the type.",
             "default": "answer"
+          },
+          "extraction_mode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "structure"
+            ],
+            "title": "Extraction Mode",
+            "description": "Extraction editor: one scalar value or named, typed fields.",
+            "default": "structure"
           },
           "options": {
             "items": {
@@ -3553,7 +3609,9 @@
           "id",
           "template",
           "type",
+          "preset",
           "column",
+          "extraction_mode",
           "options",
           "fields",
           "reason",

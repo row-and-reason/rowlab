@@ -497,7 +497,7 @@ def test_task_types_list_the_families_presets_and_field_types(client):
         ("extract", "extract", True),
         ("write", "write", True),
     ]
-    assert "summarize" in [p["id"] for p in types["presets"]]
+    assert [p["id"] for p in types["presets"]] == ["summarize", "translate"]
     assert "items" in [f["id"] for f in types["field_types"]]
 
 

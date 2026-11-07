@@ -14,7 +14,7 @@ import {
   type Editor,
   type ReactNodeViewProps,
 } from "@tiptap/react";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 
 import { Badge } from "@/components/ui/badge";
 
@@ -101,7 +101,7 @@ function toDoc(template: string): JSONContent {
 }
 
 export function usePromptEditor(template: string, onChange: (template: string) => void) {
-  return useEditor({
+  const editor = useEditor({
     extensions: [
       Document,
       Paragraph,
@@ -110,7 +110,11 @@ export function usePromptEditor(template: string, onChange: (template: string) =
       UndoRedo,
       Dropcursor,
       Placeholder.configure({
-        placeholder: "Is this review negative? …then drag in the columns it is about.",
+        showOnlyCurrent: false,
+        placeholder: ({ editor }) =>
+          editor.isEmpty
+            ? "Write instructions, then drag in the columns they are about."
+            : "Drag columns here…",
       }),
     ],
     content: toDoc(template),
@@ -123,6 +127,14 @@ export function usePromptEditor(template: string, onChange: (template: string) =
     },
     onUpdate: ({ editor }) => onChange(editor.getText({ blockSeparator: "\n" })),
   });
+
+  useEffect(() => {
+    if (editor && editor.getText({ blockSeparator: "\n" }) !== template) {
+      editor.commands.setContent(toDoc(template), { emitUpdate: false });
+    }
+  }, [editor, template]);
+
+  return editor;
 }
 
 export function PromptEditor({ editor }: { editor: Editor | null }) {

@@ -52,9 +52,25 @@ const EMPTY_OPTIONS: Option[] = [
 ];
 const EMPTY_FIELD: ExtractField = { name: "", type: "text", description: "", fields: [] };
 
+const STARTING_PROMPTS: Record<AnswerType, string> = {
+  yes_no: "Does the following text meet [condition to check]? Answer yes or no:\n\n",
+  pick_one: "Choose the one option that best describes the following text:\n\n",
+  pick_any: "Select all options that apply to the following text:\n\n",
+  scale: "Rate the following text on the configured scale for [quality to assess]:\n\n",
+  extract: "Extract the configured fields from the following text. Leave missing information empty:\n\n",
+  write: "Write [what to produce] based on the following text:\n\n",
+};
+
+/** Replace the instructions while keeping the row's column references. */
+function startingPrompt(template: string, instruction: string): string {
+  const columns = template.match(/\{\{[^}]+\}\}/g) ?? [];
+  return instruction + columns.join("\n");
+}
+
 /**
  * The task with a different answer type. Options carry over unless their meaning changes, and a
- * column still named after the old type is renamed after the new one.
+ * column still named after the old type is renamed after the new one. Each choice starts a fresh
+ * prompt with the existing column references.
  */
 export function withType(task: Task, type: AnswerType, types: TaskTypes): Task {
   const from = types.types.find((t) => t.id === task.type)!;
@@ -72,11 +88,30 @@ export function withType(task: Task, type: AnswerType, types: TaskTypes): Task {
   return {
     ...task,
     type,
+    preset: null,
+    template: startingPrompt(task.template, STARTING_PROMPTS[type]),
     options,
     fields: type === "extract" ? (task.fields.length ? task.fields : [EMPTY_FIELD]) : [],
     reason: type === "write" ? false : task.reason,
     column: task.column === from.column || !task.column ? to.column : task.column,
   };
+}
+
+/** Single-value extraction has one internal field; the prompt says what to extract. */
+export function withExtraction(task: Task, shape: "single" | "structure", types: TaskTypes): Task {
+  const changed = { ...withType(task, "extract", types), extraction_mode: shape };
+  if (shape === "single") {
+    const type = changed.fields[0].type;
+    return {
+      ...changed,
+      template: startingPrompt(
+        task.template,
+        "Extract [value to extract] from the following text. Leave it empty if not stated:\n\n",
+      ),
+      fields: [{ ...EMPTY_FIELD, name: "value", type: type === "items" || type === "list" ? "text" : type }],
+    };
+  }
+  return changed;
 }
 
 /**
@@ -91,24 +126,25 @@ export function withFittingModels(
   const type = types.types.find((t) => t.id === task.type)!;
   const decision = (id: string) => models.find((m) => m.id === id)?.kind === "decision";
   if (!type.llm_only || !task.models.some(decision)) return { task };
+  const compatible = task.models.filter((id) => !decision(id));
   return {
-    task: { ...task, models: [type.model] },
-    switchedTo: models.find((m) => m.id === type.model),
+    task: { ...task, models: compatible.length ? compatible : [type.model] },
+    switchedTo: models.find((m) => m.id === (compatible[0] ?? type.model)),
   };
 }
 
 /** A write task started from a preset. The columns the prompt already uses are kept. */
 export function withPreset(task: Task, preset: Preset, language?: string): Task {
   const start = language ? preset.template.replace("English", language) : preset.template;
-  const columns = task.template.match(/\{\{[^}]+\}\}/g) ?? [];
   return {
     ...task,
     type: "write",
+    preset: preset.id,
     options: [],
     fields: [],
     reason: false,
     column: language ? `${preset.column}_${language.toLowerCase()}` : preset.column,
-    template: start + columns.join("\n"),
+    template: startingPrompt(task.template, start),
   };
 }
 
@@ -125,6 +161,9 @@ export function AnswerSettings({
   onChange: (task: Task) => void;
 }) {
   const family = types.types.find((t) => t.id === task.type)?.family;
+  const scalarTypes = types.field_types
+    .filter((t) => t.id !== "items" && t.id !== "list")
+    .map((t) => ({ value: t.id, label: t.label }));
   const allLlms = task.models.every((id) => models.find((m) => m.id === id)?.kind === "llm");
   return (
     <>
@@ -136,12 +175,37 @@ export function AnswerSettings({
         />
       )}
       {task.type === "extract" && (
-        <FieldsEditor
-          label="Fields"
-          fields={task.fields}
-          fieldTypes={types.field_types}
-          onChange={(fields) => onChange({ ...task, fields })}
-        />
+        task.extraction_mode === "single" ? (
+          <Field>
+            <FieldLabel htmlFor={`scalar-${task.id}`}>Value type</FieldLabel>
+            <Select
+              items={scalarTypes}
+              value={task.fields[0]?.type ?? "text"}
+              onValueChange={(type) => {
+                if (type) onChange({
+                  ...task,
+                  fields: [{ ...EMPTY_FIELD, name: "value", type: type as FieldType }],
+                });
+              }}
+            >
+              <SelectTrigger id={`scalar-${task.id}`} className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {scalarTypes.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        ) : (
+          <FieldsEditor
+            label="Fields"
+            fields={task.fields}
+            fieldTypes={types.field_types}
+            onChange={(fields) => onChange({ ...task, fields })}
+          />
+        )
       )}
       <Field>
         <div className="flex items-center gap-1">
@@ -389,16 +453,18 @@ const KINDS = [
 export function ModelPicker({
   id,
   value,
+  llmOnly = false,
   onChange,
 }: {
   id: string;
   value: string[];
+  llmOnly?: boolean;
   onChange: (models: string[]) => void;
 }) {
   const models = useModels();
   const anchor = useComboboxAnchor();
 
-  const groups = KINDS.map((k) => ({
+  const groups = KINDS.filter((k) => !llmOnly || k.kind === "llm").map((k) => ({
     value: k.label,
     items: models.filter((m) => m.kind === k.kind),
   }));
@@ -464,8 +530,8 @@ export function ModelPicker({
         </ComboboxContent>
       </Combobox>
       <FieldDescription>
-        Pick several to compare them. Decision models are fast and cheap; language models cost more
-        and are slower, but can reason through harder questions.
+        Pick several to compare them.
+        {!llmOnly && " Decision models are fast and cheap; language models cost more and are slower, but can reason through harder questions."}
       </FieldDescription>
     </Field>
   );

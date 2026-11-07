@@ -1164,8 +1164,11 @@ export interface components {
          * @description A starting point for a write task: its prompt, to finish by adding the row's columns.
          */
         Preset: {
-            /** Id */
-            id: string;
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "summarize" | "translate";
             /** Label */
             label: string;
             /** Column */
@@ -1444,11 +1447,23 @@ export interface components {
              */
             type: "yes_no" | "pick_one" | "pick_any" | "scale" | "extract" | "write";
             /**
+             * Preset
+             * @description Selected generation preset, for display. The template controls the output.
+             */
+            preset?: ("summarize" | "translate") | null;
+            /**
              * Column
              * @description Base name of the result columns. Defaults to one for the type.
              * @default answer
              */
             column: string;
+            /**
+             * Extraction Mode
+             * @description Extraction editor: one scalar value or named, typed fields.
+             * @default structure
+             * @enum {string}
+             */
+            extraction_mode: "single" | "structure";
             /**
              * Options
              * @description The choices for pick one and pick any; the levels, lowest first, for scale.
@@ -1493,11 +1508,23 @@ export interface components {
              */
             type: "yes_no" | "pick_one" | "pick_any" | "scale" | "extract" | "write";
             /**
+             * Preset
+             * @description Selected generation preset, for display. The template controls the output.
+             */
+            preset: ("summarize" | "translate") | null;
+            /**
              * Column
              * @description Base name of the result columns. Defaults to one for the type.
              * @default answer
              */
             column: string;
+            /**
+             * Extraction Mode
+             * @description Extraction editor: one scalar value or named, typed fields.
+             * @default structure
+             * @enum {string}
+             */
+            extraction_mode: "single" | "structure";
             /**
              * Options
              * @description The choices for pick one and pick any; the levels, lowest first, for scale.

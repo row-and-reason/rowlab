@@ -212,3 +212,35 @@ def test_a_task_gets_a_column_and_models_that_suit_its_type():
     assert (write.column, write.models) == ("text", [tasks.DEFAULT_LLM])
     picked = Task.model_validate({"type": "pick_one"})
     assert (picked.column, picked.models) == ("label", [tasks.DEFAULT_MODEL])
+
+
+def test_generation_preset_survives_prompt_edits_and_serialization():
+    task = Task(type="write", preset="translate", template="Use formal French: {{text}}")
+    restored = Task.model_validate_json(task.model_dump_json())
+    assert restored.preset == "translate"
+    assert restored.template == task.template
+    assert tasks.llm_schema(restored) == tasks.llm_schema(Task(type="write"))
+
+
+@pytest.mark.parametrize("field_type", ["text", "number", "boolean", "date"])
+def test_single_value_extraction_accepts_scalars(field_type):
+    task = Task(
+        type="extract",
+        extraction_mode="single",
+        template="Extract the value from {{text}}",
+        fields=[{"name": "value", "type": field_type}],
+    )
+    tasks.check(task)
+    assert Task.model_validate_json(task.model_dump_json()).extraction_mode == "single"
+    assert len(tasks.result_columns(task)) == 1
+
+
+@pytest.mark.parametrize(
+    "fields", [[], ["a", "b"], ["value:list"], [{"name": "value", "type": "items"}]]
+)
+def test_single_value_extraction_rejects_structures(fields):
+    task = Task(
+        type="extract", extraction_mode="single", template="Extract {{text}}", fields=fields
+    )
+    with pytest.raises(InvalidRequest, match="exactly one scalar"):
+        tasks.check(task)

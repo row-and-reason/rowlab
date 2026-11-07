@@ -15,6 +15,7 @@ import {
   AnswerSettings,
   ModelPicker,
   modelSlug,
+  withExtraction,
   withFittingModels,
   withPreset,
   withType,
@@ -39,7 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FieldGroup } from "@/components/ui/field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { AnswerType, Dataset, Model, Task, TaskTypes } from "@/lib/api/client";
+import type { Dataset, Model, Task, TaskTypes } from "@/lib/api/client";
 import { useModels, useTaskTypes } from "@/lib/catalog";
 
 /** The next run's tasks as compact rows: the answer type and models are edited in place, and a row
@@ -104,9 +105,9 @@ export function TaskEditor({
 }
 
 const FAMILIES = [
-  { family: "classify", label: "Classify · any model" },
-  { family: "extract", label: "Extract · language models" },
-  { family: "write", label: "Write · language models" },
+  { family: "classify", label: "Classification" },
+  { family: "extract", label: "Extraction" },
+  { family: "write", label: "Generation" },
 ] as const;
 
 function TaskRow({
@@ -136,6 +137,13 @@ function TaskRow({
   // Whether it starts open is decided once, when the row appears; after that it's yours to toggle.
   const [open, setOpen] = useState(defaultOpen);
   const type = types.types.find((t) => t.id === task.type)!;
+  const extraction = task.extraction_mode ?? "structure";
+  const preset = task.type === "write" ? types.presets.find((p) => p.id === task.preset) : undefined;
+  const choice = task.type === "extract" ? extraction : preset?.id ?? task.type;
+  const label =
+    task.type === "extract"
+      ? extraction === "single" ? "Single value" : "Typed structure"
+      : preset?.label ?? type.label;
 
   // A new answer type may need other models: say so when switching to them.
   function change(changed: Task) {
@@ -163,54 +171,64 @@ function TaskRow({
 
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="text-xs" />}>
-            {type.label}
+            {label}
             <ChevronDownIcon data-icon="inline-end" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuRadioGroup
-              value={task.type}
-              onValueChange={(value) => change(withType(task, value as AnswerType, types))}
-            >
+            <DropdownMenuRadioGroup value={choice}>
               {FAMILIES.map(({ family, label }, i) => (
                 <DropdownMenuGroup key={family}>
                   {i > 0 && <DropdownMenuSeparator />}
                   <DropdownMenuLabel>{label}</DropdownMenuLabel>
-                  {types.types
+                  {family === "extract" ? (
+                    <>
+                      <DropdownMenuRadioItem value="single" onClick={() => change(withExtraction(task, "single", types))}>
+                        Single value
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="structure" onClick={() => change(withExtraction(task, "structure", types))}>
+                        Typed structure
+                      </DropdownMenuRadioItem>
+                    </>
+                  ) : types.types
                     .filter((t) => t.family === family)
                     .map((t) => (
-                      <DropdownMenuRadioItem key={t.id} value={t.id} title={t.description}>
+                      <DropdownMenuRadioItem
+                        key={t.id}
+                        value={t.id}
+                        title={t.description}
+                        onClick={() => change(withType(task, t.id, types))}
+                      >
                         {t.label}
                       </DropdownMenuRadioItem>
                     ))}
+                  {family === "write" && types.presets.map((preset) =>
+                    preset.id === "translate" ? (
+                      <DropdownMenuSub key={preset.id}>
+                        <DropdownMenuSubTrigger>{preset.label}</DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                          {types.languages.map((language) => (
+                            <DropdownMenuItem
+                              key={language}
+                              onClick={() => change(withPreset(task, preset, language))}
+                            >
+                              {language}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    ) : (
+                      <DropdownMenuRadioItem
+                        key={preset.id}
+                        value={preset.id}
+                        onClick={() => change(withPreset(task, preset))}
+                      >
+                        {preset.label}
+                      </DropdownMenuRadioItem>
+                    ),
+                  )}
                 </DropdownMenuGroup>
               ))}
             </DropdownMenuRadioGroup>
-            {/* Starting points for writing: each fills in the prompt and names the column. */}
-            {types.presets.map((preset) =>
-              preset.id === "translate" ? (
-                <DropdownMenuSub key={preset.id}>
-                  <DropdownMenuSubTrigger inset>{preset.label}</DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {types.languages.map((language) => (
-                      <DropdownMenuItem
-                        key={language}
-                        onClick={() => change(withPreset(task, preset, language))}
-                      >
-                        {language}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              ) : (
-                <DropdownMenuItem
-                  key={preset.id}
-                  inset
-                  onClick={() => change(withPreset(task, preset))}
-                >
-                  {preset.label}
-                </DropdownMenuItem>
-              ),
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -226,6 +244,7 @@ function TaskRow({
             <ModelPicker
               id={`models-${task.id}`}
               value={task.models}
+              llmOnly={type.llm_only}
               onChange={(picked) => onChange({ ...task, models: picked })}
             />
           </PopoverContent>

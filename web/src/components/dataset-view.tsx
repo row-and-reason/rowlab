@@ -330,6 +330,8 @@ function emptyTask(existing: Task[]): Task {
     id: newId(),
     template: "",
     type: "yes_no",
+    preset: null,
+    extraction_mode: "structure",
     column: `answer_${existing.length + 1}`,
     options: [],
     fields: [],
