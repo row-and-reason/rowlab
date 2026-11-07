@@ -11,18 +11,8 @@ import {
   YAxis,
   type BarShapeProps,
 } from "recharts";
-import { ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { type Comparison } from "@/lib/api/client";
 import { type WhereFilter } from "@/lib/sql";
 
@@ -78,19 +68,6 @@ export function NumericComparison({
   };
   return (
     <section className="space-y-4">
-      <dl className="flex flex-wrap gap-x-10 gap-y-3">
-        <div>
-          <dt className="text-xs text-muted-foreground">Signed mean difference</dt>
-          <dd className="mt-1 font-medium tabular-nums">
-            {(stats.bias ?? 0) > 0 ? "+" : ""}
-            {metric(stats.bias)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">95th percentile absolute difference</dt>
-          <dd className="mt-1 font-medium tabular-nums">{metric(stats.p95_absolute_difference)}</dd>
-        </div>
-      </dl>
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <h3 className="font-medium">Difference distribution</h3>
@@ -197,66 +174,8 @@ export function NumericComparison({
                 : ""}
             </Button>
           ))}
-          <span className="text-muted-foreground">Select a bar segment to inspect rows.</span>
         </div>
       </div>
-      <Collapsible>
-        <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="px-0 text-xs" />}>
-          <ChevronDownIcon className="size-3" /> Inspect bins and exact counts
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Difference interval</TableHead>
-                <TableHead className="text-right">All rows</TableHead>
-                <TableHead className="text-right">Matched</TableHead>
-                <TableHead className="text-right">Different</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {bins.map((b, i) => (
-                <TableRow key={i}>
-                  <TableCell className="tabular-nums">
-                    [{metric(b.lower)}, {metric(b.upper)}
-                    {b.upper_inclusive ? "]" : ")"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!b.rows}
-                      onClick={() => inspect(b)}
-                      aria-label={`Inspect ${b.rows} rows in bin ${i + 1}`}
-                      className="text-xs tabular-nums"
-                    >
-                      {b.rows}
-                    </Button>
-                  </TableCell>
-                  {(["matched", "different"] as const).map((kind) => (
-                    <TableCell key={kind} className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!b[kind].rows}
-                        onClick={() => inspect(b, kind)}
-                        aria-label={`Inspect ${kind} rows in bin ${i + 1}`}
-                      >
-                        {b[kind].rows}
-                      </Button>
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <p className="pt-3 text-xs text-muted-foreground">
-            Largest absolute difference: {metric(stats.max_absolute_difference)}.{" "}
-            {stats.non_finite_pairs} non-finite pairs excluded. Displayed bounds are rounded; row
-            filters use full precision.
-          </p>
-        </CollapsibleContent>
-      </Collapsible>
     </section>
   );
 }

@@ -1,15 +1,15 @@
 "use client";
 
-import { InfoIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import { useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { NumericComparison } from "@/components/numeric-comparison";
-import { TooltipButton } from "@/components/tooltip-button";
-import { PaneHeader } from "@/components/pane";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -18,14 +18,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { type Comparison, type Dataset } from "@/lib/api/client";
 import { columnLabel, formatNumber } from "@/lib/format";
-import { ALL_ROWS, ident, type WhereFilter } from "@/lib/sql";
+import { ALL_ROWS, type WhereFilter } from "@/lib/sql";
 import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
 
 type InspectRows = (filters: WhereFilter[], columns: string[]) => void;
 type Pair = Comparison["pairs"][number];
+const metric = (n: number | null) =>
+  n === null ? "—" : n.toLocaleString("en-US", { maximumSignificantDigits: 4 });
 
 export function ComparisonResults({
   dataset,
@@ -40,50 +41,43 @@ export function ComparisonResults({
 }) {
   const params = useSearchParams();
   const reference = comparison.reference ? comparison.columns.at(-1)! : null;
-  const allPairs = params.get("pairs") === "all";
-  const pairs = [...comparison.pairs]
-    .filter((p) => !reference || allPairs || p.columns[1] === reference)
-    .sort((a, b) =>
-      a.numeric && b.numeric
-        ? (a.numeric.mean_absolute_difference ?? Infinity) -
-          (b.numeric.mean_absolute_difference ?? Infinity)
-        : reference && !allPairs
-          ? (b.rate ?? -1) - (a.rate ?? -1)
-          : (a.rate ?? 2) - (b.rate ?? 2),
-    );
-  const pair = pairs.find((p) => JSON.stringify(p.columns) === params.get("pair")) ?? pairs[0];
+  const pairs = [...comparison.pairs].sort((a, b) =>
+    a.numeric && b.numeric
+      ? (a.numeric.mean_absolute_difference ?? Infinity) -
+        (b.numeric.mean_absolute_difference ?? Infinity)
+      : reference
+        ? (b.rate ?? -1) - (a.rate ?? -1)
+        : (a.rate ?? 2) - (b.rate ?? 2),
+  );
+  const primary = pairs.filter((p) => !reference || p.columns[1] === reference);
+  const secondary = reference ? pairs.filter((p) => p.columns[1] !== reference) : [];
+  const pair = pairs.find((p) => JSON.stringify(p.columns) === params.get("pair")) ?? primary[0];
   const ref = comparison.reference?.find(
     (r) => r.column === pair.columns[0] && pair.columns[1] === reference,
   );
-  const requestedDetail = params.get("detail") ?? "differences";
-  const detail =
-    ["differences", "labels", "distribution", "coverage"].includes(requestedDetail) &&
-    !(requestedDetail === "labels" && (!ref || pair.numeric))
-      ? requestedDetail
-      : "differences";
   const ruleLabel =
     comparison.tolerance !== null
       ? `tolerance ${comparison.tolerance}`
       : comparison.ignore_case || comparison.trim_whitespace
         ? "normalized match"
         : "exact match";
-  function change(key: string, value: string) {
+  const pairKey = JSON.stringify(pair.columns);
+  function select(p: Pair) {
     const query = new URLSearchParams(window.location.search);
-    query.set(key, value);
+    query.set("pair", JSON.stringify(p.columns));
     window.history.replaceState(null, "", `/?${query}`);
   }
-  const pairKey = JSON.stringify(pair.columns);
   useEffect(() => {
     if (
       params.get("pair") !== pairKey ||
-      (params.has("detail") && params.get("detail") !== detail)
+      ["detail", "pairs", "focus"].some((key) => params.has(key))
     ) {
       const query = new URLSearchParams(window.location.search);
       query.set("pair", pairKey);
-      if (query.has("detail")) query.set("detail", detail);
+      for (const key of ["detail", "pairs", "focus"]) query.delete(key);
       window.history.replaceState(null, "", `/?${query}`);
     }
-  }, [pairKey, detail, params]);
+  }, [pairKey, params]);
   useEffect(() => {
     actionsRef.current?.setReady?.(true);
     return () => actionsRef.current?.setReady?.(false);
@@ -94,12 +88,7 @@ export function ComparisonResults({
       different: () => {
         if (pair.compared > pair.agree)
           onFilter(
-            [
-              {
-                where: pair.disagree,
-                label: `${pair.columns.join(" ≠ ")} · ${ruleLabel}`,
-              },
-            ],
+            [{ where: pair.disagree, label: `${pair.columns.join(" ≠ ")} · ${ruleLabel}` }],
             pair.columns,
           );
       },
@@ -110,225 +99,265 @@ export function ComparisonResults({
   }, [actionsRef, pair, ruleLabel, onFilter]);
   const missing = Object.values(pair.coverage).reduce((n, v) => n + v.rows, 0);
   return (
-    <div className="flex min-h-0 flex-1 text-sm">
-      {pairs.length > 1 && (
-        <aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar/30">
-          <PaneHeader>
-            <span className="font-medium">
-              {pair.numeric
-                ? "Absolute difference"
-                : reference && !allPairs
-                  ? "Against reference"
-                  : "Column pairs"}
+    <div className="min-h-0 flex-1 overflow-auto text-sm">
+      <div className="space-y-4 p-3">
+        <PairTable
+          pairs={primary}
+          selected={pair}
+          reference={reference}
+          tolerance={comparison.tolerance}
+          onSelect={select}
+          onFilter={onFilter}
+        />
+        {secondary.length > 0 && (
+          <Collapsible key={reference} defaultOpen={secondary.includes(pair)}>
+            <CollapsibleTrigger
+              render={<Button variant="ghost" size="sm" className="px-0 text-xs" />}
+            >
+              <ChevronDownIcon className="size-3" /> Between models · {secondary.length} pairs
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <PairTable
+                pairs={secondary}
+                selected={pair}
+                reference={null}
+                tolerance={comparison.tolerance}
+                onSelect={select}
+                onFilter={onFilter}
+              />
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        <section className="space-y-2 border-t pt-3" aria-label="Selected comparison">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <h3 className="font-medium">{pair.columns.map(columnLabel).join(" → ")}</h3>
+            <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+              <Definition
+                label={`${formatNumber(pair.compared)} / ${formatNumber(comparison.rows)} paired`}
+                description="Rows with both answers / all dataset rows. Missing means NULL, not an empty string. Matrix totals and rates use paired rows."
+              />
             </span>
-          </PaneHeader>
-          <div className="min-h-0 flex-1 overflow-auto p-2" aria-label="Comparisons">
-            {pairs.map((p, i) => (
-              <Button
-                key={JSON.stringify(p.columns)}
-                variant="ghost"
-                className={`mb-1 h-auto w-full flex-col items-stretch gap-1.5 px-2 py-2 text-xs ${p === pair ? "bg-accent text-accent-foreground" : ""}`}
-                aria-pressed={p === pair}
-                onClick={() => change("pair", JSON.stringify(p.columns))}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    const next =
-                      pairs[(i + (e.key === "ArrowDown" ? 1 : pairs.length - 1)) % pairs.length];
-                    change("pair", JSON.stringify(next.columns));
-                    const buttons = e.currentTarget.parentElement?.querySelectorAll("button");
-                    (
-                      buttons?.[
-                        (i + (e.key === "ArrowDown" ? 1 : pairs.length - 1)) % pairs.length
-                      ] as HTMLElement
-                    )?.focus();
-                  }
-                }}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="truncate">
-                    {reference && !allPairs
-                      ? columnLabel(p.columns[0])
-                      : p.columns.map(columnLabel).join(" · ")}
-                  </span>
-                  <span className="tabular-nums">
-                    {p.numeric
-                      ? (p.numeric.mean_absolute_difference?.toLocaleString("en-US", {
-                          maximumSignificantDigits: 3,
-                        }) ?? "—")
-                      : percent(p.rate)}
-                  </span>
-                </span>
-                <Progress
-                  value={
-                    p.numeric
-                      ? (100 * (p.numeric.mean_absolute_difference ?? 0)) /
-                        Math.max(
-                          ...pairs.map((v) => v.numeric?.mean_absolute_difference ?? 0),
-                          Number.EPSILON,
-                        )
-                      : (p.rate ?? 0) * 100
-                  }
-                  aria-label={`${p.columns.join(" / ")} ${p.numeric ? "mean absolute difference" : "match rate"}`}
-                  className="h-1"
-                />
-                <span className="text-left font-normal text-muted-foreground">
-                  {p.numeric ? `Mean abs. difference · ${percent(p.rate)} match · ` : ""}
-                  {formatNumber(p.compared - p.agree)} different ·{" "}
-                  {formatNumber(comparison.rows - p.compared)} missing
-                </span>
-              </Button>
-            ))}
           </div>
-          {reference && (
-            <div className="border-t p-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full text-xs"
-                onClick={() => change("pairs", allPairs ? "reference" : "all")}
-              >
-                {allPairs ? "Against reference" : "Include model-to-model pairs"}
-              </Button>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs tabular-nums">
+            {pair.numeric ? (
+              <>
+                <span>
+                  <Definition
+                    label="P95"
+                    description="95th percentile of absolute differences among finite pairs."
+                  />{" "}
+                  <strong>{metric(pair.numeric.p95_absolute_difference)}</strong>
+                </span>
+                <span>
+                  Max <strong>{metric(pair.numeric.max_absolute_difference)}</strong>
+                </span>
+                {pair.numeric.non_finite_pairs > 0 && (
+                  <span className="text-muted-foreground">
+                    {pair.numeric.non_finite_pairs} non-finite pairs excluded
+                  </span>
+                )}
+              </>
+            ) : (
+              ref && (
+                <>
+                  <span>
+                    <Definition
+                      label="Macro F1"
+                      description="Mean per-label F1 across all labels; missing pairs excluded."
+                    />{" "}
+                    <strong>{percent(ref.macro_f1)}</strong>
+                  </span>
+                  <span>
+                    <Definition
+                      label="Balanced accuracy"
+                      description="Mean recall across all reference labels; the reference is not necessarily ground truth."
+                    />{" "}
+                    <strong>{percent(ref.balanced_accuracy)}</strong>
+                  </span>
+                </>
+              )
+            )}
+          </div>
+          {missing > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span>{formatNumber(missing)} missing:</span>
+              {Object.entries(pair.coverage)
+                .filter(([, v]) => v.rows > 0)
+                .map(([key, value]) => {
+                  const label =
+                    key === "missing_both"
+                      ? "both empty"
+                      : `${columnLabel(pair.columns[key === "missing_left" ? 0 : 1])} empty`;
+                  return (
+                    <Count
+                      key={key}
+                      rows={value.rows}
+                      where={value.where}
+                      label={label}
+                      columns={pair.columns}
+                      onFilter={onFilter}
+                    >
+                      {label}
+                    </Count>
+                  );
+                })}
             </div>
           )}
-        </aside>
-      )}
-      <Tabs
-        className="flex min-h-0 min-w-0 flex-1 flex-col gap-0"
-        value={
-          ["differences", "labels", "distribution", "coverage"].includes(detail)
-            ? detail
-            : "differences"
-        }
-        onValueChange={(v) => change("detail", v)}
-      >
-        <PaneHeader>
-          <span className="min-w-0 truncate font-medium" title={pair.columns.join(" → ")}>
-            {pair.columns.map(columnLabel).join(" → ")}
-          </span>
-          <TabsList className="ml-auto shrink-0">
-            <TabsTrigger value="differences">Differences</TabsTrigger>
-            {ref && !pair.numeric && <TabsTrigger value="labels">Label metrics</TabsTrigger>}
-            <TabsTrigger value="distribution">Values</TabsTrigger>
-            <TabsTrigger value="coverage">Coverage{missing ? ` · ${missing}` : ""}</TabsTrigger>
-          </TabsList>
-
-          <TooltipButton
-            label="Rates exclude missing answers. A reference is not necessarily ground truth. Select counts to inspect their rows."
-            variant="ghost"
-            size="icon-xs"
-          >
-            <InfoIcon />
-          </TooltipButton>
-        </PaneHeader>
-        <div className="min-h-0 flex-1 overflow-auto">
-          <div className="max-w-5xl space-y-3 p-3">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pb-1">
-              <div>
-                <span className="font-medium tabular-nums">
-                  {pair.numeric
-                    ? (pair.numeric.mean_absolute_difference?.toLocaleString("en-US", {
-                        maximumSignificantDigits: 4,
-                      }) ?? "—")
-                    : percent(pair.rate)}
-                </span>{" "}
-                <span className="text-muted-foreground">
-                  {pair.numeric
-                    ? "mean absolute difference"
-                    : comparison.tolerance !== null
-                      ? "within tolerance"
-                      : ref
-                        ? "match reference"
-                        : "agree"}
-                </span>
-              </div>
-              <Count
-                rows={pair.compared - pair.agree}
-                where={pair.disagree}
-                label={`${pair.columns.join(" ≠ ")} · ${ruleLabel}`}
-                columns={pair.columns}
-                onFilter={onFilter}
-              >
-                different
-              </Count>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {formatNumber(pair.compared)} / {formatNumber(comparison.rows)} paired
-              </span>
-            </div>
-            <TabsContent value="differences" className="pt-2">
-              {pair.numeric ? (
-                <NumericComparison
-                  pair={pair}
-                  tolerance={comparison.tolerance}
-                  onFilter={onFilter}
-                />
-              ) : (
-                <PairDetail
-                  dataset={dataset}
-                  comparison={comparison}
-                  pair={pair}
-                  reference={ref ? reference : null}
-                  onFilter={onFilter}
-                />
-              )}
-            </TabsContent>
-            <TabsContent value="labels" className="pt-2">
-              {ref && <LabelMetrics reference={ref} />}
-            </TabsContent>
-            <TabsContent value="distribution" className="pt-2">
-              <PairDetail
-                dataset={dataset}
-                comparison={comparison}
-                pair={pair}
-                reference={ref ? reference : null}
-                onFilter={onFilter}
-                distribution
-              />
-            </TabsContent>
-            <TabsContent value="coverage" className="space-y-4 pt-4">
-              <p className="text-xs text-muted-foreground">
-                Rates use rows with both answers. Missing means NULL; an empty string is an answer.
-              </p>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Answers missing</TableHead>
-                    <TableHead className="text-right">Rows / inspect</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {Object.entries(pair.coverage).map(([key, value]) => (
-                    <TableRow key={key}>
-                      <TableCell>
-                        {key === "missing_both"
-                          ? "Both columns"
-                          : columnLabel(pair.columns[key === "missing_left" ? 0 : 1])}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Count
-                          rows={value.rows}
-                          where={value.where}
-                          label={key.replaceAll("_", " ")}
-                          columns={pair.columns}
-                          onFilter={onFilter}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {pair.numeric && (
-                <p className="text-xs text-muted-foreground">
-                  Numeric diagnostics use {pair.numeric.finite_pairs} finite pairs;{" "}
-                  {pair.numeric.non_finite_pairs} non-finite pairs excluded.
-                </p>
-              )}
-            </TabsContent>
-          </div>
-        </div>
-      </Tabs>
+        </section>
+        {pair.numeric ? (
+          <NumericComparison pair={pair} tolerance={comparison.tolerance} onFilter={onFilter} />
+        ) : (
+          <PairDetail
+            dataset={dataset}
+            comparison={comparison}
+            pair={pair}
+            reference={ref ? reference : null}
+            onFilter={onFilter}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+function PairTable({
+  pairs,
+  selected,
+  reference,
+  tolerance,
+  onSelect,
+  onFilter,
+}: {
+  pairs: Pair[];
+  selected: Pair;
+  reference: string | null;
+  tolerance: number | null;
+  onSelect: (pair: Pair) => void;
+  onFilter: InspectRows;
+}) {
+  const numeric = pairs.every((p) => p.numeric);
+  return (
+    <Table aria-label={reference ? "Models against reference" : "Column pairs"}>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{reference ? "Model" : "Pair"}</TableHead>
+          {numeric && (
+            <>
+              <TableHead className="text-right">
+                <Definition
+                  label="Mean abs. Δ"
+                  description="Mean absolute difference among finite paired answers."
+                />
+              </TableHead>
+              <TableHead className="text-right">
+                <Definition
+                  label="Bias"
+                  description="Signed mean difference. The chart names the subtraction direction."
+                />
+              </TableHead>
+            </>
+          )}
+          <TableHead className="text-right">
+            <Definition
+              label={tolerance !== null ? "Within tolerance" : "Match"}
+              description="Matching answers / paired answers. Missing answers are excluded."
+            />
+          </TableHead>
+          <TableHead className="text-right">Different</TableHead>
+          <TableHead className="text-right">Missing</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {pairs.map((p, i) => {
+          const missing = Object.values(p.coverage).reduce((n, v) => n + v.rows, 0);
+          return (
+            <TableRow
+              key={JSON.stringify(p.columns)}
+              data-state={p === selected ? "selected" : undefined}
+            >
+              <TableCell className="py-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto max-w-52 justify-start px-0 text-xs"
+                  aria-pressed={p === selected}
+                  data-pair-selector
+                  onClick={() => onSelect(p)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+                    e.preventDefault();
+                    const next =
+                      (i + (e.key === "ArrowDown" ? 1 : pairs.length - 1)) % pairs.length;
+                    onSelect(pairs[next]);
+                    e.currentTarget
+                      .closest("tbody")
+                      ?.querySelectorAll<HTMLButtonElement>("[data-pair-selector]")
+                      [next]?.focus();
+                  }}
+                >
+                  <span className="truncate" title={p.columns.join(" → ")}>
+                    {reference ? columnLabel(p.columns[0]) : p.columns.map(columnLabel).join(" → ")}
+                  </span>
+                </Button>
+              </TableCell>
+              {numeric && (
+                <>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {metric(p.numeric!.mean_absolute_difference)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {metric(p.numeric!.bias)}
+                  </TableCell>
+                </>
+              )}
+              <TableCell className="text-right text-xs tabular-nums">
+                <div className="flex items-center justify-end gap-2">
+                  {!numeric && (
+                    <Progress
+                      className="h-1 w-16"
+                      value={(p.rate ?? 0) * 100}
+                      aria-label={`${p.columns.join(" / ")} match rate`}
+                    />
+                  )}
+                  {percent(p.rate)}
+                </div>
+              </TableCell>
+              <TableCell className="text-right">
+                <Count
+                  rows={p.compared - p.agree}
+                  where={p.disagree}
+                  label={`${p.columns.join(" ≠ ")}`}
+                  columns={p.columns}
+                  onFilter={onFilter}
+                />
+              </TableCell>
+              <TableCell className="text-right">
+                <Count
+                  rows={missing}
+                  where={Object.values(p.coverage)
+                    .map((v) => `(${v.where})`)
+                    .join(" OR ")}
+                  label={`Missing answers: ${p.columns.join(" / ")}`}
+                  columns={p.columns}
+                  onFilter={onFilter}
+                />
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+}
+
+function Definition({ label, description }: { label: string; description: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span tabIndex={0} className="cursor-help" />}>
+        {label}
+      </TooltipTrigger>
+      <TooltipContent>{description}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -338,14 +367,12 @@ function PairDetail({
   pair,
   reference,
   onFilter,
-  distribution = false,
 }: {
   dataset: Dataset;
   comparison: Comparison;
   pair: Pair;
   reference: string | null;
   onFilter: InspectRows;
-  distribution?: boolean;
 }) {
   const request = useMemo(
     () =>
@@ -385,65 +412,15 @@ function PairDetail({
         Loading pair…
       </div>
     );
-  return distribution ? (
-    <Distributions comparison={data} dataset={dataset} onFilter={onFilter} />
-  ) : (
+  return (
     <Crosstab
       comparison={data}
       pair={pair}
       tolerance={comparison.tolerance}
       reference={reference}
+      metrics={comparison.reference?.find((r) => r.column === pair.columns[0])}
       onFilter={onFilter}
     />
-  );
-}
-
-function LabelMetrics({ reference }: { reference: NonNullable<Comparison["reference"]>[number] }) {
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center gap-6 text-xs">
-        <span className="inline-flex items-center gap-1">
-          Macro F1 <strong>{percent(reference.macro_f1)}</strong>
-        </span>
-        <span className="inline-flex items-center gap-1">
-          Balanced accuracy <strong>{percent(reference.balanced_accuracy)}</strong>
-        </span>
-        <TooltipButton
-          label="Precision: correct predictions / predicted. Recall: correct / reference support. Macro F1 averages per-label F1; balanced accuracy averages recall. Missing pairs are excluded."
-          variant="ghost"
-          size="icon-xs"
-        >
-          <InfoIcon />
-        </TooltipButton>
-      </div>
-      <Table className="max-w-2xl table-fixed">
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-44">Reference label</TableHead>
-            <TableHead className="text-right">Precision</TableHead>
-            <TableHead className="text-right">Recall</TableHead>
-            <TableHead className="text-right">Support</TableHead>
-            <TableHead className="text-right">Predicted</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {reference.values.map((v) => (
-            <TableRow key={v.value}>
-              <TableCell>{v.value || '""'}</TableCell>
-              <TableCell className="text-right tabular-nums">{percent(v.precision)}</TableCell>
-              <TableCell className="text-right tabular-nums">{percent(v.recall)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatNumber(v.support)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatNumber(v.predicted)}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      <p className="text-xs text-muted-foreground">
-        Lowest recall first · {reference.labels_completeness.shown_groups} of{" "}
-        {reference.labels_completeness.total_groups} reference labels. Aggregate metrics use all
-        labels.
-      </p>
-    </section>
   );
 }
 
@@ -452,12 +429,14 @@ function Crosstab({
   pair,
   tolerance,
   reference,
+  metrics,
   onFilter,
 }: {
   comparison: Comparison;
   pair: Pair;
   tolerance: number | null;
   reference: string | null;
+  metrics?: NonNullable<Comparison["reference"]>[number];
   onFilter: InspectRows;
 }) {
   const cells = comparison.crosstab ?? [];
@@ -478,13 +457,6 @@ function Crosstab({
         <span className="text-xs text-muted-foreground">
           {reference ? "Prediction ↓ · Reference →" : `${columnLabel(a)} ↓ · ${columnLabel(b)} →`}
         </span>
-        <TooltipButton
-          label="Accent highlights differences; stronger tint means more rows. Matches stay quiet. Select a count to inspect its rows."
-          variant="ghost"
-          size="icon-xs"
-        >
-          <InfoIcon />
-        </TooltipButton>
       </div>
       {(comparison.ignore_case || comparison.trim_whitespace) && (
         <p className="text-xs text-muted-foreground">
@@ -502,18 +474,34 @@ function Crosstab({
       {!cells.length ? (
         <p className="py-3 text-muted-foreground">No rows have answers in both columns.</p>
       ) : (
-        <Table className="table-fixed" style={{ width: 144 + 88 * (across.length + 1) }}>
+        <Table
+          className="table-fixed"
+          style={{ width: "100%", minWidth: 112 + 76 * (across.length + (reference ? 2 : 1)) }}
+        >
           <TableHeader>
             <TableRow>
-              <TableHead className="w-36 truncate" title={columnLabel(a)}>
+              <TableHead className="w-28 truncate" title={columnLabel(a)}>
                 {reference ? "Prediction" : columnLabel(a)}
               </TableHead>
               {across.map((v) => (
-                <TableHead key={v} className="w-22 truncate text-right" title={v}>
+                <TableHead key={v} className="truncate text-right" title={v}>
                   {v || '""'}
                 </TableHead>
               ))}
-              <TableHead className="text-right">{complete ? "Total" : "Shown total"}</TableHead>
+              <TableHead className="text-right">
+                <Definition
+                  label={complete ? "Total" : "Shown"}
+                  description="Paired rows only; missing answers are excluded."
+                />
+              </TableHead>
+              {reference && (
+                <TableHead className="text-right">
+                  <Definition
+                    label="Precision"
+                    description="Correct predictions divided by all predictions of this label, among paired rows."
+                  />
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -565,6 +553,16 @@ function Crosstab({
                     cells.filter((c) => c.values[0] === row).reduce((n, c) => n + c.rows, 0),
                   )}
                 </TableCell>
+                {reference && (
+                  <TableCell className="text-right tabular-nums">
+                    {percent(
+                      complete
+                        ? (cellMap.get(JSON.stringify([row, row]))?.rows ?? 0) /
+                            cells.filter((c) => c.values[0] === row).reduce((n, c) => n + c.rows, 0)
+                        : (metrics?.values.find((v) => v.value === row)?.precision ?? null),
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
             <TableRow className="font-medium">
@@ -577,102 +575,44 @@ function Crosstab({
                 </TableCell>
               ))}
               <TableCell className="text-right tabular-nums">{formatNumber(represented)}</TableCell>
+              {reference && <TableCell />}
             </TableRow>
+            {reference && (
+              <TableRow>
+                <TableCell>
+                  <Definition
+                    label="Recall"
+                    description="Correct predictions divided by reference support for this label, among paired rows."
+                  />
+                </TableCell>
+                {across.map((value) => (
+                  <TableCell key={value} className="text-right tabular-nums">
+                    {percent(
+                      complete
+                        ? (cellMap.get(JSON.stringify([value, value]))?.rows ?? 0) /
+                            cells
+                              .filter((c) => c.values[1] === value)
+                              .reduce((n, c) => n + c.rows, 0)
+                        : (metrics?.values.find((v) => v.value === value)?.recall ?? null),
+                    )}
+                  </TableCell>
+                ))}
+                <TableCell />
+                <TableCell />
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       )}
-      <p className="text-xs text-muted-foreground">
-        Showing {formatNumber(represented)} of {formatNumber(pair.compared)} paired rows.
-        {!complete && " Some combinations are omitted; — means not shown, not necessarily zero."}
-        {comparison.crosstab_completeness?.truncated &&
-          ` ${comparison.crosstab_completeness.shown_groups} of ${comparison.crosstab_completeness.total_groups} combinations shown.`}
-      </p>
+      {!complete && (
+        <p className="text-xs text-muted-foreground">
+          Showing {formatNumber(represented)} of {formatNumber(pair.compared)} paired rows.
+          {!complete && " Some combinations are omitted; — means not shown, not necessarily zero."}
+          {comparison.crosstab_completeness?.truncated &&
+            ` ${comparison.crosstab_completeness.shown_groups} of ${comparison.crosstab_completeness.total_groups} combinations shown.`}
+        </p>
+      )}
     </section>
-  );
-}
-
-function Distributions({
-  comparison,
-  dataset,
-  onFilter,
-}: {
-  comparison: Comparison;
-  dataset: Dataset;
-  onFilter: InspectRows;
-}) {
-  const numeric = comparison.columns.every((name) =>
-    /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|FLOAT|DOUBLE|DECIMAL.*)$/.test(
-      dataset.columns.find((c) => c.name === name)?.type ?? "",
-    ),
-  );
-  const values = numeric
-    ? [...comparison.values].sort((a, b) =>
-        a.value === null ? 1 : b.value === null ? -1 : Number(a.value) - Number(b.value),
-      )
-    : comparison.values;
-  return (
-    <>
-      <h3 className="font-medium">How often each value is used</h3>
-      <p className="text-xs text-muted-foreground">
-        All {formatNumber(comparison.rows)} rows · {comparison.values_completeness.shown_groups} of{" "}
-        {comparison.values_completeness.total_groups} values shown. “Other values” combines the
-        rest. Missing answers are separate.
-      </p>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Value</TableHead>
-            {comparison.columns.map((c) => (
-              <TableHead key={c} className="min-w-32 max-w-48 truncate" title={c}>
-                {columnLabel(c)}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {values.map((v) => (
-            <TableRow key={JSON.stringify(v.value)}>
-              <TableCell className="max-w-40 truncate" title={v.value ?? "Other values"}>
-                {v.value === null ? "Other values" : v.value || '""'}
-              </TableCell>
-              {comparison.columns.map((c) => (
-                <TableCell key={c}>
-                  <div className="mb-1 text-xs tabular-nums">
-                    <Count
-                      rows={v.counts[c] ?? 0}
-                      where={v.where[c]}
-                      label={`${columnLabel(c)}: ${v.value ?? "Other values"}`}
-                      columns={[c]}
-                      onFilter={onFilter}
-                    />
-                  </div>
-                  <Progress
-                    value={comparison.rows ? (100 * (v.counts[c] ?? 0)) / comparison.rows : 0}
-                    aria-label={`${columnLabel(c)}: ${v.value ?? "Other values"}`}
-                  />
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-          <TableRow>
-            <TableCell className="text-muted-foreground">Missing answer</TableCell>
-            {comparison.columns.map((c) => (
-              <TableCell key={c} className="tabular-nums text-muted-foreground">
-                <Count
-                  rows={
-                    comparison.rows - comparison.values.reduce((n, v) => n + (v.counts[c] ?? 0), 0)
-                  }
-                  where={`${ident(c)} IS NULL`}
-                  label={`Missing ${columnLabel(c)}`}
-                  columns={[c]}
-                  onFilter={onFilter}
-                />
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableBody>
-      </Table>
-    </>
   );
 }
 

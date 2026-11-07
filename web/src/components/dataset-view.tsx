@@ -8,8 +8,7 @@ import {
   SquareIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { usePanelCallbackRef } from "react-resizable-panels";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { withFittingModels, withPreset } from "@/components/answer-settings";
@@ -107,19 +106,6 @@ export function DatasetPanels({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [jobPanel, setJobPanel] = usePanelCallbackRef();
-  const runPaneWidth = useRef<number | null>(null);
-  const focusComparison = tab === "compare";
-  useEffect(() => {
-    if (!jobPanel) return;
-    if (focusComparison) {
-      const width = jobPanel.getSize().asPercentage;
-      if (width > 0) runPaneWidth.current = width;
-      jobPanel.collapse();
-    } else if (jobPanel.isCollapsed()) {
-      jobPanel.resize(`${runPaneWidth.current ?? 30}%`);
-    }
-  }, [focusComparison, jobPanel]);
   const [comparedColumns, setComparedColumns] = useState<string[]>([]);
   // Compare counts the whole dataset, so drill-through replaces any unrelated search/filter/limit.
   function showRows(filters: WhereFilter[], columns: string[]) {
@@ -298,15 +284,7 @@ export function DatasetPanels({
         </Tabs>
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel
-        id="job"
-        inert={focusComparison}
-        defaultSize="30"
-        minSize="20"
-        collapsible
-        collapsedSize="0%"
-        panelRef={setJobPanel}
-      >
+      <ResizablePanel id="job" defaultSize="30" minSize="20">
         <div className="flex h-full flex-col bg-card">
           <PaneHeader>
             <span className="font-medium">New run</span>

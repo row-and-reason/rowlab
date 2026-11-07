@@ -191,10 +191,7 @@ function Workspace() {
     <main className="min-h-0 flex-1">
       <ResizablePanelGroup
         defaultLayout={layout.defaultLayout?.job === 0 ? undefined : layout.defaultLayout}
-        onLayoutChanged={(sizes, meta) => {
-          // Expanded comparison is temporary; retain the user's last visible pane widths.
-          if (sizes.job !== 0) layout.onLayoutChanged(sizes, meta);
-        }}
+        onLayoutChanged={layout.onLayoutChanged}
       >
         <ResizablePanel id="datasets" defaultSize="16" minSize="10">
           <DatasetsPanel
@@ -325,19 +322,6 @@ function Workspace() {
                   >
                     <GitCompareArrowsIcon />
                     Compare columns
-                  </CommandItem>
-                  <CommandItem
-                    onSelect={() =>
-                      command(() => {
-                        const query = new URLSearchParams(params);
-                        query.set("tab", "rows");
-                        query.delete("focus");
-                        router.push(`/?${query}`);
-                      })
-                    }
-                  >
-                    <PlayIcon />
-                    Open run composer
                   </CommandItem>
                 </>
               )}
