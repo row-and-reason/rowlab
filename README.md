@@ -17,13 +17,20 @@ uvx rowlab
 ```
 
 Open [localhost:8000](http://localhost:8000), paste an [OpenRouter](https://openrouter.ai) key in
-Settings (or set `OPENROUTER_API_KEY`), add a file, and ask it something. State lives in `~/.rowlab`.
+Settings (or set `OPENROUTER_API_KEY`), add a file, and ask it something. State lives in
+`~/.rowlab`.
 
-- [Get started](https://docs.rowlab.dev/get-started), then the [guides](https://docs.rowlab.dev/guides/labeling).
+Or with Docker: `docker compose up` in this repository runs it with Postgres and S3 storage, the way
+a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
+
+- [Get started](https://docs.rowlab.dev/get-started), then the
+  [guides](https://docs.rowlab.dev/guides/labeling).
 - [Configuration](https://docs.rowlab.dev/self-host/configuration) and
-  [a shared server](https://docs.rowlab.dev/self-host/hosted): Postgres, S3, sign-in with WorkOS, limits.
-- [MCP](https://docs.rowlab.dev/agents/mcp) for agents, with [skills](https://github.com/row-and-reason/agent-skills)
-  that teach them to label well: `claude mcp add --transport http rowlab http://localhost:8000/mcp`.
+  [a shared server](https://docs.rowlab.dev/self-host/hosted): Postgres, S3, sign-in with WorkOS,
+  limits.
+- [MCP](https://docs.rowlab.dev/agents/mcp) for agents, with
+  [skills](https://github.com/row-and-reason/agent-skills) that teach them to label well:
+  `claude mcp add --transport http rowlab http://localhost:8000/mcp`.
 - [API reference](https://docs.rowlab.dev/api/): the web app uses only the public API, so anything
   it can do, a script can do.
 
@@ -32,8 +39,8 @@ Settings (or set `OPENROUTER_API_KEY`), add a file, and ask it something. State 
 - **Data in → process → data out.** Your storage stays the source of truth; rowlab is a workspace.
 - **API first.** The web UI uses only the public API — anything the UI can do, an agent can do.
 - **Easy to run.** One process, one SQLite file, one data folder: `uvx rowlab`.
-- **Paid calls are never repeated.** Per-row results are stored as they complete, and responses are cached
-  by `hash(model + params + questions + rendered prompt)`.
+- **Paid calls are never repeated.** Per-row results are stored as they complete, and responses are
+  cached by `hash(model + params + questions + rendered prompt)`.
 
 ## Development
 
@@ -54,14 +61,16 @@ Run the built package as a user would: `uvx --from server/dist/rowlab-*.whl rowl
 
 - `server/` — Python: FastAPI, Pydantic, DuckDB, SQLite or Postgres, packaged with `uv`. The MCP
   server lives in the same package and calls the same `core/` logic as the API.
-- `web/` — Next.js static export, TanStack Table, TipTap, shadcn; API client generated from `openapi.json`
+- `web/` — Next.js static export, TanStack Table, TipTap, shadcn; API client generated from
+  `openapi.json`
 - `site/` — the website and the docs (Astro, Starlight); see [site/README.md](site/README.md)
 
-[ROADMAP.md](ROADMAP.md) has the milestones to MVP, and [AGENTS.md](AGENTS.md) how to work in this repo.
+[ROADMAP.md](ROADMAP.md) has the milestones to MVP, and [AGENTS.md](AGENTS.md) how to work in this
+repo.
 
 ## Non-goals
 
-- Dataset versioning or branching — use git, DVC or your data lake. A dataset made by a run only records
-  which dataset it came from and how, shown as a tree in the dataset list.
+- Dataset versioning or branching — use git, DVC or your data lake. A dataset made by a run only
+  records which dataset it came from and how, shown as a tree in the dataset list.
 - Being a system of record or long-term storage
 - A general-purpose BI or spreadsheet tool

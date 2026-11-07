@@ -8,9 +8,9 @@ A shared rowlab is `ROWLAB_MODE=hosted` with Postgres, S3 and WorkOS. The pieces
 ## Database and storage
 
 `ROWLAB_DATABASE_URL=postgresql://…` and `ROWLAB_STORAGE_URL=s3://bucket/prefix`, with AWS
-credentials in the environment (`AWS_ENDPOINT_URL` for MinIO or another S3-compatible store).
-Migrations run at start. Datasets live under the prefix as Parquet; the database holds everything
-else.
+credentials in the environment (`AWS_ENDPOINT_URL` for storage other than AWS: R2, MinIO, VersityGW,
+…). Migrations run at start. Datasets live under the prefix as Parquet; the database holds
+everything else.
 
 ## Sign-in
 
@@ -55,11 +55,17 @@ rowlab runner              # as many as you like
 ## In front of it
 
 Put a reverse proxy or a tunnel in front, with TLS. Rate limits per client aren't rowlab's job: set
-them there (Cloudflare does this well). Nor, fully, is keeping requests off private addresses: rowlab
-refuses them, but DuckDB follows redirects from S3 endpoints, so block private addresses (other than
-the database and storage) in the network, with a network policy or an egress firewall.
+them there (Cloudflare does this well). Nor, fully, is keeping requests off private addresses:
+rowlab refuses them, but DuckDB follows redirects from S3 endpoints, so block private addresses
+(other than the database and storage) in the network, with a network policy or an egress firewall.
 
 Uploads need a `Content-Length`; a proxy that strips it gets `411`, and an upload past
 `ROWLAB_MAX_FILE` gets `413`. A file past it from a URL, S3 or disk is a `400` saying so.
 
-Container images and Kubernetes manifests are coming with the 0.1 release.
+## In containers
+
+The [image](/self-host#with-docker) runs `rowlab serve --host 0.0.0.0` on port 8000; give it the
+command `runner` for a runner, or `serve --host 0.0.0.0 --no-runner` for the API alone. It runs as
+any user, with a read-only filesystem, as long as `/data` is writable: with Postgres and S3 it holds
+only temporary files, so an empty volume will do (DuckDB spills to it, up to `ROWLAB_DUCKDB_TEMP`).
+`GET /v1/health` answers once it is ready.

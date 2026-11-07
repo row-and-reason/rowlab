@@ -22,8 +22,27 @@ the `hosted` extra:
 pip install "rowlab[hosted]"
 ```
 
-See [A shared server](/self-host/hosted) for the setup, and [Configuration](/self-host/configuration)
-for every setting.
+See [A shared server](/self-host/hosted) for the setup, and
+[Configuration](/self-host/configuration) for every setting.
+
+## With Docker
+
+The image is `ghcr.io/row-and-reason/rowlab`, for amd64 and arm64. On its own it is local mode, with
+its state in `/data`:
+
+```sh
+docker run -p 127.0.0.1:8000:8000 -v rowlab:/data ghcr.io/row-and-reason/rowlab
+```
+
+The repository's
+[`docker-compose.yml`](https://github.com/row-and-reason/rowlab/blob/main/docker-compose.yml) runs
+it the way a shared server does: the API and a separate runner, Postgres, and S3 storage
+([VersityGW](https://github.com/versity/versitygw) on a folder). It starts in local mode; put
+`ROWLAB_MODE=hosted` and the hosted settings in a `.env` file next to it to share it.
+
+```sh
+docker compose up
+```
 
 ## Commands
 

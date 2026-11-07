@@ -12,7 +12,7 @@ rowlab is configured from environment variables, read once at start.
 | `ROWLAB_MODE`         | `local`                            | `local` or `hosted`                                                                                                                   |
 | `ROWLAB_DATA_DIR`     | `~/.rowlab`                        | local state: temporary files, and the SQLite database by default                                                                      |
 | `ROWLAB_DATABASE_URL` | a SQLite file in the data folder   | or `postgresql://…`                                                                                                                   |
-| `ROWLAB_STORAGE_URL`  | the data folder's `datasets`       | or `s3://bucket/prefix`, with the usual `AWS_*` credentials (`AWS_ENDPOINT_URL` for MinIO)                                            |
+| `ROWLAB_STORAGE_URL`  | the data folder's `datasets`       | or `s3://bucket/prefix`, with the usual `AWS_*` credentials (`AWS_ENDPOINT_URL` for storage other than AWS)                           |
 | `ROWLAB_SERVER_FILES` | on when `local`, off when `hosted` | whether datasets can be added from, and exported to, the server's own files: paths on its disk, and buckets its AWS credentials reach |
 | `ROWLAB_PRIVATE_URLS` | on when `local`, off when `hosted` | whether web sources and S3 endpoints can be private addresses (localhost, the local network, cloud metadata)                          |
 | `OPENROUTER_API_KEY`  |                                    | or save it in Settings; on a shared server, a key here pays for everyone                                                              |

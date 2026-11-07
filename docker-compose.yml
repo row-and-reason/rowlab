@@ -1,0 +1,80 @@
+# rowlab with Postgres and S3 storage, the way a shared server runs it: the API and a separate runner,
+# from the same image. `docker compose up`, then open http://localhost:8000.
+#
+# It starts in local mode (no sign-in). For a shared server, put `ROWLAB_MODE=hosted` and the hosted
+# settings in a `.env` file next to this one; see the docs' Self-host pages.
+
+x-rowlab: &rowlab
+  image: ${ROWLAB_IMAGE:-ghcr.io/row-and-reason/rowlab:latest}
+  build: .
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    ROWLAB_DATABASE_URL: postgresql://rowlab:rowlab@postgres:5432/rowlab
+    ROWLAB_STORAGE_URL: s3://rowlab/datasets
+    AWS_ENDPOINT_URL: http://s3:7070
+    AWS_ACCESS_KEY_ID: rowlab
+    AWS_SECRET_ACCESS_KEY: rowlab-local-secret
+    AWS_REGION: us-east-1
+  depends_on:
+    postgres:
+      condition: service_healthy
+    s3:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *rowlab
+    command: ["serve", "--host", "0.0.0.0", "--no-runner"]
+    ports:
+      - "127.0.0.1:${ROWLAB_PORT:-8000}:8000"
+
+  runner:
+    <<: *rowlab
+    command: ["runner"]
+    healthcheck:
+      disable: true
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rowlab
+      POSTGRES_PASSWORD: rowlab
+      POSTGRES_DB: rowlab
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "rowlab"]
+      interval: 2s
+      retries: 15
+    restart: unless-stopped
+
+  # S3 storage on a folder (VersityGW); a bucket is a folder in it.
+  s3-bucket:
+    image: alpine:3.22
+    command: ["mkdir", "-p", "/data/rowlab"]
+    volumes:
+      - s3:/data
+
+  s3:
+    image: versity/versitygw:v1.8.0
+    command: ["--port", ":7070", "--health", "/healthz", "posix", "/data"]
+    environment:
+      ROOT_ACCESS_KEY: rowlab
+      ROOT_SECRET_KEY: rowlab-local-secret
+    volumes:
+      - s3:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7070/healthz"]
+      interval: 2s
+      retries: 15
+    depends_on:
+      s3-bucket:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres:
+  s3:

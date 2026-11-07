@@ -311,7 +311,7 @@ on so the UI shows only that:
 
 **Deployed as one image.** The API server serves the UI (a static export), runs as `api` or as
 `runner` (the same image, another command; runners share the queue in Postgres), and serves MCP at
-`/mcp`. Locally: `uvx rowlab`, or `docker compose` with Postgres and MinIO, which is also the reference
+`/mcp`. Locally: `uvx rowlab`, or `docker compose` with Postgres and S3 (VersityGW), which is also the reference
 for hosted setups. Row & Reason's runs on k3s behind a Cloudflare tunnel, which also rate-limits
 requests. The website is a separate static site.
 
