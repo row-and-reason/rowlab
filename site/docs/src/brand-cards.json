@@ -1,0 +1,18 @@
+{
+  "agents-mcp": "docs-agents-mcp",
+  "agents-skills": "docs-agents-skills",
+  "changelog": "docs-changelog",
+  "get-started": "docs-get-started",
+  "guides-at-scale": "docs-guides-at-scale",
+  "guides-comparing-models": "docs-guides-comparing-models",
+  "guides-exporting": "docs-guides-exporting",
+  "guides-labeling": "docs-guides-labeling",
+  "how-it-works-answer-types": "docs-how-it-works-answer-types",
+  "how-it-works-datasets": "docs-how-it-works-datasets",
+  "how-it-works-runs": "docs-how-it-works-runs",
+  "how-it-works-sql": "docs-how-it-works-sql",
+  "index": "docs-index",
+  "self-host-configuration": "docs-self-host-configuration",
+  "self-host-hosted": "docs-self-host-hosted",
+  "self-host": "docs-self-host"
+}

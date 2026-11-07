@@ -113,6 +113,9 @@ header.site {
 }
 
 header.site .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
   font-weight: 650;
   text-decoration: none;
   font-size: 1.1rem;
@@ -251,4 +254,12 @@ footer.site {
 
 footer.site a {
   color: inherit;
+}
+
+.brand-mark {
+  display: inline-block;
+  width: 1.5rem;
+  height: 1.5rem;
+  background: currentColor;
+  mask: url("/brand/mark.svg") center / contain no-repeat;
 }

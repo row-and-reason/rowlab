@@ -54,3 +54,12 @@ curl -H 'Host: docs.rowlab.dev' localhost:8080/get-started/
 
 nginx picks the site by hostname, listens on 8080, runs as any user, and answers `/healthz`.
 Cloudflare caches what it serves; the pod sees little traffic.
+
+## Branding and link previews
+
+All three sites share the R mark, favicon set and social-card design. The source and
+regeneration command are in [`../brand/README.md`](../brand/README.md). Marketing
+pages and docs articles have page-specific metadata and preview images; generated
+API pages share an API-reference card. Regenerate assets when adding a docs article.
+The app uses generic previews to avoid exposing workspace data and supports a
+build-time `NEXT_PUBLIC_APP_URL` override for its canonical origin.

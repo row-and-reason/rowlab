@@ -5,10 +5,16 @@ import starlightOpenAPI, { openAPISidebarGroups } from "starlight-openapi";
 
 export default defineConfig({
   site: "https://docs.rowlab.dev",
+  // Keep the Markdown renderer beside its platform-specific native binding.
+  vite: { environments: { prerender: { resolve: { external: ["satteri"] } } } },
   integrations: [
     starlight({
-      title: "rowlab",
-      description: "rowlab labels, extracts and rewrites tabular data with AI.",
+      title: "rowlab Docs",
+      description:
+        "Learn to label, extract and rewrite tabular data with rowlab. Guides, self-hosting, API reference and MCP tools.",
+      logo: { light: "./src/assets/logo-light.svg", dark: "./src/assets/logo-dark.svg", alt: "" },
+      customCss: ["./src/brand.css"],
+      head: [{ tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } }],
       favicon: "/favicon.svg",
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/row-and-reason/rowlab" },

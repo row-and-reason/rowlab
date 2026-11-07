@@ -1,6 +1,27 @@
 ---
 import Default from "@astrojs/starlight/components/Head.astro";
+import cards from "../brand-cards.json";
+const { entry, head } = Astro.locals.starlightRoute;
+const slug = Astro.url.pathname.replace(/^\/|\/$/g, "").replaceAll("/", "-") || "index";
+const name = cards[slug as keyof typeof cards] ?? (Astro.url.pathname.startsWith("/api") ? "api" : "docs-index");
+const image = new URL(`/brand/social/${name}.png`, Astro.site);
+const title = head.find((tag) => tag.tag === "meta" && tag.attrs?.property === "og:title")?.attrs?.content ?? `${entry.data.title} — rowlab Docs`;
+const description = entry.data.description || `Reference for ${entry.data.title} in rowlab. Build labeling workflows with the API and MCP.`;
+// Preserve Starlight's canonical, title, theme, search and other metadata; update only the description.
+for (const tag of head) {
+  if (tag.tag === "meta" && (tag.attrs?.name === "description" || tag.attrs?.property === "og:description")) tag.attrs.content = description;
+}
 ---
-
 <Default />
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+<meta property="og:image" content={image} />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content={title} />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={image} />
+<meta name="twitter:image:alt" content={title} />
 <script src="../analytics.ts"></script>

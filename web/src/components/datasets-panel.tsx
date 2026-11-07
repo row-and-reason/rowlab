@@ -91,7 +91,13 @@ export function DatasetsPanel({
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <PaneHeader>
-        <span className="pl-1.5 text-sm font-semibold">rowlab</span>
+        <span className="inline-flex items-center gap-1.5 pl-1.5 text-sm font-semibold">
+          <span
+            aria-hidden="true"
+            className="size-4 bg-current [mask:url('/brand/mark.svg')_center/contain_no-repeat]"
+          />
+          rowlab
+        </span>
         {canEdit && (
           <TooltipButton
             label="Add data"
@@ -181,7 +187,9 @@ export function DatasetsPanel({
 
       <div className="flex shrink-0 items-center gap-1 border-t p-2">
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="min-w-0 text-xs" />}>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="sm" className="min-w-0 text-xs" />}
+          >
             <CircleUserIcon data-icon="inline-start" />
             <span className="truncate">{me.user?.name ?? "Your account"}</span>
             <ChevronUpIcon data-icon="inline-end" />
