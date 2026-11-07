@@ -57,7 +57,16 @@ export function ComparisonResults({
   );
   const requestedDetail = params.get("detail") ?? "differences";
   const detail =
-    requestedDetail === "labels" && (!ref || pair.numeric) ? "differences" : requestedDetail;
+    ["differences", "labels", "distribution", "coverage"].includes(requestedDetail) &&
+    !(requestedDetail === "labels" && (!ref || pair.numeric))
+      ? requestedDetail
+      : "differences";
+  const ruleLabel =
+    comparison.tolerance !== null
+      ? `tolerance ${comparison.tolerance}`
+      : comparison.ignore_case || comparison.trim_whitespace
+        ? "normalized match"
+        : "exact match";
   function change(key: string, value: string) {
     const query = new URLSearchParams(window.location.search);
     query.set(key, value);
@@ -65,12 +74,16 @@ export function ComparisonResults({
   }
   const pairKey = JSON.stringify(pair.columns);
   useEffect(() => {
-    if (params.get("pair") !== pairKey) {
+    if (
+      params.get("pair") !== pairKey ||
+      (params.has("detail") && params.get("detail") !== detail)
+    ) {
       const query = new URLSearchParams(window.location.search);
       query.set("pair", pairKey);
+      if (query.has("detail")) query.set("detail", detail);
       window.history.replaceState(null, "", `/?${query}`);
     }
-  }, [pairKey, params]);
+  }, [pairKey, detail, params]);
   useEffect(() => {
     actionsRef.current?.setReady?.(true);
     return () => actionsRef.current?.setReady?.(false);
@@ -84,7 +97,7 @@ export function ComparisonResults({
             [
               {
                 where: pair.disagree,
-                label: `${pair.columns.join(" ≠ ")} · ${comparison.tolerance !== null ? `tolerance ${comparison.tolerance}` : "active matching rules"}`,
+                label: `${pair.columns.join(" ≠ ")} · ${ruleLabel}`,
               },
             ],
             pair.columns,
@@ -94,7 +107,7 @@ export function ComparisonResults({
     return () => {
       actionsRef.current = { ...actionsRef.current, different: undefined };
     };
-  }, [actionsRef, pair, comparison.tolerance, onFilter]);
+  }, [actionsRef, pair, ruleLabel, onFilter]);
   const missing = Object.values(pair.coverage).reduce((n, v) => n + v.rows, 0);
   return (
     <div className="flex min-h-0 flex-1 text-sm">
@@ -233,7 +246,7 @@ export function ComparisonResults({
               <Count
                 rows={pair.compared - pair.agree}
                 where={pair.disagree}
-                label={`${pair.columns.join(" ≠ ")} · ${comparison.tolerance !== null ? `tolerance ${comparison.tolerance}` : "active matching rules"}`}
+                label={`${pair.columns.join(" ≠ ")} · ${ruleLabel}`}
                 columns={pair.columns}
                 onFilter={onFilter}
               >
@@ -388,13 +401,20 @@ function PairDetail({
 function LabelMetrics({ reference }: { reference: NonNullable<Comparison["reference"]>[number] }) {
   return (
     <section className="space-y-3">
-      <div className="flex gap-6 text-xs">
-        <span>
+      <div className="flex items-center gap-6 text-xs">
+        <span className="inline-flex items-center gap-1">
           Macro F1 <strong>{percent(reference.macro_f1)}</strong>
         </span>
-        <span>
+        <span className="inline-flex items-center gap-1">
           Balanced accuracy <strong>{percent(reference.balanced_accuracy)}</strong>
         </span>
+        <TooltipButton
+          label="Precision: correct predictions / predicted. Recall: correct / reference support. Macro F1 averages per-label F1; balanced accuracy averages recall. Missing pairs are excluded."
+          variant="ghost"
+          size="icon-xs"
+        >
+          <InfoIcon />
+        </TooltipButton>
       </div>
       <Table className="max-w-2xl table-fixed">
         <TableHeader>
@@ -421,7 +441,7 @@ function LabelMetrics({ reference }: { reference: NonNullable<Comparison["refere
       <p className="text-xs text-muted-foreground">
         Lowest recall first · {reference.labels_completeness.shown_groups} of{" "}
         {reference.labels_completeness.total_groups} reference labels. Aggregate metrics use all
-        labels. Precision: correct predictions / predicted. Recall: correct / reference support.
+        labels.
       </p>
     </section>
   );
@@ -493,7 +513,7 @@ function Crosstab({
                   {v || '""'}
                 </TableHead>
               ))}
-              <TableHead className="text-right">Shown total</TableHead>
+              <TableHead className="text-right">{complete ? "Total" : "Shown total"}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -548,7 +568,7 @@ function Crosstab({
               </TableRow>
             ))}
             <TableRow className="font-medium">
-              <TableCell>Shown total</TableCell>
+              <TableCell>{complete ? "Total" : "Shown total"}</TableCell>
               {across.map((value) => (
                 <TableCell key={value} className="text-right tabular-nums">
                   {formatNumber(

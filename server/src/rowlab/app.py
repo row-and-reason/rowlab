@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -74,6 +75,12 @@ def create_app() -> FastAPI:
     app.include_router(runs.router)
     app.include_router(settings.router)
     app.include_router(utils.router)
+
+    @app.exception_handler(RequestValidationError)
+    def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Invalid inputs can contain NaN/Infinity, which cannot be echoed in a JSON response.
+        detail = [{key: error[key] for key in ("loc", "msg", "type")} for error in exc.errors()]
+        return JSONResponse({"detail": detail}, status_code=422)
 
     # Core errors become the same `{"detail": ...}` body FastAPI uses for its own errors.
     @app.exception_handler(NotFound)

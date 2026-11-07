@@ -214,7 +214,7 @@ function Workspace() {
             datasets={datasets ?? []}
             tab={tab}
             onTabChange={(t) => {
-              const query = new URLSearchParams(params);
+              const query = new URLSearchParams(window.location.search);
               query.set("tab", t);
               router.push(`/?${query}`, { scroll: false });
             }}

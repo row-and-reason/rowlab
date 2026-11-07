@@ -368,6 +368,9 @@ export function CompareView({
               dataset={dataset}
               comparison={result.data}
               onFilter={(filters, selectedColumns) => {
+                // A shortcut can arrive in the same event turn as a rule or selection change.
+                if (params.toString() !== new URLSearchParams(window.location.search).toString())
+                  return;
                 const rules = [
                   request.ignore_case && "ignore case",
                   request.trim_whitespace && "trim whitespace",

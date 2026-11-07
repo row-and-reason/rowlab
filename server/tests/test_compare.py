@@ -313,3 +313,17 @@ def test_unsigned_differences_keep_their_sign_and_precision(client, dataset):
     )
     assert result["pairs"][0]["numeric"]["bias"] == -1
     assert result["pairs"][0]["agree"] == 1
+
+
+@pytest.mark.parametrize("literal", ["Infinity", "-Infinity", "NaN", "1e400"])
+def test_nonfinite_json_tolerance_returns_validation_error(client, dataset, literal):
+    response = client.post(
+        f"/v1/datasets/{dataset['id']}/compare",
+        content='{"columns":["price_a","price_b"],"tolerance":' + literal + "}",
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "tolerance"]
+    assert error["type"] == "finite_number"
+    assert "input" not in error

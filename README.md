@@ -66,6 +66,7 @@ apply to that same query. The UI compares the whole dataset.
 - **Paid calls are never repeated.** Per-row results are stored as they complete, and responses are
   cached by `hash(model + params + questions + rendered prompt)`.
 
+
 ## Development
 
 Requires [uv](https://docs.astral.sh/uv/), [pnpm](https://pnpm.io/) and Node 24.

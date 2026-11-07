@@ -11,6 +11,7 @@ import {
   YAxis,
   type BarShapeProps,
 } from "recharts";
+import { ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -99,6 +100,7 @@ export function NumericComparison({
           Difference: {stats.difference}
           {stats.unit === "days" ? " · days" : ""}
         </p>
+        <span className="block text-xs text-muted-foreground">Rows</span>
         <ChartContainer
           config={{
             matchedCount: {
@@ -130,13 +132,6 @@ export function NumericComparison({
               axisLine={false}
               width={42}
               tick={{ fill: "var(--foreground)", fillOpacity: 0.8 }}
-              label={{
-                value: "Rows",
-                position: "insideTopLeft",
-                dy: -20,
-                fill: "var(--muted-foreground)",
-                fontSize: 12,
-              }}
             />
             <ReferenceLine x={0} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
             <ChartTooltip
@@ -207,7 +202,7 @@ export function NumericComparison({
       </div>
       <Collapsible>
         <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="px-0 text-xs" />}>
-          Inspect bins and exact counts
+          <ChevronDownIcon className="size-3" /> Inspect bins and exact counts
         </CollapsibleTrigger>
         <CollapsibleContent>
           <Table>
