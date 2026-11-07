@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeftIcon, CloudIcon, GlobeIcon, UploadIcon } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ConnectionSelect } from "@/components/connection-select";
@@ -39,7 +39,7 @@ const KINDS = [
     kind: "s3",
     label: "S3",
     title: "Add data from S3",
-    description: "An object in AWS S3, Cloudflare R2, MinIO or other S3-compatible storage.",
+    description: "A file in S3-compatible storage.",
     icon: CloudIcon,
   },
   {
@@ -94,12 +94,13 @@ export function AddDataset({
     onAdded(data);
   }
 
+  const dialogRef = useRef<HTMLDivElement>(null);
   const picked = KINDS.find((k) => k.kind === kind);
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent>
+      <DialogContent ref={dialogRef} initialFocus={kind ? true : dialogRef}>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-1">
+          <DialogTitle className="flex items-center gap-1 font-semibold">
             {picked && (
               <Button
                 variant="ghost"
@@ -121,12 +122,13 @@ export function AddDataset({
         </DialogHeader>
 
         {!kind && (
-          <ItemGroup className="gap-1">
+          <ItemGroup className="gap-0.5">
             {KINDS.map((k) => (
               <Item
                 key={k.kind}
-                variant="outline"
-                size="sm"
+                variant="default"
+                size="xs"
+                className="cursor-pointer hover:bg-muted"
                 render={
                   <button type="button" className="text-left" onClick={() => setKind(k.kind)} />
                 }

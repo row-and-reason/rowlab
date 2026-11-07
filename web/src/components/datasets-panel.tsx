@@ -89,9 +89,9 @@ export function DatasetsPanel({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <PaneHeader>
-        <span className="font-semibold">rowlab</span>
+        <span className="pl-1.5 text-sm font-semibold">rowlab</span>
         {canEdit && (
           <TooltipButton
             label="Add data"
@@ -132,16 +132,15 @@ export function DatasetsPanel({
                       className={open ? "rotate-90 transition-transform" : "transition-transform"}
                     />
                   </Button>
-                ) : (
-                  <span className="w-6 shrink-0" />
-                )}
+                ) : null}
                 <ContextMenu>
                   <ContextMenuTrigger
                     render={
                       <Item
                         size="xs"
                         variant={dataset.id === selectedId ? "muted" : "default"}
-                        className="relative min-w-0 flex-1 overflow-hidden"
+                        aria-current={dataset.id === selectedId ? "page" : undefined}
+                        className="relative min-w-0 flex-1 overflow-hidden aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground"
                         render={<Link href={`/?dataset=${dataset.id}`} />}
                       />
                     }
@@ -182,7 +181,7 @@ export function DatasetsPanel({
 
       <div className="flex shrink-0 items-center gap-1 border-t p-2">
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="min-w-0" />}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="min-w-0 text-xs" />}>
             <CircleUserIcon data-icon="inline-start" />
             <span className="truncate">{me.user?.name ?? "Your account"}</span>
             <ChevronUpIcon data-icon="inline-end" />

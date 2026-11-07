@@ -193,7 +193,7 @@ export function DatasetPanels({
   return (
     <>
       <ResizableHandle />
-      <ResizablePanel id="rows" defaultSize="50" minSize="30">
+      <ResizablePanel id="rows" defaultSize="54" minSize="30">
         <Tabs
           value={tab}
           onValueChange={(value) => onTabChange(value as Tab)}
@@ -231,10 +231,10 @@ export function DatasetPanels({
                 </Button>
               )}
               <TabsList>
-                <TabsTrigger value="rows">Rows</TabsTrigger>
-                <TabsTrigger value="columns">Columns</TabsTrigger>
-                <TabsTrigger value="compare">Compare</TabsTrigger>
-                <TabsTrigger value="lineage">Lineage</TabsTrigger>
+                <TabsTrigger className="dark:data-active:bg-popover" value="rows">Rows</TabsTrigger>
+                <TabsTrigger className="dark:data-active:bg-popover" value="columns">Columns</TabsTrigger>
+                <TabsTrigger className="dark:data-active:bg-popover" value="compare">Compare</TabsTrigger>
+                <TabsTrigger className="dark:data-active:bg-popover" value="lineage">Lineage</TabsTrigger>
               </TabsList>
               <DropdownMenu>
                 <DropdownMenuTrigger
@@ -278,8 +278,8 @@ export function DatasetPanels({
         </Tabs>
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel id="job" defaultSize="34" minSize="20">
-        <div className="flex h-full flex-col">
+      <ResizablePanel id="job" defaultSize="30" minSize="20">
+        <div className="flex h-full flex-col bg-card">
           <PaneHeader>
             <span className="font-medium">New run</span>
             <TooltipButton
@@ -295,7 +295,7 @@ export function DatasetPanels({
               }
               keys={["⌘", "↵"]}
               size="sm"
-              className="ml-auto"
+              className="ml-auto text-xs"
               disabled={!canEdit || starting || making}
               onClick={startRun}
             >

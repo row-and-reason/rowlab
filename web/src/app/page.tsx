@@ -214,7 +214,7 @@ function Workspace() {
         ) : (
           <>
             <ResizableHandle />
-            <ResizablePanel id="rows" defaultSize="50" minSize="30">
+            <ResizablePanel id="rows" defaultSize="54" minSize="30">
               <div className="flex h-full flex-col">
                 <PaneHeader>
                   <span className="font-medium">Rows</span>
@@ -269,7 +269,7 @@ function Workspace() {
               </div>
             </ResizablePanel>
             <ResizableHandle />
-            <ResizablePanel id="job" defaultSize="34" minSize="20">
+            <ResizablePanel id="job" defaultSize="30" minSize="20">
               <div className="flex h-full flex-col">
                 <PaneHeader>
                   <span className="font-medium">Job</span>

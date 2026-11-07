@@ -63,9 +63,11 @@ function SettingsView() {
 
   return (
     <main className="flex min-h-0 flex-1">
-      <nav className="flex w-56 shrink-0 flex-col border-r">
+      <nav className="flex w-[16%] min-w-48 shrink-0 flex-col border-r bg-sidebar">
         <PaneHeader>
+          <span className="pl-1.5 text-sm font-semibold">Settings</span>
           <TooltipButton
+            className="ml-auto"
             label="Back"
             keys={["Esc"]}
             variant="ghost"
@@ -75,7 +77,6 @@ function SettingsView() {
           >
             <ArrowLeftIcon />
           </TooltipButton>
-          <span className="font-semibold">Settings</span>
         </PaneHeader>
         <ItemGroup className="gap-0.5 p-2">
           {shown.map((s) => (
@@ -83,6 +84,8 @@ function SettingsView() {
               key={s.id}
               size="xs"
               variant={s.id === section ? "muted" : "default"}
+              aria-current={s.id === section ? "page" : undefined}
+              className="aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground"
               render={<Link href={link(s.id)} />}
             >
               <ItemContent>
@@ -96,7 +99,7 @@ function SettingsView() {
         <PaneHeader>
           <span className="font-medium">{shown.find((s) => s.id === section)!.label}</span>
         </PaneHeader>
-        <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="min-h-0 flex-1 overflow-auto px-3 py-4">
           <div className="max-w-xl">
             {section === "providers" && (
               <FieldSet>
@@ -197,7 +200,7 @@ function OpenRouterKey({
           <FieldError>{error}</FieldError>
         ) : (
           <FieldDescription>
-            Used for model calls. Checked with OpenRouter before it is saved, and never shown again.
+            Checked before saving. Used for model calls; never shown again.
           </FieldDescription>
         )}
       </Field>
