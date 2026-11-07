@@ -418,9 +418,9 @@ which only says who someone is and which organisation they are in. Locally, the 
 - Three skills in agent-skills: `rowlab-labeling` (the core workflow), `rowlab-model-selection`
   (compare models, measure against labels you trust, choose by accuracy against cost) and
   `rowlab-labeling-at-scale` (cascades, asking once, agreeing a budget). Method, not tool docs.
-- Not yet tried: the WorkOS sign-in from a real MCP client (needs Dynamic Client Registration and the
-  resource indicator on in the WorkOS dashboard, and `WORKOS_AUTHKIT_DOMAIN`). The rest is tested
-  in-process and over stdio.
+- Tested in-process, over stdio, and end to end against WorkOS Staging: Claude Code registered
+  itself (Dynamic Client Registration), signed in, got a token for `http://localhost:8001/mcp` (the
+  resource indicator) and called `datasets_list`; the API-key path too.
 
 ### 13. Website: landing, pricing, docs
 

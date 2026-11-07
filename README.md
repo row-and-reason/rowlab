@@ -111,6 +111,7 @@ client signs in with WorkOS when it first connects, or sends an API key from Set
 
 ```sh
 claude mcp add --transport http rowlab http://localhost:8000/mcp          # Claude Code
+claude mcp add --transport http rowlab https://rowlab.example.com/mcp && claude mcp login rowlab
 claude mcp add --transport http rowlab https://rowlab.example.com/mcp --header "Authorization: Bearer rl_…"
 codex mcp add rowlab --url http://localhost:8000/mcp                       # Codex
 ```
