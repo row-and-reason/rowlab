@@ -17,6 +17,7 @@ Before opening a pull request:
 ```sh
 make lint test    # and `make test-hosted` if you touched the database or storage
 make gen-client   # after any API change: openapi.json and the web client must match it
+make smoke        # if you touched packaging or startup: end to end against the built wheel
 ```
 
 Update the docs in `site/docs/` when behaviour changes; [site/README.md](site/README.md) says how.

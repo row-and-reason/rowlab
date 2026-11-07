@@ -101,7 +101,7 @@ class Task(BaseModel):
     reason: bool = Field(False, description="Also write why, from LLMs, for classify and extract.")
     models: list[str] = Field(
         [DEFAULT_MODEL],
-        description="Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.",
+        description="Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.",
     )
 
     @model_validator(mode="before")

@@ -1578,7 +1578,7 @@ export interface components {
             reason: boolean;
             /**
              * Models
-             * @description Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.
+             * @description Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.
              * @default [
              *       "typesafe/jev-1.14"
              *     ]
@@ -1639,7 +1639,7 @@ export interface components {
             reason: boolean;
             /**
              * Models
-             * @description Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.
+             * @description Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.
              * @default [
              *       "typesafe/jev-1.14"
              *     ]

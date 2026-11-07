@@ -81,6 +81,7 @@ make test-hosted  # the same on Postgres (ROWLAB_TEST_DATABASE_URL) with dataset
 make lint         # ruff, eslint, tsc
 make gen-client   # after any API change: regenerate openapi.json + web/src/lib/api/schema.ts
 make build        # web static export bundled into the Python wheel → server/dist/
+make smoke        # end to end against that wheel (make smoke-compose: against docker-compose.yml)
 make site         # the website and the docs → site/*/dist
 ```
 

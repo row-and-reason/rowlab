@@ -443,7 +443,9 @@ which only says who someone is and which organisation they are in. Locally, the 
 - ✅ README quickstart; LICENSE (Apache-2.0), CONTRIBUTING (DCO sign-off, checked on pull
   requests), code of conduct, security policy, issue templates. Self-hosted rowlab sends nothing
   home; product analytics exist only where `ROWLAB_POSTHOG_TOKEN` is set, which is the hosted app.
-- An end-to-end smoke test against the built package, from adding a file to an export.
+- ✅ An end-to-end smoke test through the API, from adding a file to an export, with a run when
+  `OPENROUTER_API_KEY` is set: `make smoke` against the built wheel installed fresh (in CI too,
+  without the run), `make smoke-compose` against the Compose setup.
 - A pass over error and empty states across the UI (failed runs, bad SQL, no key, models down).
 - Data handling for the hosted version, kept short: where data lives, what deleting removes, and
   the services data goes through (WorkOS, OpenRouter and the model providers, Cloudflare, PostHog).

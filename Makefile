@@ -1,4 +1,4 @@
-.PHONY: dev api web gen-client test test-hosted lint build site
+.PHONY: dev api web gen-client test test-hosted lint build smoke smoke-compose site
 
 # Run the API (:8000) and the web dev server (:3000) together.
 dev:
@@ -23,7 +23,7 @@ test-hosted:
 	cd server && ROWLAB_TEST_STORAGE=s3 uv run pytest
 
 lint:
-	cd server && uv run ruff check && uv run ruff format --check
+	cd server && uv run ruff check . ../scripts && uv run ruff format --check . ../scripts
 	cd web && pnpm lint && pnpm typecheck
 
 # Build the web UI, bundle it into the Python package, and build the wheel.
@@ -31,6 +31,17 @@ build: gen-client
 	cd web && pnpm build
 	rm -rf server/src/rowlab/static && cp -r web/out server/src/rowlab/static
 	cd server && uv build
+
+# End to end, from adding a file to an export, through the API: against the built wheel installed
+# fresh (port 8001), or against docker-compose.yml built from this checkout (port 8002). A model is
+# asked only with OPENROUTER_API_KEY set; see scripts/smoke.py.
+smoke: build
+	scripts/smoke-wheel.sh
+
+smoke-compose:
+	ROWLAB_IMAGE=rowlab:smoke ROWLAB_PORT=8002 docker compose -p rowlab-smoke up -d --build --wait
+	python3 scripts/smoke.py http://127.0.0.1:8002; status=$$?; \
+	  docker compose -p rowlab-smoke down -v; exit $$status
 
 # Build the website (rowlab.dev) and the docs (docs.rowlab.dev); see site/README.md.
 site:
