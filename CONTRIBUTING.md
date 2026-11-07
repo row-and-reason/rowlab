@@ -22,6 +22,14 @@ make smoke        # if you touched packaging or startup: end to end against the 
 
 Update the docs in `site/docs/` when behaviour changes; [site/README.md](site/README.md) says how.
 
+## Releasing
+
+Maintainers set `version` in `server/pyproject.toml`, merge, and push a matching tag from `main`:
+`git tag v0.2.0 && git push origin v0.2.0`. The Publish workflow then builds the images as `0.2.0`
+and `latest`, and publishes the package, with the web UI inside, to
+[PyPI](https://pypi.org/project/rowlab/) through trusted publishing. It refuses a tag that doesn't
+match the version.
+
 ## Sign off your commits
 
 rowlab uses the [Developer Certificate of Origin](https://developercertificate.org): by signing off
