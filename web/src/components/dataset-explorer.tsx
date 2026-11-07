@@ -79,12 +79,14 @@ export function DatasetExplorer({
   sql,
   onViewChange,
   version,
+  priorityColumns,
 }: {
   dataset: Dataset;
   view: View;
   sql: string;
   onViewChange: (changes: Partial<View>) => void;
   version?: number;
+  priorityColumns?: string[];
 }) {
   const { search, filters } = view;
   const custom = view.sql !== null;
@@ -92,6 +94,17 @@ export function DatasetExplorer({
   const [searchInput, setSearchInput] = useState(search);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(100);
+  const [previousSearch, setPreviousSearch] = useState(search);
+  const [previousSql, setPreviousSql] = useState(sql);
+  // Comparison drill-through can replace the view while this tab remains mounted.
+  if (search !== previousSearch) {
+    setPreviousSearch(search);
+    setSearchInput(search);
+  }
+  if (sql !== previousSql) {
+    setPreviousSql(sql);
+    setPage(0);
+  }
 
   function changeView(changes: Partial<View>) {
     onViewChange(changes);
@@ -139,7 +152,16 @@ export function DatasetExplorer({
   if (result?.data && result.data !== shown) setShown(result.data);
 
   // The query's columns, which SQL can choose or compute.
-  const shownColumns = shown?.columns ?? dataset.columns;
+  const shownColumns = useMemo(() => {
+    const available = shown?.columns ?? dataset.columns;
+    if (!priorityColumns?.length) return available;
+    const order = [ROW_ID, ...priorityColumns];
+    return [...available].sort((a, b) => {
+      const ai = order.indexOf(a.name),
+        bi = order.indexOf(b.name);
+      return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
+    });
+  }, [shown?.columns, dataset.columns, priorityColumns]);
   const columns = useMemo(
     () =>
       shownColumns.map((c) =>
@@ -309,7 +331,9 @@ export function DatasetExplorer({
                         {columnLabel(header.id)}
                         <SortIcon
                           data-icon="inline-end"
-                          className={sort?.column !== header.id ? "text-muted-foreground" : undefined}
+                          className={
+                            sort?.column !== header.id ? "text-muted-foreground" : undefined
+                          }
                         />
                       </Button>
                     </TableHead>

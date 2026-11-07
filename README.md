@@ -34,6 +34,16 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
 - [API reference](https://docs.rowlab.dev/api/): the web app uses only the public API, so anything
   it can do, a script can do.
 
+## Compare columns
+
+The **Compare** tab compares columns across the whole dataset: agreement, reference-label precision
+and recall, pairwise confusion tables, and value distributions. Numeric pairs show bias, absolute
+error and tolerance-aware difference buckets using the existing query API. Expand comparison hides
+the run pane while analyzing; opening Rows restores it. Columns, reference, tolerance and expanded mode are saved in the URL.
+Click a count to inspect exactly those rows; this replaces the Rows tab's search, filters and limit,
+and brings the compared columns to the front. Missing answers are excluded from pairwise rates.
+
+
 ## Principles
 
 - **Data in → process → data out.** Your storage stays the source of truth; rowlab is a workspace.

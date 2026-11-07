@@ -8,7 +8,9 @@ import {
   SquareIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { usePanelCallbackRef } from "react-resizable-panels";
 import { toast } from "sonner";
 
 import { withFittingModels, withPreset } from "@/components/answer-settings";
@@ -103,17 +105,24 @@ export function DatasetPanels({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Shows the rows behind a comparison's count: all of them, so without the row limit.
-  function showRows(filters: WhereFilter[]) {
-    update(({ view }) => ({
-      view:
-        view.sql === null
-          ? { ...view, filters: [...view.filters, ...filters], limit: null }
-          : {
-              ...view,
-              sql: `SELECT * FROM (${view.sql}) WHERE ${filters.map((f) => `(${f.where})`).join(" AND ")}`,
-            },
-    }));
+  const [jobPanel, setJobPanel] = usePanelCallbackRef();
+  const runPaneWidth = useRef<number | null>(null);
+  const focusComparison = useSearchParams().get("focus") === "compare" && tab === "compare";
+  useEffect(() => {
+    if (!jobPanel) return;
+    if (focusComparison) {
+      const width = jobPanel.getSize().asPercentage;
+      if (width > 0) runPaneWidth.current = width;
+      jobPanel.collapse();
+    } else if (jobPanel.isCollapsed()) {
+      jobPanel.resize(`${runPaneWidth.current ?? 30}%`);
+    }
+  }, [focusComparison, jobPanel]);
+  const [comparedColumns, setComparedColumns] = useState<string[]>([]);
+  // Compare counts the whole dataset, so drill-through replaces any unrelated search/filter/limit.
+  function showRows(filters: WhereFilter[], columns: string[]) {
+    setComparedColumns(columns);
+    update({ view: { search: "", filters, sort: [], limit: null, sql: null } });
     onTabChange("rows");
   }
   // A dataset still being made can't be run on yet: its answers aren't all in.
@@ -231,10 +240,18 @@ export function DatasetPanels({
                 </Button>
               )}
               <TabsList>
-                <TabsTrigger className="dark:data-active:bg-popover" value="rows">Rows</TabsTrigger>
-                <TabsTrigger className="dark:data-active:bg-popover" value="columns">Columns</TabsTrigger>
-                <TabsTrigger className="dark:data-active:bg-popover" value="compare">Compare</TabsTrigger>
-                <TabsTrigger className="dark:data-active:bg-popover" value="lineage">Lineage</TabsTrigger>
+                <TabsTrigger className="dark:data-active:bg-popover" value="rows">
+                  Rows
+                </TabsTrigger>
+                <TabsTrigger className="dark:data-active:bg-popover" value="columns">
+                  Columns
+                </TabsTrigger>
+                <TabsTrigger className="dark:data-active:bg-popover" value="compare">
+                  Compare
+                </TabsTrigger>
+                <TabsTrigger className="dark:data-active:bg-popover" value="lineage">
+                  Lineage
+                </TabsTrigger>
               </TabsList>
               <DropdownMenu>
                 <DropdownMenuTrigger
@@ -263,13 +280,14 @@ export function DatasetPanels({
               sql={sql}
               onViewChange={updateView}
               version={run?.done}
+              priorityColumns={comparedColumns}
             />
           </TabsContent>
           <TabsContent value="columns" className="min-h-0 flex-1 overflow-auto p-3">
             <ColumnProfiles datasetId={dataset.id} />
           </TabsContent>
           {/* Kept mounted, so the columns picked stay picked while looking at their rows. */}
-          <TabsContent value="compare" keepMounted className="min-h-0 flex-1 overflow-auto">
+          <TabsContent value="compare" keepMounted className="min-h-0 flex-1 overflow-hidden">
             <CompareView dataset={dataset} onFilter={showRows} />
           </TabsContent>
           <TabsContent value="lineage" className="min-h-0 flex-1 overflow-auto">
@@ -278,7 +296,15 @@ export function DatasetPanels({
         </Tabs>
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel id="job" defaultSize="30" minSize="20">
+      <ResizablePanel
+        id="job"
+        inert={focusComparison}
+        defaultSize="30"
+        minSize="20"
+        collapsible
+        collapsedSize="0%"
+        panelRef={setJobPanel}
+      >
         <div className="flex h-full flex-col bg-card">
           <PaneHeader>
             <span className="font-medium">New run</span>

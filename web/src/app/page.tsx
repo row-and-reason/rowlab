@@ -5,10 +5,12 @@ import {
   DatabaseIcon,
   DownloadIcon,
   GlobeIcon,
+  GitCompareArrowsIcon,
   ListChecksIcon,
   ListRestartIcon,
   MoonIcon,
   PenLineIcon,
+  PanelRightCloseIcon,
   PlayIcon,
   PlusIcon,
   SearchIcon,
@@ -184,8 +186,11 @@ function Workspace() {
   return (
     <main className="min-h-0 flex-1">
       <ResizablePanelGroup
-        defaultLayout={layout.defaultLayout}
-        onLayoutChanged={layout.onLayoutChanged}
+        defaultLayout={layout.defaultLayout?.job === 0 ? undefined : layout.defaultLayout}
+        onLayoutChanged={(sizes, meta) => {
+          // Expanded comparison is temporary; retain the user's last visible pane widths.
+          if (sizes.job !== 0) layout.onLayoutChanged(sizes, meta);
+        }}
       >
         <ResizablePanel id="datasets" defaultSize="16" minSize="10">
           <DatasetsPanel
@@ -204,7 +209,11 @@ function Workspace() {
             dataset={selected}
             datasets={datasets ?? []}
             tab={tab}
-            onTabChange={(t) => router.push(`/?dataset=${selected.id}&tab=${t}`)}
+            onTabChange={(t) => {
+              const query = new URLSearchParams(params);
+              query.set("tab", t);
+              router.push(`/?${query}`, { scroll: false });
+            }}
             onExport={() => setExporting(selected)}
             onDelete={() => setDeleting(selected)}
             onChanged={load}
@@ -298,6 +307,36 @@ function Workspace() {
           <CommandList>
             <CommandEmpty>Nothing found.</CommandEmpty>
             <CommandGroup heading="Actions">
+              {selected && (
+                <>
+                  <CommandItem
+                    onSelect={() =>
+                      command(() => {
+                        const query = new URLSearchParams(params);
+                        query.set("tab", "compare");
+                        router.push(`/?${query}`);
+                      })
+                    }
+                  >
+                    <GitCompareArrowsIcon />
+                    Compare columns
+                  </CommandItem>
+                  <CommandItem
+                    onSelect={() =>
+                      command(() => {
+                        const query = new URLSearchParams(params);
+                        query.set("tab", "compare");
+                        if (params.get("focus") === "compare") query.delete("focus");
+                        else query.set("focus", "compare");
+                        router.push(`/?${query}`);
+                      })
+                    }
+                  >
+                    <PanelRightCloseIcon />
+                    {params.get("focus") === "compare" ? "Restore run pane" : "Expand comparison"}
+                  </CommandItem>
+                </>
+              )}
               {selected && canEdit && (
                 <>
                   <CommandItem onSelect={() => command(() => taskActionsRef.current?.run())}>
