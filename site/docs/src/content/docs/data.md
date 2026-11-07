@@ -28,6 +28,9 @@ stay. What stays after it:
   **Settings → Usage**. No rows.
 - **Backups** of the database, for 7 days.
 
+Dataset files themselves aren't backed up: a deleted dataset can't be brought back, and neither can
+files lost if the storage fails. Keep your originals.
+
 To delete your organisation or account and everything in it, email
 [support@rowandreason.com](mailto:support@rowandreason.com) from the address you sign in with.
 
