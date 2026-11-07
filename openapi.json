@@ -37,7 +37,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Me"
+                  "$ref": "#/components/schemas/WhoAmI"
                 }
               }
             }
@@ -1664,6 +1664,25 @@
         ],
         "title": "Agreement"
       },
+      "Analytics": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "host"
+        ],
+        "title": "Analytics",
+        "description": "The PostHog project the web app sends product analytics to; `phc_` tokens are public."
+      },
       "ApiKey": {
         "properties": {
           "id": {
@@ -2671,41 +2690,6 @@
           "email"
         ],
         "title": "InviteRequest"
-      },
-      "Me": {
-        "properties": {
-          "user": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/User"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Empty locally, where nobody signs in."
-          },
-          "org": {
-            "$ref": "#/components/schemas/Org"
-          },
-          "role": {
-            "type": "string",
-            "enum": [
-              "verifier",
-              "member",
-              "admin"
-            ],
-            "title": "Role"
-          }
-        },
-        "type": "object",
-        "required": [
-          "user",
-          "org",
-          "role"
-        ],
-        "title": "Me",
-        "description": "Who is calling."
       },
       "Member": {
         "properties": {
@@ -4008,6 +3992,52 @@
           "counts"
         ],
         "title": "ValueCounts"
+      },
+      "WhoAmI": {
+        "properties": {
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/User"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Empty locally, where nobody signs in."
+          },
+          "org": {
+            "$ref": "#/components/schemas/Org"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "verifier",
+              "member",
+              "admin"
+            ],
+            "title": "Role"
+          },
+          "analytics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Analytics"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the server collects product analytics in the web app: hosted, with `ROWLAB_POSTHOG_TOKEN`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "org",
+          "role",
+          "analytics"
+        ],
+        "title": "WhoAmI"
       }
     },
     "securitySchemes": {

@@ -1,0 +1,254 @@
+/* The app's theme: one accent, dark mode following the system. */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --muted: oklch(0.5 0 0);
+  --border: oklch(0.92 0 0);
+  --surface: oklch(0.975 0 0);
+  --primary: oklch(0.511 0.205 277);
+  --primary-foreground: oklch(0.985 0 0);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.19 0.006 277);
+    --foreground: oklch(0.93 0.004 277);
+    --muted: oklch(0.68 0.01 277);
+    --border: oklch(0.29 0.01 277);
+    --surface: oklch(0.23 0.008 277);
+    --primary: oklch(0.585 0.18 277);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+}
+
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.5em;
+}
+
+h1 {
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  font-weight: 650;
+}
+
+h2 {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+p {
+  margin: 0 0 1em;
+}
+
+.container {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+header.site {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 0;
+}
+
+header.site .brand {
+  font-weight: 650;
+  text-decoration: none;
+  font-size: 1.1rem;
+}
+
+header.site nav {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+header.site nav a {
+  text-decoration: none;
+  color: var(--muted);
+}
+
+header.site nav a:hover {
+  color: var(--foreground);
+}
+
+.button {
+  display: inline-block;
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  font-weight: 500;
+  color: var(--foreground) !important;
+}
+
+.button.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground) !important;
+}
+
+main {
+  padding: 3rem 0 4rem;
+}
+
+.hero {
+  max-width: 44rem;
+  padding: 2rem 0 3rem;
+}
+
+.hero p {
+  font-size: 1.2rem;
+  color: var(--muted);
+}
+
+.hero .actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+.lead {
+  color: var(--muted);
+}
+
+section {
+  padding: 2.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.columns {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.columns p {
+  color: var(--muted);
+}
+
+.who {
+  display: grid;
+  gap: 0.75rem 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+
+.who strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+table.plans {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+}
+
+table.plans th,
+table.plans td {
+  text-align: left;
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+table.plans th {
+  font-weight: 600;
+}
+
+table.plans th .price {
+  display: block;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+table.plans td:first-child {
+  color: var(--muted);
+}
+
+.soon {
+  font-size: 0.8rem;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+footer.site {
+  border-top: 1px solid var(--border);
+  padding: 1.5rem 0 3rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: space-between;
+}
+
+footer.site a {
+  color: inherit;
+}

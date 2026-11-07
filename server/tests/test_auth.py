@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from rowlab.api.auth import SESSION_COOKIE, STATE_COOKIE
 from rowlab.app import create_app
+from rowlab.core.config import config
 from rowlab.core.providers import workos
 from rowlab.core.providers.workos import SignedIn
 
@@ -17,9 +18,17 @@ def upload(client: TestClient) -> dict:
     return response.json()
 
 
-def test_locally_everyone_is_the_one_admin(client):
+def test_locally_everyone_is_the_one_admin(client, monkeypatch):
+    # No analytics locally, token or not.
+    monkeypatch.setenv("ROWLAB_POSTHOG_TOKEN", "phc_test")
+    config.cache_clear()
     me = client.get("/v1/me").json()
-    assert me == {"user": None, "org": {"id": "local", "name": "Local"}, "role": "admin"}
+    assert me == {
+        "user": None,
+        "org": {"id": "local", "name": "Local"},
+        "role": "admin",
+        "analytics": None,
+    }
     assert client.get("/v1/settings/api-keys").status_code == 400
     upload(client)
     assert len(client.get("/v1/datasets").json()) == 1
@@ -46,6 +55,14 @@ def test_first_sign_in_makes_an_organisation(hosted):
     assert me["role"] == "admin"
     # Signing in again keeps the same organisation.
     assert hosted("ada@example.com").get("/v1/me").json()["org"] == me["org"]
+
+
+def test_hosted_analytics_only_with_a_token(hosted, monkeypatch):
+    assert hosted("ada@example.com").get("/v1/me").json()["analytics"] is None
+    monkeypatch.setenv("ROWLAB_POSTHOG_TOKEN", "phc_test")
+    config.cache_clear()
+    analytics = hosted("ada@example.com").get("/v1/me").json()["analytics"]
+    assert analytics == {"token": "phc_test", "host": "https://eu.i.posthog.com"}
 
 
 def test_organisations_dont_see_each_others_things(hosted):

@@ -1,0 +1,102 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="rowlab — ask a question of every row"
+  description="rowlab labels, extracts and rewrites tabular data with AI. Add a CSV, JSON or Parquet file, write the question, try it on twenty rows, then run it on a million. Open source."
+>
+  <div class="hero">
+    <h1>Ask a question of every row.</h1>
+    <p>
+      rowlab labels, extracts and rewrites tabular data with AI. Add a CSV, JSON or Parquet file,
+      write the question, try it on twenty rows, then run it on a million. Open source, runs on your
+      laptop, or hosted when you'd rather not run it.
+    </p>
+    <div class="actions">
+      <a class="button primary" href="https://app.rowlab.dev">Try it hosted</a>
+      <a class="button" href="https://docs.rowlab.dev/get-started">Run it yourself</a>
+    </div>
+  </div>
+
+  <section>
+    <pre><code>uvx rowlab</code></pre>
+    <p class="lead">
+      One process, one SQLite file, one data folder. Open <code>localhost:8000</code>, add a file,
+      and bring your own <a href="https://openrouter.ai">OpenRouter</a> key.
+    </p>
+  </section>
+
+  <section class="columns">
+    <div>
+      <h3>Try before you pay</h3>
+      <p>
+        See the rows, calls and cost before a run. Run two models on the same rows and compare them,
+        against your own labels if you have any. Cheap decision models for yes/no questions, LLMs for
+        the rest.
+      </p>
+    </div>
+    <div>
+      <h3>Nothing changes in place</h3>
+      <p>
+        Every run makes a new dataset with the answers added, named after where it came from. Keep
+        the tree, export any branch as CSV, JSONL or Parquet, to a file or S3.
+      </p>
+    </div>
+    <div>
+      <h3>Built for people and agents alike</h3>
+      <p>
+        A fast web app, a plain API, and an MCP server with skills that teach agents to label well.
+        The same work, whichever way you do it.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What a run looks like</h2>
+    <p class="lead">
+      Pick the rows with SQL, write the question from the row's own columns, choose the answer type,
+      and a model.
+    </p>
+    <pre><code>SELECT * FROM data WHERE stars &lt;= 2 LIMIT 20
+
+Is this review about delivery?
+Review of a kitchen product: &#123;&#123;review&#125;&#125;
+
+yes / no  ·  typesafe/jev-1.14  ·  20 calls  ·  $0.00</code></pre>
+    <p class="lead">
+      Read the answers next to the rows. Fix the prompt. Then take the <code>LIMIT</code> off.
+    </p>
+  </section>
+
+  <section>
+    <h2>Who it's for</h2>
+    <ul class="who">
+      <li><strong>Analysts</strong> with a column to fill in.</li>
+      <li><strong>Teams</strong> making training data.</li>
+      <li><strong>Researchers</strong> coding open-ended answers.</li>
+      <li><strong>Ops</strong> triaging tickets and reviews.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Answer types</h2>
+    <div class="columns">
+      <div>
+        <h3>Classify</h3>
+        <p>
+          Yes/no, pick one, pick any, or a score on a scale. Any model, each answer with its
+          probability.
+        </p>
+      </div>
+      <div>
+        <h3>Extract</h3>
+        <p>Typed fields pulled out of the row: text, numbers, dates, lists. Empty when the text doesn't say.</p>
+      </div>
+      <div>
+        <h3>Write</h3>
+        <p>New text from the row: a summary, a translation, a rewrite.</p>
+      </div>
+    </div>
+  </section>
+</Base>

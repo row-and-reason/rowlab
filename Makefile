@@ -1,4 +1,4 @@
-.PHONY: dev api web gen-client test test-hosted lint build
+.PHONY: dev api web gen-client test test-hosted lint build site
 
 # Run the API (:8000) and the web dev server (:3000) together.
 dev:
@@ -31,3 +31,8 @@ build: gen-client
 	cd web && pnpm build
 	rm -rf server/src/rowlab/static && cp -r web/out server/src/rowlab/static
 	cd server && uv build
+
+# Build the website (rowlab.dev) and the docs (docs.rowlab.dev); see site/README.md.
+site:
+	cd site/www && pnpm install && pnpm build
+	cd site/docs && pnpm install && pnpm build

@@ -1,5 +1,7 @@
 import createClient from "openapi-fetch";
 
+import { resetAnalytics } from "@/lib/analytics";
+
 import type { components, paths } from "./schema";
 
 export type Dataset = components["schemas"]["Dataset"];
@@ -21,7 +23,7 @@ export type Preset = TaskTypes["presets"][number];
 export type Estimate = components["schemas"]["Estimate"];
 export type Connection = components["schemas"]["Connection"];
 export type Comparison = components["schemas"]["Comparison"];
-export type Me = components["schemas"]["Me"];
+export type Me = components["schemas"]["WhoAmI"];
 export type Role = Me["role"];
 export type Members = components["schemas"]["Members"];
 export type ApiKey = components["schemas"]["ApiKey"];
@@ -44,6 +46,7 @@ api.use({
 
 /** Sign out: a form post, since it ends at WorkOS's sign-out page. */
 export function signOut() {
+  resetAnalytics();
   const form = document.createElement("form");
   form.method = "post";
   form.action = `${baseUrl}/auth/sign-out`;

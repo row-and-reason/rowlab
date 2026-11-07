@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+**/node_modules
+**/dist
+**/.astro
+**/.next
+**/.venv
+**/__pycache__
+web/out
+server/src/rowlab/static

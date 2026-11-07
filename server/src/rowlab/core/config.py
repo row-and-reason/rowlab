@@ -20,6 +20,8 @@ needs are on. Everything else is configuration:
   the WorkOS project people sign in with; `hosted` mode only.
 - `ROWLAB_SECRET_KEY`: encrypts saved keys (OpenRouter, S3); any long random string. Required in
   `hosted` mode; locally, keys are kept as they are without it.
+- `ROWLAB_POSTHOG_TOKEN`, `ROWLAB_POSTHOG_HOST` (`https://eu.i.posthog.com`): product analytics in
+  the web app, `hosted` mode only; nothing is collected without a token, or locally.
 
 Limits, the same in both modes; raise them for bigger data:
 
@@ -52,6 +54,8 @@ class Config:
     workos_api_key: str
     workos_authkit_domain: str
     secret_key: str
+    posthog_token: str
+    posthog_host: str
     duckdb_memory: str
     duckdb_threads: int
     duckdb_temp: str
@@ -103,6 +107,10 @@ def config() -> Config:
         workos_api_key=hosted["WORKOS_API_KEY"],
         workos_authkit_domain=hosted["WORKOS_AUTHKIT_DOMAIN"].rstrip("/"),
         secret_key=hosted["ROWLAB_SECRET_KEY"],
+        posthog_token="" if local else os.environ.get("ROWLAB_POSTHOG_TOKEN", ""),
+        posthog_host=(os.environ.get("ROWLAB_POSTHOG_HOST") or "https://eu.i.posthog.com").rstrip(
+            "/"
+        ),
         duckdb_memory=_size("ROWLAB_DUCKDB_MEMORY", "1GB")[0],
         duckdb_threads=_number("ROWLAB_DUCKDB_THREADS", 2, int),
         duckdb_temp=_size("ROWLAB_DUCKDB_TEMP", "10GB")[0],

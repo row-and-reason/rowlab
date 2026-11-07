@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 
 import uvicorn
 
@@ -28,7 +29,8 @@ def main() -> None:
 
     commands.add_parser("openapi", help="Print the OpenAPI spec as JSON")
 
-    args = parser.parse_args()
+    # `rowlab` alone serves, so `uvx rowlab` is all a first run needs.
+    args = parser.parse_args(sys.argv[1:] or ["serve"])
     if args.command == "serve":
         if args.no_runner:
             # Read by the app as it starts, also in the processes `--reload` starts.

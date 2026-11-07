@@ -587,6 +587,16 @@ export interface components {
              */
             rate: number | null;
         };
+        /**
+         * Analytics
+         * @description The PostHog project the web app sends product analytics to; `phc_` tokens are public.
+         */
+        Analytics: {
+            /** Token */
+            token: string;
+            /** Host */
+            host: string;
+        };
         /** ApiKey */
         ApiKey: {
             /** Id */
@@ -1055,20 +1065,6 @@ export interface components {
             /**
              * Role
              * @default member
-             * @enum {string}
-             */
-            role: "verifier" | "member" | "admin";
-        };
-        /**
-         * Me
-         * @description Who is calling.
-         */
-        Me: {
-            /** @description Empty locally, where nobody signs in. */
-            user: components["schemas"]["User"] | null;
-            org: components["schemas"]["Org"];
-            /**
-             * Role
              * @enum {string}
              */
             role: "verifier" | "member" | "admin";
@@ -1735,6 +1731,19 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** WhoAmI */
+        WhoAmI: {
+            /** @description Empty locally, where nobody signs in. */
+            user: components["schemas"]["User"] | null;
+            org: components["schemas"]["Org"];
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "verifier" | "member" | "admin";
+            /** @description Set when the server collects product analytics in the web app: hosted, with `ROWLAB_POSTHOG_TOKEN`. */
+            analytics: components["schemas"]["Analytics"] | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1779,7 +1788,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Me"];
+                    "application/json": components["schemas"]["WhoAmI"];
                 };
             };
         };

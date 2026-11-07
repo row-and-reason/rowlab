@@ -1,15 +1,31 @@
 # rowlab
 
-AI labeling, filtering, verification and analysis for tabular data.
+Ask a question of every row. rowlab labels, extracts and rewrites tabular data with AI: add a CSV,
+JSON, JSONL or Parquet file, write the question from the row's own columns, try it on twenty rows,
+then run it on a million. Every run makes a new dataset with the answers added; your data is never
+changed in place.
 
-Load a CSV, JSON, JSONL or Parquet file from disk, a URL or S3, explore it, compose a per-row prompt from its
-columns, and run it through a decision model (yes/no, choice, score — e.g. TypeSafe Jev) or a classic LLM:
-classify rows, extract typed fields, or write new text such as summaries and translations. Get the
-original data back with new columns added, as a new dataset you can filter and label again.
+Open source (Apache-2.0). Runs on your laptop, on your own servers, or hosted at
+[app.rowlab.dev](https://app.rowlab.dev). Docs at [docs.rowlab.dev](https://docs.rowlab.dev).
 
-**Status:** pre-alpha. Datasets can be loaded, explored, labeled and exported; every run makes a new
-dataset.
-Domain: [rowlab.dev](https://rowlab.dev)
+**Status:** pre-alpha, on its way to a first release.
+
+## Quickstart
+
+```sh
+uvx rowlab
+```
+
+Open [localhost:8000](http://localhost:8000), paste an [OpenRouter](https://openrouter.ai) key in
+Settings (or set `OPENROUTER_API_KEY`), add a file, and ask it something. State lives in `~/.rowlab`.
+
+- [Get started](https://docs.rowlab.dev/get-started), then the [guides](https://docs.rowlab.dev/guides/labeling).
+- [Configuration](https://docs.rowlab.dev/self-host/configuration) and
+  [a shared server](https://docs.rowlab.dev/self-host/hosted): Postgres, S3, sign-in with WorkOS, limits.
+- [MCP](https://docs.rowlab.dev/agents/mcp) for agents, with [skills](https://github.com/row-and-reason/agent-skills)
+  that teach them to label well: `claude mcp add --transport http rowlab http://localhost:8000/mcp`.
+- [API reference](https://docs.rowlab.dev/api/): the web app uses only the public API, so anything
+  it can do, a script can do.
 
 ## Principles
 
@@ -19,19 +35,9 @@ Domain: [rowlab.dev](https://rowlab.dev)
 - **Paid calls are never repeated.** Per-row results are stored as they complete, and responses are cached
   by `hash(model + params + questions + rendered prompt)`.
 
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for the milestones to MVP.
-
-## Stack
-
-- `server/` — Python: FastAPI, Pydantic, DuckDB, SQLite (`sqlite3`), packaged with `uv`
-- `web/` — Next.js static export, TanStack Table, TipTap, shadcn; API client generated from `openapi.json`
-- The MCP server will live in the same Python package and call the same `core/` logic as the API
-
 ## Development
 
-Requires [uv](https://docs.astral.sh/uv/) and [pnpm](https://pnpm.io/).
+Requires [uv](https://docs.astral.sh/uv/), [pnpm](https://pnpm.io/) and Node 24.
 
 ```sh
 cd server && uv sync && cd ../web && pnpm install && cd ..
@@ -41,93 +47,17 @@ make test-hosted  # the same on Postgres (ROWLAB_TEST_DATABASE_URL) with dataset
 make lint         # ruff, eslint, tsc
 make gen-client   # after any API change: regenerate openapi.json + web/src/lib/api/schema.ts
 make build        # web static export bundled into the Python wheel → server/dist/
+make site         # the website and the docs → site/*/dist
 ```
-
-Model calls go through [OpenRouter](https://openrouter.ai): set `OPENROUTER_API_KEY`, or save a key from
-the UI (stored in the data folder, never returned by the API).
 
 Run the built package as a user would: `uvx --from server/dist/rowlab-*.whl rowlab serve`.
 
-rowlab keeps its state (SQLite database, ingested datasets as Parquet) in `~/.rowlab`. Set
-`ROWLAB_DATA_DIR` to use another folder.
+- `server/` — Python: FastAPI, Pydantic, DuckDB, SQLite or Postgres, packaged with `uv`. The MCP
+  server lives in the same package and calls the same `core/` logic as the API.
+- `web/` — Next.js static export, TanStack Table, TipTap, shadcn; API client generated from `openapi.json`
+- `site/` — the website and the docs (Astro, Starlight); see [site/README.md](site/README.md)
 
-## Configuration
-
-rowlab runs in one of two modes. `local` (the default) is one person on their own machine: no sign-in,
-and files on the server's disk can be read and written. `hosted` is a shared server: people sign in with
-[WorkOS](https://workos.com), everything belongs to an organisation, and the protections a shared server
-needs are on. Everything else is configuration, from environment variables:
-
-| Variable | Default | |
-|---|---|---|
-| `ROWLAB_MODE` | `local` | `local` or `hosted` |
-| `ROWLAB_DATA_DIR` | `~/.rowlab` | local state: temporary files, and the SQLite database by default |
-| `ROWLAB_DATABASE_URL` | a SQLite file in the data folder | or `postgresql://…` |
-| `ROWLAB_STORAGE_URL` | the data folder's `datasets` | or `s3://bucket/prefix`, with the usual `AWS_*` credentials (`AWS_ENDPOINT_URL` for MinIO) |
-| `ROWLAB_SERVER_FILES` | on when `local`, off when `hosted` | whether datasets can be added from, and exported to, the server's own files: paths on its disk, and buckets its AWS credentials reach |
-| `ROWLAB_PRIVATE_URLS` | on when `local`, off when `hosted` | whether web sources and S3 endpoints can be private addresses (localhost, the local network, cloud metadata) |
-| `OPENROUTER_API_KEY` | | or save it in Settings |
-| `ROWLAB_URL` | | `hosted` only: where people reach rowlab, e.g. `https://rowlab.example.com` |
-| `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_AUTHKIT_DOMAIN` | | `hosted` only: the WorkOS project people sign in with, and its AuthKit domain (`https://….authkit.app`) |
-| `ROWLAB_SECRET_KEY` | | encrypts saved keys (OpenRouter, S3); any long random string. Required when `hosted` |
-
-Limits, the same in both modes. They are modest, so a shared server stays up; raise them for bigger
-data:
-
-| Variable | Default | |
-|---|---|---|
-| `ROWLAB_DUCKDB_MEMORY` | `1GB` | memory per DuckDB connection; past it, DuckDB spills to disk |
-| `ROWLAB_DUCKDB_TEMP` | `10GB` | how much DuckDB may spill to disk |
-| `ROWLAB_DUCKDB_THREADS` | `2` | threads per query |
-| `ROWLAB_QUERY_SECONDS` | `30` | time per query; adding and exporting a dataset get ten times as long |
-| `ROWLAB_MAX_FILE` | `1GB` | the largest file to upload, download or read from S3 |
-| `ROWLAB_RUNS_PER_ORG` | `2` | runs an organisation has going at once; the rest wait their turn |
-| `ROWLAB_RUN_WAIT_SECONDS` | `300` | a run waiting this long goes next; otherwise the run with least left does |
-
-Postgres, S3 and WorkOS need `pip install "rowlab[hosted]"`. In the WorkOS project, add
-`<ROWLAB_URL>/auth/callback` as a redirect URI and `<ROWLAB_URL>/` as the sign-out redirect. The first
-person to sign in gets an organisation of their own as its admin, and invites the others in Settings →
-Members. Scripts use an API key from Settings → API keys: `Authorization: Bearer rl_…`. Rate limits
-per client aren't rowlab's job: put them in front of it (e.g. Cloudflare). Nor, fully, is keeping
-requests off private addresses: rowlab refuses them, but DuckDB follows redirects from S3 endpoints, so
-a hosted setup should also block private addresses (other than its database and storage) in its network.
-
-With Postgres, the API and the runners that process runs can be separate processes, and several runners
-share the queue, taking turns a chunk of 500 rows at a time:
-
-```sh
-rowlab serve --no-runner   # the API and UI
-rowlab runner              # processes runs; start as many as you like
-```
-
-`rowlab serve` alone runs both, which is all a local setup needs.
-
-## MCP
-
-Agents work with rowlab over MCP: the same data work as the API (list and add datasets, query with SQL,
-compare columns, preview and start runs, export), with instructions that teach the workflow. The server
-is at `/mcp` on a running rowlab, or `rowlab mcp` over stdio. Locally nothing signs in; hosted, the
-client signs in with WorkOS when it first connects, or sends an API key from Settings → API keys.
-
-```sh
-claude mcp add --transport http rowlab http://localhost:8000/mcp          # Claude Code
-claude mcp add --transport http rowlab https://rowlab.example.com/mcp && claude mcp login rowlab
-claude mcp add --transport http rowlab https://rowlab.example.com/mcp --header "Authorization: Bearer rl_…"
-codex mcp add rowlab --url http://localhost:8000/mcp                       # Codex
-```
-
-Cursor: `.cursor/mcp.json` with `{"mcpServers": {"rowlab": {"url": "http://localhost:8000/mcp"}}}`
-(add `"headers": {"Authorization": "Bearer rl_…"}` for a hosted rowlab). A client that wants a command
-rather than a URL gets `uvx rowlab mcp`.
-
-Hosted, WorkOS needs `WORKOS_AUTHKIT_DOMAIN` set and, under Connect → Configuration → MCP Auth,
-Dynamic Client Registration on and `<ROWLAB_URL>/mcp` listed as a resource indicator, so clients can
-sign in on their own and get tokens that are for rowlab alone. Someone connecting over MCP must have
-signed in to rowlab in a browser once, which is where they join their organisation.
-
-The skills in [agent-skills](https://github.com/row-and-reason/agent-skills) teach agents how to label
-well with it: `npx skills add row-and-reason/agent-skills --skill rowlab-labeling`, and
-`rowlab-model-selection` and `rowlab-labeling-at-scale`.
+[ROADMAP.md](ROADMAP.md) has the milestones to MVP, and [AGENTS.md](AGENTS.md) how to work in this repo.
 
 ## Non-goals
 

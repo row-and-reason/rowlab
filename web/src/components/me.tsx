@@ -3,6 +3,7 @@
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
+import { startAnalytics } from "@/lib/analytics";
 import { api, type Me, type Role } from "@/lib/api/client";
 
 const MeContext = createContext<Me | null>(null);
@@ -11,7 +12,10 @@ const MeContext = createContext<Me | null>(null);
 export function MeProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me>();
   useEffect(() => {
-    api.GET("/v1/me").then(({ data }) => setMe(data));
+    api.GET("/v1/me").then(({ data }) => {
+      if (data) startAnalytics(data);
+      setMe(data);
+    });
   }, []);
   if (!me) return <Spinner className="m-6" />;
   return <MeContext value={me}>{children}</MeContext>;

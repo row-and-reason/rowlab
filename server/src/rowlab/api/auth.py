@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 
 from rowlab.core import auth
 from rowlab.core.auth import Me
@@ -45,10 +46,26 @@ CanAdmin = Annotated[Me, Depends(_admin)]
 router = APIRouter(tags=["auth"])
 
 
+class Analytics(BaseModel):
+    """The PostHog project the web app sends product analytics to; `phc_` tokens are public."""
+
+    token: str
+    host: str
+
+
+class WhoAmI(Me):
+    analytics: Analytics | None = Field(
+        description="Set when the server collects product analytics in the web app: hosted, with "
+        "`ROWLAB_POSTHOG_TOKEN`."
+    )
+
+
 @router.get("/v1/me", operation_id="getMe")
-def get_me(me: CanRead) -> Me:
+def get_me(me: CanRead) -> WhoAmI:
     """Who is calling: their organisation and role. Locally, always the one implicit admin."""
-    return me
+    token = config().posthog_token
+    analytics = Analytics(token=token, host=config().posthog_host) if token else None
+    return WhoAmI(**me.model_dump(), analytics=analytics)
 
 
 # Signing in and out, in a browser. Not part of the API.

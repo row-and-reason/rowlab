@@ -422,11 +422,16 @@ which only says who someone is and which organisation they are in. Locally, the 
   itself (Dynamic Client Registration), signed in, got a token for `http://localhost:8001/mcp` (the
   resource indicator) and called `datasets_list`; the API-key path too.
 
-### 13. Website: landing, pricing, docs
+### 13. Website: landing, pricing, docs ✅
 
-- One static site in `site/` (Fumadocs, or Astro Starlight): landing page, pricing, docs, the
-  self-hosting guide (compose and k3s), MCP and skill setup, and an API reference from `openapi.json`.
-- Hosted on Cloudflare or GitHub Pages, or as a small image on k3s.
+- `site/www` (rowlab.dev: landing and pricing, plain Astro) and `site/docs` (docs.rowlab.dev:
+  Starlight, with the API reference from `openapi.json`), both in one nginx image (`site/Dockerfile`)
+  that picks the site by hostname; served from k3s behind the Cloudflare tunnel, which caches it.
+- PostHog with its default capture, one project of rowlab's own in Row & Reason's PostHog, nothing
+  hand-picked in code. The sites take a token at build time and run only on their real origin; the
+  app gets it from the API at runtime (`ROWLAB_POSTHOG_TOKEN`, hosted only, since the web build in
+  the wheel is the same for everyone) and identifies the signed-in person and their organisation.
+- The README is a quickstart; the docs are the reference.
 
 ### 14. Launch
 

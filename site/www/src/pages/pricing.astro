@@ -1,0 +1,61 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Pricing — rowlab"
+  description="rowlab is free to run yourself. Hosted: Free with your own model key, Pro and Team coming soon."
+>
+  <div class="hero">
+    <h1>Pricing</h1>
+    <p>
+      Running it yourself is free, forever: it's open source. The hosted version at
+      <a href="https://app.rowlab.dev">app.rowlab.dev</a> is free with your own model key.
+    </p>
+  </div>
+
+  <table class="plans">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Free <span class="price">$0</span></th>
+        <th>Pro <span class="soon">coming soon</span><span class="price">$20 / month</span></th>
+        <th>Team <span class="soon">coming soon</span><span class="price">$20 / seat / month</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Model keys</td>
+        <td>Your own OpenRouter key</td>
+        <td>Your own key, or credits</td>
+        <td>Your own key, or credits</td>
+      </tr>
+      <tr>
+        <td>Answers a month</td>
+        <td>50,000</td>
+        <td>2 million</td>
+        <td>5 million per seat</td>
+      </tr>
+      <tr>
+        <td>Storage</td>
+        <td>2 GB</td>
+        <td>25 GB</td>
+        <td>100 GB</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="lead">
+    An answer is one model call for one row. The same prompt, model and row is never paid for twice.
+    Credits, when they come, cost the provider's price plus 25%.
+  </p>
+
+  <section>
+    <h2>Self-hosted</h2>
+    <p class="lead">
+      <code>uvx rowlab</code> on a laptop, or Postgres, S3 and sign-in with WorkOS on your own servers.
+      No limits beyond your hardware, no telemetry. The
+      <a href="https://docs.rowlab.dev/self-host">self-hosting guide</a> has the details.
+    </p>
+  </section>
+</Base>
