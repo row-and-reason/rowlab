@@ -102,6 +102,9 @@ def _pool(url: str) -> Any:
 
 def _migrate(raw: Any, postgres: bool) -> None:
     """Apply the migrations newer than the database's `schema_version`, each in one transaction."""
+    if postgres:
+        # Processes starting together, like the API and its runners, take turns until the commit.
+        raw.execute("SELECT pg_advisory_xact_lock(4801)")
     raw.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
     row = raw.execute("SELECT max(version) AS version FROM schema_version").fetchone()
     version = row["version"] or 0
