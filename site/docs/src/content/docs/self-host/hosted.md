@@ -38,8 +38,8 @@ brings its own key. **Settings → Usage** shows what was spent, by day, model a
 
 With `ROWLAB_POSTHOG_TOKEN` set, the web app sends product analytics to that
 [PostHog](https://posthog.com) project with the SDK's default capture, identified by the signed-in
-person (id, email, name) and their organisation; what else is captured (replay, heatmaps) is set in
-PostHog. Without the token, and always in local mode, nothing is collected. The API and MCP send
+person (id, email, name) and their organisation. Text on the page is never sent: clicks carry no
+element text, and replays (if turned on in PostHog) show it masked. Without the token, and always in local mode, nothing is collected. The API and MCP send
 nothing.
 
 ## Runners

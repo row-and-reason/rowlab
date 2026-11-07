@@ -59,6 +59,7 @@ export default defineConfig({
             { label: "A shared server", slug: "self-host/hosted" },
           ],
         },
+        { label: "Your data on app.rowlab.dev", slug: "data" },
         ...openAPISidebarGroups,
         { label: "Changelog", slug: "changelog" },
       ],

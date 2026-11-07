@@ -446,9 +446,11 @@ which only says who someone is and which organisation they are in. Locally, the 
 - ✅ An end-to-end smoke test through the API, from adding a file to an export, with a run when
   `OPENROUTER_API_KEY` is set: `make smoke` against the built wheel installed fresh (in CI too,
   without the run), `make smoke-compose` against the Compose setup.
-- A pass over error and empty states across the UI (failed runs, bad SQL, no key, models down).
-- Data handling for the hosted version, kept short: where data lives, what deleting removes, and
-  the services data goes through (WorkOS, OpenRouter and the model providers, Cloudflare, PostHog).
+- ✅ A pass over error and empty states across the UI (failed runs, bad SQL, no key, models down).
+- ✅ Data handling for the hosted version, kept short (docs: _Your data on app.rowlab.dev_): where
+  data lives, what deleting removes, and the services data goes through (WorkOS, OpenRouter and the
+  model providers, Cloudflare, PostHog). The web app masks all page text from PostHog, so rows,
+  prompts and answers never reach it.
 - ✅ The repo is public (7 November 2026), with private vulnerability reporting on.
 - `rowlab` 0.1.0 on PyPI via GitHub Actions trusted publishing.
 
