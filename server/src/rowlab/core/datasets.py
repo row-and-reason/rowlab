@@ -57,10 +57,10 @@ class DatasetRun(BaseModel):
     """The run that makes a dataset."""
 
     id: str
-    status: Literal["queued", "running", "stopping", "stopped", "done", "failed"]
+    status: Literal["queued", "running", "stopping", "stopped", "done", "failed", "manual"]
     failed: int = Field(description="Answers that failed, which resuming asks again.")
-    done: int = Field(description="Model calls answered so far.")
-    total: int = Field(description="Model calls the run makes.")
+    done: int = Field(description="Answers saved so far.")
+    total: int = Field(description="Answers the run asks for.")
     error: str | None = Field(description="Why the run failed.")
 
 
@@ -530,11 +530,17 @@ def _from_row(row: dict[str, Any]) -> Dataset:
     return Dataset(**{**row, "columns": json.loads(row["columns"]), "run": run})
 
 
-def dataset_source(dataset_id: str) -> str:
+def dataset_source(dataset_id: str, *, unfinished: bool = False) -> str:
     """A DuckDB table expression for a dataset's rows, including one a run is still making. A run's
     answer columns come right after `__row_id`, so the newest answers are first."""
     data = storage.location(dataset_id, "data.parquet")
-    if storage.exists(data):
+    if not unfinished:
+        with db.connect() as conn:
+            run = conn.execute(
+                "SELECT status FROM runs WHERE dataset_id = ?", (dataset_id,)
+            ).fetchone()
+        unfinished = bool(run and run["status"] == "manual")
+    if not unfinished and storage.exists(data):
         return f"read_parquet({sql_string(data)})"
     rows = sql_string(storage.location(dataset_id, "rows.parquet"))
     parts = sql_string(storage.location(dataset_id, "parts", "*.parquet"))

@@ -59,6 +59,7 @@ export function TaskEditor({
   runError,
   problem,
   needsKey,
+  manual = false,
 }: {
   dataset: Dataset;
   tasks: Task[];
@@ -70,6 +71,7 @@ export function TaskEditor({
   problem: string | undefined;
   /** No OpenRouter key yet: runs can't start until an admin adds one. */
   needsKey: boolean;
+  manual?: boolean;
 }) {
   const types = useTaskTypes();
   const params = useSearchParams();
@@ -96,6 +98,7 @@ export function TaskEditor({
     <div className="flex flex-col">
       {tasks.map((task) => (
         <TaskRow
+          manual={manual}
           key={task.id}
           dataset={dataset}
           sql={sql}
@@ -147,11 +150,13 @@ function TaskRow({
   onChange,
   onDuplicate,
   onDelete,
+  manual,
 }: {
   dataset: Dataset;
   sql: string;
   /** The only task, which can't be deleted. */
   only: boolean;
+  manual: boolean;
   task: Task;
   types: TaskTypes;
   models: Model[];
@@ -176,6 +181,10 @@ function TaskRow({
 
   // A new answer type may need other models: say so when switching to them.
   function change(changed: Task) {
+    if (manual) {
+      onChange(changed);
+      return;
+    }
     const fitted = withFittingModels(changed, types, models);
     onChange(fitted.task);
     if (fitted.switchedTo) {
@@ -276,25 +285,27 @@ function TaskRow({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Popover>
-          <PopoverTrigger
-            render={<Button variant="outline" size="sm" className="max-w-36 text-xs" />}
-          >
-            <span className="truncate">
-              {slugs[0] ?? "No model"}
-              {slugs.length > 1 && ` +${slugs.length - 1}`}
-            </span>
-            <ChevronDownIcon data-icon="inline-end" />
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-96">
-            <ModelPicker
-              id={`models-${task.id}`}
-              value={task.models}
-              llmOnly={type.llm_only}
-              onChange={(picked) => onChange({ ...task, models: picked })}
-            />
-          </PopoverContent>
-        </Popover>
+        {!manual && (
+          <Popover>
+            <PopoverTrigger
+              render={<Button variant="outline" size="sm" className="max-w-36 text-xs" />}
+            >
+              <span className="truncate">
+                {slugs[0] ?? "No model"}
+                {slugs.length > 1 && ` +${slugs.length - 1}`}
+              </span>
+              <ChevronDownIcon data-icon="inline-end" />
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-96">
+              <ModelPicker
+                id={`models-${task.id}`}
+                value={task.models}
+                llmOnly={type.llm_only}
+                onChange={(picked) => onChange({ ...task, models: picked })}
+              />
+            </PopoverContent>
+          </Popover>
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -322,7 +333,13 @@ function TaskRow({
             template={task.template}
             onChange={(template) => onChange({ ...task, template })}
           />
-          <AnswerSettings task={task} types={types} models={models} onChange={change} />
+          <AnswerSettings
+            manual={manual}
+            task={task}
+            types={types}
+            models={models}
+            onChange={change}
+          />
         </FieldGroup>
       </CollapsibleContent>
     </Collapsible>

@@ -403,20 +403,19 @@ which only says who someone is and which organisation they are in. Locally, the 
 
 ### 12. MCP and the agent skills ✅
 
-- MCP server (FastMCP) at `/mcp` in both modes, and `rowlab mcp` over stdio. Fourteen tools, each a
+- MCP server (FastMCP) at `/mcp` in both modes, and `rowlab mcp` over stdio. Tools are each a
   thin call into `core` like the API's endpoints: `datasets_list`, `dataset_get` (with a profile),
-  `dataset_add`, `dataset_delete`, `sql_query`, `columns_compare`, `run_preview` (estimate plus the
+  `dataset_add`, `dataset_rename`, `dataset_delete`, `sql_query`, `columns_compare`, `run_preview` (estimate plus the
   prompt rendered for a few rows), `run_start`, `run_get`, `run_stop`, `run_resume` (the three with
-  `wait_seconds`), `dataset_export`, `task_types_get`, `models_list`. Each description says what the
+  `wait_seconds`), `run_answers`, `run_finish`, `dataset_export`, `task_types_get`, `models_list`. Each description says what the
   tool does, why it exists and when to use it; session instructions carry the workflow.
 - Hosted, MCP clients sign in with WorkOS (AuthKit as the authorization server, with Dynamic Client
   Registration; `/.well-known/oauth-protected-resource/mcp` says so) or send an API key. Both come
   through one token verifier; WorkOS tokens are JWTs checked against AuthKit's keys, issuer and
   `<ROWLAB_URL>/mcp` as audience (a resource indicator in the dashboard), and their user must have
   signed in in a browser before. Settings aren't in MCP, nor uploads of file content.
-- Three skills in agent-skills: `rowlab-labeling` (the core workflow), `rowlab-model-selection`
-  (compare models, measure against labels you trust, choose by accuracy against cost) and
-  `rowlab-labeling-at-scale` (cascades, asking once, agreeing a budget). Method, not tool docs.
+- One `rowlab` skill in agent-skills covers manual and model labeling, representative evaluation,
+  model selection and large runs. Methodology stays in the skill; tool contracts stay in MCP.
 - Tested in-process, over stdio, and end to end against WorkOS Staging: Claude Code registered
   itself (Dynamic Client Registration), signed in, got a token for `http://localhost:8001/mcp` (the
   resource indicator) and called `datasets_list`; the API-key path too.

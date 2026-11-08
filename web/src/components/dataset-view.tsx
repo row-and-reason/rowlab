@@ -15,6 +15,7 @@ import { withFittingModels, withPreset } from "@/components/answer-settings";
 import { ColumnProfiles } from "@/components/column-profiles";
 import { CompareView } from "@/components/compare-view";
 import { DatasetExplorer } from "@/components/dataset-explorer";
+import { ManualPane } from "@/components/manual-pane";
 import { TaskEditor } from "@/components/task-editor";
 import { Origin, type OriginActions } from "@/components/origin";
 import { useCan } from "@/components/me";
@@ -26,6 +27,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -46,6 +49,8 @@ export type Tab = (typeof TABS)[number];
 /** What the command palette and shortcuts can do with the selected dataset's next run. */
 export type TaskActions = {
   run: () => void;
+  manual: () => void;
+  finish: () => void;
   /** Adds an empty task, or one started from a write preset. */
   addTask: (preset?: Preset) => void;
   clearTasks: () => void;
@@ -88,9 +93,9 @@ export function DatasetPanels({
   needsKey: boolean;
   originActionsRef: React.RefObject<OriginActions | null>;
 }) {
-  const { draft, update, isNew } = useDraft(dataset.id, () => ({
+  const { draft, update } = useDraft(dataset.id, () => ({
     // A first run on a few rows, so it's cheap.
-    view: { search: "", filters: [], sort: [], limit: 20, sql: null },
+    view: { search: "", filters: [], sort: [], limit: dataset.run ? null : 20, sql: null },
     tasks: [{ ...emptyTask([]), column: "answer" }],
   }));
   const updateView = useCallback(
@@ -100,18 +105,21 @@ export function DatasetPanels({
   const sql = viewSql(draft.view, dataset.columns);
   const run = dataset.run;
 
-  // A new draft on a dataset a run made starts on the rows that run answered.
-  useEffect(() => {
-    if (!isNew || !run) return;
-    api.GET("/v1/runs/{run_id}", { params: { path: { run_id: run.id } } }).then(({ data }) => {
-      const answer = data?.columns[0];
-      if (answer) {
-        updateView({ filters: [{ column: answer, op: "is_not_null", value: null }], limit: null });
-      }
-    });
-    // Only when the draft is first made.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const method = draft.method ?? "llm";
+  const manualOpen = run?.status === "manual";
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [manualPosition, setManualPosition] = useState(0);
+  const [saved, setSaved] = useState(0);
+  const [manualQuery, setManualQuery] = useState(sql);
+  if (manualQuery !== sql) {
+    setManualQuery(sql);
+    setManualPosition(0);
+  }
+  const [selectedCount, setSelectedCount] = useState(dataset.row_count);
+  const manualChanged = () => {
+    setSaved((n) => n + 1);
+    onChanged();
+  };
 
   const [comparedColumns, setComparedColumns] = useState<string[]>([]);
   // Compare counts the whole dataset, so drill-through replaces any unrelated search/filter/limit.
@@ -121,7 +129,7 @@ export function DatasetPanels({
     onTabChange("rows");
   }
   // A dataset still being made can't be run on yet: its answers aren't all in.
-  const making = !!run && isActive(run);
+  const making = !!run && (isActive(run) || manualOpen);
   // Verifiers read; running, exporting and deleting need a member.
   const canEdit = useCan("member");
 
@@ -141,22 +149,25 @@ export function DatasetPanels({
   // The task that was just added opens, so you can write it straight away.
   const [opened, setOpened] = useState<string>();
 
-  const startRun = useCallback(async () => {
-    if (!canEdit || starting || making) return;
-    setStarting(true);
-    setRunError(undefined);
-    const { data, error } = await api.POST("/v1/datasets/{dataset_id}/runs", {
-      params: { path: { dataset_id: dataset.id } },
-      body: { sql, tasks: draft.tasks },
-    });
-    setStarting(false);
-    if (error) {
-      setRunError(errorMessage(error));
-      return;
-    }
-    onChanged();
-    onOpenDataset(data.dataset_id);
-  }, [canEdit, sql, draft.tasks, dataset.id, starting, making, onChanged, onOpenDataset]);
+  const startRun = useCallback(
+    async (chosen = method) => {
+      if (!canEdit || starting || making) return;
+      setStarting(true);
+      setRunError(undefined);
+      const { data, error } = await api.POST("/v1/datasets/{dataset_id}/runs", {
+        params: { path: { dataset_id: dataset.id } },
+        body: { sql, tasks: draft.tasks, method: chosen },
+      });
+      setStarting(false);
+      if (error) {
+        setRunError(errorMessage(error));
+        return;
+      }
+      onChanged();
+      onOpenDataset(data.dataset_id);
+    },
+    [method, canEdit, sql, draft.tasks, dataset.id, starting, making, onChanged, onOpenDataset],
+  );
 
   const types = useTaskTypes();
   const models = useModels();
@@ -176,7 +187,13 @@ export function DatasetPanels({
     },
     [draft.tasks, types, models, addTask],
   );
-  const { estimate, problem } = useEstimate(dataset.id, sql, draft.tasks, canEdit);
+  const { estimate, problem } = useEstimate(
+    dataset.id,
+    sql,
+    draft.tasks,
+    canEdit && !manualOpen,
+    method,
+  );
 
   // Starts over with one empty task, on the rows you have picked.
   const clearTasks = useCallback(() => {
@@ -185,7 +202,9 @@ export function DatasetPanels({
 
   useEffect(() => {
     actionsRef.current = {
-      run: startRun,
+      run: () => startRun(),
+      manual: () => startRun("manual"),
+      finish: () => setFinishOpen(true),
       addTask: (preset) => (preset ? addPresetTask(preset) : addTask()),
       clearTasks,
     };
@@ -294,7 +313,10 @@ export function DatasetPanels({
               view={draft.view}
               sql={sql}
               onViewChange={updateView}
-              version={run?.done}
+              version={(run?.done ?? 0) + saved}
+              onCount={setSelectedCount}
+              onPickRow={manualOpen ? setManualPosition : undefined}
+              selectedPosition={manualOpen ? manualPosition : undefined}
               priorityColumns={comparedColumns}
             />
           </TabsContent>
@@ -320,45 +342,83 @@ export function DatasetPanels({
       <ResizablePanel id="job" defaultSize="30" minSize="20">
         <div className="flex h-full flex-col bg-card">
           <PaneHeader>
-            <span className="font-medium">New run</span>
-            <TooltipButton
-              label={
-                !canEdit
-                  ? "Running tasks needs the member role"
-                  : making
-                    ? "This dataset is still being made"
-                    : (problem ??
-                      (estimate
-                        ? `About ${formatUsd(estimate.cost)} for ${formatNumber(estimate.rows)} rows, making a new dataset`
-                        : "Run every task on the rows in the table, making a new dataset"))
-              }
-              keys={["⌘", "↵"]}
-              size="sm"
-              className="ml-auto text-xs"
-              disabled={!canEdit || starting || making}
-              onClick={startRun}
-            >
-              {starting ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <PlayIcon data-icon="inline-start" />
-              )}
-              Run
-            </TooltipButton>
+            <span className="font-medium">{manualOpen ? "Label manually" : "Label rows"}</span>
+            {!manualOpen && (
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button size="sm" variant="outline" />}>
+                  {method === "manual" ? "Label manually" : "Label with an LLM"}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuRadioGroup
+                    value={method}
+                    onValueChange={(value) => update({ method: value as "llm" | "manual" })}
+                  >
+                    <DropdownMenuRadioItem closeOnClick value="llm">
+                      Label with an LLM
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem closeOnClick value="manual">
+                      Label manually
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {!manualOpen && (
+              <TooltipButton
+                label={
+                  !canEdit
+                    ? "Running tasks needs the member role"
+                    : making
+                      ? "This dataset is still being made"
+                      : (problem ??
+                        (estimate
+                          ? `About ${formatUsd(estimate.cost)} for ${formatNumber(estimate.rows)} rows, making a new dataset`
+                          : "Run every task on the rows in the table, making a new dataset"))
+                }
+                aria-label={`Label ${formatNumber(selectedCount)} rows`}
+                keys={["⌘", "↵"]}
+                size="sm"
+                className="ml-auto text-xs"
+                disabled={!canEdit || starting || making}
+                onClick={() => startRun()}
+              >
+                {starting ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <PlayIcon data-icon="inline-start" />
+                )}
+                Label {formatNumber(selectedCount)} rows
+              </TooltipButton>
+            )}
           </PaneHeader>
-          <div className="@container min-h-0 flex-1 overflow-auto">
-            <TaskEditor
+          {manualOpen && run ? (
+            <ManualPane
+              runId={run.id}
               dataset={dataset}
-              tasks={draft.tasks}
               sql={sql}
-              opened={opened}
-              onTasksChange={(tasks) => update({ tasks })}
-              onAddTask={addTask}
-              runError={runError}
-              problem={problem}
-              needsKey={needsKey}
+              position={manualPosition}
+              onPosition={setManualPosition}
+              onChanged={manualChanged}
+              canEdit={canEdit}
+              finishOpen={finishOpen}
+              onFinishOpen={setFinishOpen}
             />
-          </div>
+          ) : (
+            <div className="@container min-h-0 flex-1 overflow-auto">
+              <TaskEditor
+                dataset={dataset}
+                tasks={draft.tasks}
+                sql={sql}
+                opened={opened}
+                onTasksChange={(tasks) => update({ tasks })}
+                onAddTask={addTask}
+                runError={runError}
+                problem={problem}
+                needsKey={method === "llm" && needsKey}
+                manual={method === "manual"}
+              />
+            </div>
+          )}
         </div>
       </ResizablePanel>
     </>
@@ -386,6 +446,7 @@ function useEstimate(
   sql: string,
   tasks: Task[],
   enabled: boolean,
+  method: "llm" | "manual",
 ): { estimate?: Estimate; problem?: string } {
   // What the API says the run would cost, and why it can't start, if it can't: its own answer, or
   // the request's error (e.g. OpenRouter can't be reached).
@@ -394,7 +455,7 @@ function useEstimate(
     estimate?: Estimate;
     problem?: string;
   }>();
-  const key = JSON.stringify([sql, tasks]);
+  const key = JSON.stringify([sql, tasks, method]);
   useEffect(() => {
     if (!enabled) return;
     let current = true;
@@ -402,7 +463,7 @@ function useEstimate(
       api
         .POST("/v1/datasets/{dataset_id}/estimate", {
           params: { path: { dataset_id: datasetId } },
-          body: { sql, tasks },
+          body: { sql, tasks, method },
         })
         .then(({ data, error }) => {
           if (!current) return;

@@ -56,14 +56,32 @@ organisation.
 | `columns_compare`                                | agreement between answer columns, and accuracy against a reference          |
 | `run_preview`                                    | the estimate and the rendered prompts for a run, before it costs anything   |
 | `run_start`, `run_get`, `run_resume`, `run_stop` | runs, with `run_get` and `run_resume` waiting up to 30 seconds for progress |
+| `run_answers`, `run_finish` | save manual labels and finish the manual run |
 | `dataset_export`                                 | a dataset as CSV, JSONL or Parquet, to a path or S3                         |
 | `task_types_get`, `models_list`                  | the answer types and their fields; models by name or kind                   |
 
 Each tool's description says why it exists and when to use it, and the server's instructions give the
 order of work: read the dataset, run on a few rows, read the answers, then run on all. The
-[skills](/agents/skills) go further.
+[Rowlab skill](/agents/skills) goes further.
 
 `models_list` returns `{models, total, next_offset}`: 20 models by default, at most 100 per page.
 Use `search` and `kind` to narrow results and `offset` to continue. `columns_compare` keeps per-class
 precision and recall in its default summary; `detail="full"` includes distributions and all row
 filters. New run datasets contain only the selected source rows, keeping their original row IDs.
+
+## Manual labeling
+
+Tasks can be completed manually as well as with models. Call `run_start` with `method="manual"`
+to create a run, then `run_answers(run_id, task_id, answers=[{"row_id": 0, "value": true}])`
+to enter labels. No model is called or provider key required. Only submit labels the user
+provides or explicitly asks you to produce.
+
+The values follow the task: boolean for yes/no, option name for pick one or scale, a list of
+option names for pick any, text for write, or an object keyed by field name for extract.
+Null clears a label. Batches contain up to 1,000 answers. Read the saved task with `run_get`
+and select or inspect rows using `sql_query` on its output dataset.
+
+`run_finish` locks the output dataset, leaving unanswered cells null. Labels occupy the
+named task columns without model suffixes or extra status columns. Existing comparison
+and export tools work unchanged. Before finishing, last saved value wins; retry an
+interrupted batch with the same values. There is no separate review or judgment lifecycle.

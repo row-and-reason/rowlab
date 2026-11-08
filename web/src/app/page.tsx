@@ -137,7 +137,10 @@ function Workspace() {
 
   const selected = datasets?.find((d) => d.id === selectedId);
   // A dataset a run is still making can't be exported yet.
-  const exportable = canEdit && !!selected && !(selected.run && isActive(selected.run));
+  const exportable =
+    canEdit &&
+    !!selected &&
+    !(selected.run && (isActive(selected.run) || selected.run.status === "manual"));
   const select = useCallback((id: string) => router.push(`/?dataset=${id}`), [router]);
 
   // Keyboard shortcuts. ⌘K and ⌘↵ work everywhere; single keys only when not typing.
@@ -393,9 +396,19 @@ function Workspace() {
                     <>
                       <CommandItem onSelect={() => command(() => taskActionsRef.current?.run())}>
                         <PlayIcon />
-                        Run
+                        Label selected rows
                         <CommandShortcut>⌘↵</CommandShortcut>
                       </CommandItem>
+                      <CommandItem onSelect={() => command(() => taskActionsRef.current?.manual())}>
+                        Label manually
+                      </CommandItem>
+                      {selected.run?.status === "manual" && (
+                        <CommandItem
+                          onSelect={() => command(() => taskActionsRef.current?.finish())}
+                        >
+                          Finish labeling
+                        </CommandItem>
+                      )}
                       <CommandItem
                         onSelect={() => command(() => taskActionsRef.current?.clearTasks())}
                       >

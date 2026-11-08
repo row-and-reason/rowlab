@@ -324,7 +324,9 @@ export interface paths {
         put?: never;
         /**
          * Create Run
-         * @description Queue a run of every task with every model on the rows in the scope (all rows if none is
+         * @description Start labeling with models (method=llm), or enter labels yourself (method=manual).
+         *     Manual runs need no provider key and use the named output columns without model suffixes.
+         *     Queue a run of every task with every model on the rows in the scope (all rows if none is
          *     given). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer
          *     columns of the rows in scope fill in as the run works through them in the background: poll
          *     `GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the
@@ -413,6 +415,48 @@ export interface paths {
          *     asked again first, then it continues from its first unwritten chunk.
          */
         post: operations["resumeRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/tasks/{task_id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save Manual Answers
+         * @description Set labels on an open manual run. Null clears a label. Batches may span several saved parts;
+         *     retry an interrupted batch with the same values. Concurrent edits use the last saved value.
+         */
+        put: operations["saveManualAnswers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish Manual Run
+         * @description Finish manual labeling and freeze the output dataset. Unanswered cells stay null.
+         *     Repeating this call returns the completed run. Labels can no longer be changed.
+         */
+        post: operations["finishManualRun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -597,6 +641,21 @@ export interface components {
             token: string;
             /** Host */
             host: string;
+        };
+        /** Answer */
+        Answer: {
+            /** Row Id */
+            row_id: number;
+            /**
+             * Value
+             * @description The label; null clears it. Pick any takes option names; extract takes an object keyed by field name.
+             */
+            value: unknown;
+        };
+        /** Answers */
+        Answers: {
+            /** Answers */
+            answers: components["schemas"]["Answer"][];
         };
         /** ApiKey */
         ApiKey: {
@@ -912,7 +971,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed";
+            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed" | "manual";
             /**
              * Failed
              * @description Answers that failed, which resuming asks again.
@@ -920,12 +979,12 @@ export interface components {
             failed: number;
             /**
              * Done
-             * @description Model calls answered so far.
+             * @description Answers saved so far.
              */
             done: number;
             /**
              * Total
-             * @description Model calls the run makes.
+             * @description Answers the run asks for.
              */
             total: number;
             /**
@@ -1432,12 +1491,12 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed";
+            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed" | "manual";
             /** @description The query and tasks it was started with. */
             config: components["schemas"]["RunRequest-Output"];
             /**
              * Columns
-             * @description The answer columns, each with a `_proba` column.
+             * @description The output columns; manual runs use the task's column name without a model suffix.
              */
             columns: string[];
             /**
@@ -1457,12 +1516,12 @@ export interface components {
             next_chunk: number;
             /**
              * Done
-             * @description Model calls answered (or failed) so far.
+             * @description Answers saved (or failed) so far.
              */
             done: number;
             /**
              * Total
-             * @description Model calls the run makes.
+             * @description Answers the run asks for.
              */
             total: number;
             /**
@@ -1501,6 +1560,13 @@ export interface components {
             sql: string;
             /** Tasks */
             tasks: components["schemas"]["Task-Input"][];
+            /**
+             * Method
+             * @description Label with models or enter labels manually.
+             * @default llm
+             * @enum {string}
+             */
+            method: "llm" | "manual";
         };
         /**
          * RunRequest
@@ -1515,6 +1581,13 @@ export interface components {
             sql: string;
             /** Tasks */
             tasks: components["schemas"]["Task-Output"][];
+            /**
+             * Method
+             * @description Label with models or enter labels manually.
+             * @default llm
+             * @enum {string}
+             */
+            method: "llm" | "manual";
         };
         /** Settings */
         Settings: {
@@ -2683,6 +2756,73 @@ export interface operations {
         };
     };
     resumeRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    saveManualAnswers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Answers"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finishManualRun: {
         parameters: {
             query?: never;
             header?: never;

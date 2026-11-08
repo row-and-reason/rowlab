@@ -1082,7 +1082,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Queue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
+        "description": "Start labeling with models (method=llm), or enter labels yourself (method=manual).\nManual runs need no provider key and use the named output columns without model suffixes.\nQueue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
         "operationId": "createRun",
         "security": [
           {
@@ -1307,6 +1307,127 @@
         "summary": "Resume Run",
         "description": "Continue a stopped or failed run, or a done one with failed answers: its failed answers are\nasked again first, then it continues from its first unwritten chunk.",
         "operationId": "resumeRun",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runs/{run_id}/tasks/{task_id}/answers": {
+      "put": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Save Manual Answers",
+        "description": "Set labels on an open manual run. Null clears a label. Batches may span several saved parts;\nretry an interrupted batch with the same values. Concurrent edits use the last saved value.",
+        "operationId": "saveManualAnswers",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Answers"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runs/{run_id}/finish": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Finish Manual Run",
+        "description": "Finish manual labeling and freeze the output dataset. Unanswered cells stay null.\nRepeating this call returns the completed run. Labels can no longer be changed.",
+        "operationId": "finishManualRun",
         "security": [
           {
             "HTTPBearer": []
@@ -1740,6 +1861,46 @@
         ],
         "title": "Analytics",
         "description": "The PostHog project the web app sends product analytics to; `phc_` tokens are public."
+      },
+      "Answer": {
+        "properties": {
+          "row_id": {
+            "type": "integer",
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Row Id"
+          },
+          "value": {
+            "title": "Value",
+            "description": "The label; null clears it. Pick any takes option names; extract takes an object keyed by field name."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "row_id",
+          "value"
+        ],
+        "title": "Answer"
+      },
+      "Answers": {
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/Answer"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Answers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answers"
+        ],
+        "title": "Answers"
       },
       "ApiKey": {
         "properties": {
@@ -2468,7 +2629,8 @@
               "stopping",
               "stopped",
               "done",
-              "failed"
+              "failed",
+              "manual"
             ],
             "title": "Status"
           },
@@ -2480,12 +2642,12 @@
           "done": {
             "type": "integer",
             "title": "Done",
-            "description": "Model calls answered so far."
+            "description": "Answers saved so far."
           },
           "total": {
             "type": "integer",
             "title": "Total",
-            "description": "Model calls the run makes."
+            "description": "Answers the run asks for."
           },
           "error": {
             "anyOf": [
@@ -3594,7 +3756,8 @@
               "stopping",
               "stopped",
               "done",
-              "failed"
+              "failed",
+              "manual"
             ],
             "title": "Status"
           },
@@ -3608,7 +3771,7 @@
             },
             "type": "array",
             "title": "Columns",
-            "description": "The answer columns, each with a `_proba` column."
+            "description": "The output columns; manual runs use the task's column name without a model suffix."
           },
           "costs": {
             "items": {
@@ -3631,12 +3794,12 @@
           "done": {
             "type": "integer",
             "title": "Done",
-            "description": "Model calls answered (or failed) so far."
+            "description": "Answers saved (or failed) so far."
           },
           "total": {
             "type": "integer",
             "title": "Total",
-            "description": "Model calls the run makes."
+            "description": "Answers the run asks for."
           },
           "cost": {
             "type": "number",
@@ -3719,6 +3882,16 @@
             },
             "type": "array",
             "title": "Tasks"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "manual"
+            ],
+            "title": "Method",
+            "description": "Label with models or enter labels manually.",
+            "default": "llm"
           }
         },
         "type": "object",
@@ -3742,6 +3915,16 @@
             },
             "type": "array",
             "title": "Tasks"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "manual"
+            ],
+            "title": "Method",
+            "description": "Label with models or enter labels manually.",
+            "default": "llm"
           }
         },
         "type": "object",

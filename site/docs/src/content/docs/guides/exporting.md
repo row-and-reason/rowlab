@@ -30,3 +30,10 @@ Over MCP, agents export with `dataset_export`, with the same options.
 
 rowlab gives every row an id of its own to join answers to rows. Exports leave it out by default;
 include it (`include_row_id`) when you will join an export back to a later one.
+
+## Manually labeled datasets
+
+Choose **Finish labeling** to lock a manual run's output, then export it like any other dataset.
+The named output columns contain the entered labels; unanswered cells are null. Source data
+is preserved. There are no extra human, probability or status columns, and no separate
+judgment-history export.

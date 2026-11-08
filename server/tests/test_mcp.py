@@ -56,6 +56,8 @@ def test_every_tool_says_what_it_is_for(mcp):
         "columns_compare",
         "run_preview",
         "run_start",
+        "run_answers",
+        "run_finish",
         "run_get",
         "run_stop",
         "run_resume",

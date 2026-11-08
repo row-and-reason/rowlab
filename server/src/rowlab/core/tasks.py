@@ -260,17 +260,17 @@ def task_types() -> TaskTypes:
     )
 
 
-def check(task: Task) -> None:
+def check(task: Task, *, manual: bool = False) -> None:
     """Raise InvalidRequest if the task can't be asked as configured. Whether its models can give
     its type of answer is checked with the model catalog, in `runs.check`."""
     if not task.template.strip():
         raise InvalidRequest("Write the prompt.")
     if not task.column.strip():
         raise InvalidRequest("Name the result column.")
-    if not task.models:
+    if not manual and not task.models:
         raise InvalidRequest("Pick a model.")
     slugs = [model_slug(m) for m in task.models]
-    if len(set(slugs)) != len(slugs):
+    if not manual and len(set(slugs)) != len(slugs):
         raise InvalidRequest("Two of the models would get the same column name.")
     if task.type == "write":
         if task.reason:
@@ -661,3 +661,49 @@ def _read_answer(column: str, reply: Any, type_: type) -> dict[str, Any]:
 
 def _describe(option: Option) -> str:
     return f'"{option.name}"' + (f" ({option.description})" if option.description else "")
+
+
+def manual_columns(task: Task) -> list[tuple[str, str]]:
+    """Manual labels have the task's names and types, without model metadata."""
+    if task.type in CLASSIFY:
+        return [
+            (name, "BOOLEAN" if task.type in ("yes_no", "pick_any") else "VARCHAR")
+            for name in _classify_columns(task)
+        ]
+    if task.type == "extract":
+        return [
+            (task.column if len(task.fields) == 1 else f"{task.column}_{f.name}", _sql_type(f))
+            for f in task.fields
+        ]
+    return [(task.column, "VARCHAR")]
+
+
+def read_manual(task: Task, value: Any) -> dict[str, Any]:
+    """Validate manually supplied values using the task's answer types. Null clears the answer."""
+    names = [name for name, _ in manual_columns(task)]
+    if value is None:
+        return dict.fromkeys(names)
+    if task.type == "yes_no":
+        if type(value) is not bool:
+            raise InvalidRequest("A yes/no label must be true or false.")
+        return {task.column: value}
+    if task.type in ("pick_one", "scale"):
+        if not isinstance(value, str) or value not in [o.name for o in task.options]:
+            raise InvalidRequest("Choose one of the task's options.")
+        return {task.column: value}
+    if task.type == "pick_any":
+        if not isinstance(value, list) or any(
+            not isinstance(v, str) or v not in [o.name for o in task.options] for v in value
+        ):
+            raise InvalidRequest("Supply a list of the task's option names.")
+        return {name: option.name in value for name, option in zip(names, task.options)}
+    if task.type == "write":
+        if not isinstance(value, str):
+            raise InvalidRequest("Supply text for this task.")
+        return {task.column: value}
+    if not isinstance(value, dict) or set(value) != {f.name for f in task.fields}:
+        raise InvalidRequest("Supply an object with this task's field names.")
+    try:
+        return {name: _read_field(f, value[f.name]) for name, f in zip(names, task.fields)}
+    except AnswerFormatError as e:
+        raise InvalidRequest(str(e)) from e

@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from rowlab.api.auth import CanEdit, CanRead
-from rowlab.core import datasets, runs
+from rowlab.core import datasets, manual, runs
 from rowlab.core.runs import Estimate, Run, RunRequest
 
 router = APIRouter(tags=["runs"])
@@ -9,7 +9,9 @@ router = APIRouter(tags=["runs"])
 
 @router.post("/v1/datasets/{dataset_id}/runs", operation_id="createRun", status_code=201)
 def create_run(dataset_id: str, request: RunRequest, me: CanEdit) -> Run:
-    """Queue a run of every task with every model on the rows in the scope (all rows if none is
+    """Start labeling with models (method=llm), or enter labels yourself (method=manual).
+    Manual runs need no provider key and use the named output columns without model suffixes.
+    Queue a run of every task with every model on the rows in the scope (all rows if none is
     given). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer
     columns of the rows in scope fill in as the run works through them in the background: poll
     `GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the
@@ -48,3 +50,21 @@ def resume_run(run_id: str, me: CanEdit) -> Run:
     asked again first, then it continues from its first unwritten chunk."""
     runs.check_access(me.org.id, run_id)
     return runs.resume_run(run_id)
+
+
+@router.put("/v1/runs/{run_id}/tasks/{task_id}/answers", operation_id="saveManualAnswers")
+def save_manual_answers(run_id: str, task_id: str, request: manual.Answers, me: CanEdit) -> Run:
+    """Set labels on an open manual run. Null clears a label. Batches may span several saved parts;
+    retry an interrupted batch with the same values. Concurrent edits use the last saved value.
+    """
+    runs.check_access(me.org.id, run_id)
+    return manual.save(run_id, task_id, request)
+
+
+@router.post("/v1/runs/{run_id}/finish", operation_id="finishManualRun")
+def finish_manual_run(run_id: str, me: CanEdit) -> Run:
+    """Finish manual labeling and freeze the output dataset. Unanswered cells stay null.
+    Repeating this call returns the completed run. Labels can no longer be changed.
+    """
+    runs.check_access(me.org.id, run_id)
+    return manual.finish(run_id)

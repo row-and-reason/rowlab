@@ -9,8 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 
-const SKILLS = ["rowlab-labeling", "rowlab-model-selection", "rowlab-labeling-at-scale"];
-
 export function ConnectAgents() {
   use(browser("Connection commands use this server's address."));
   const me = useMe();
@@ -29,9 +27,9 @@ export function ConnectAgents() {
   return (
     <div className="grid gap-6">
       <p className="text-sm text-muted-foreground">
-        Connect your agent to this rowlab and install its labeling, model selection and large-run
-        skills. Run these commands in your terminal with your agent CLI and Node.js installed.
-        Skills are installed for your user, across projects.
+        Connect your agent to this rowlab and install its skill for labeling, comparing quality and
+        running at scale. Run these commands in your terminal with your agent CLI and Node.js
+        installed. Skills are installed for your user, across projects.
         {me.user
           ? " Sign in with the same account you use here when the browser opens."
           : " This local server needs no sign-in."}
@@ -43,10 +41,7 @@ export function ConnectAgents() {
             ? `codex mcp add rowlab --url ${quotedUrl}`
             : `claude mcp add --scope user --transport http rowlab ${quotedUrl}`,
           ...(me.user ? [`${cli} mcp login rowlab`] : []),
-          ...SKILLS.map(
-            (skill) =>
-              `npx skills add row-and-reason/agent-skills --skill ${skill} -a ${agent} -g -y`,
-          ),
+          `npx skills add row-and-reason/agent-skills --skill rowlab -a ${agent} -g -y`,
         ].join("\n");
         return (
           <Field key={agent}>
@@ -58,7 +53,7 @@ export function ConnectAgents() {
                 Copy commands
               </Button>
             </div>
-            <Textarea id={`connect-${agent}`} readOnly value={commands} rows={me.user ? 5 : 4} />
+            <Textarea id={`connect-${agent}`} readOnly value={commands} rows={me.user ? 3 : 2} />
             <FieldDescription>
               Restart your agent after installation. Ask it to list your rowlab datasets to check
               the connection.

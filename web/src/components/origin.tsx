@@ -165,6 +165,7 @@ function RunDetails({
     saveDraft(parent.id, {
       view: { search: "", filters: [], sort: [], limit: null, sql: run.config.sql },
       tasks: run.config.tasks,
+      method: run.config.method,
     });
     setConfirm(false);
     onOpenDataset(parent.id);
@@ -198,6 +199,7 @@ function RunDetails({
     );
   const failed = run.costs.reduce((n, c) => n + c.failed, 0);
   const status = {
+    manual: "Manual labeling",
     queued: "Queued",
     running: "Running",
     stopping: "Stopping",
@@ -246,7 +248,7 @@ function RunDetails({
             {parent ? ` of ${formatNumber(parent.row_count)} source rows` : ""}
           </span>
           <span>
-            {formatNumber(run.done)} / {formatNumber(run.total)} calls processed
+            {formatNumber(run.done)} / {formatNumber(run.total)} answers saved
           </span>
           <span title="Recorded spend. Cached answers incur no new charge.">
             {formatUsd(run.cost)} spent
@@ -329,44 +331,48 @@ function RunDetails({
                 {task.fields.map((f) => `${f.name} (${fieldLabel(f.type, types)})`).join(", ")}
               </p>
             )}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Model</TableHead>
-                  <TableHead className="text-right">Answered</TableHead>
-                  <TableHead className="text-right">Failed</TableHead>
-                  <TableHead className="text-right">Cost</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {task.models.map((model) => {
-                  const cost = run.costs.find((c) => c.task_id === task.id && c.model === model);
-                  return (
-                    <TableRow key={model}>
-                      <TableCell title={model}>{modelSlug(model)}</TableCell>
-                      <TableCell
-                        className="text-right tabular-nums"
-                        title={
-                          run.status !== "done" ? "Available when the run completes" : undefined
-                        }
-                      >
-                        {run.status === "done" && cost
-                          ? formatNumber(run.row_count - cost.failed)
-                          : "—"}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right tabular-nums ${cost?.failed ? "text-destructive" : "text-muted-foreground"}`}
-                      >
-                        {cost ? formatNumber(cost.failed) : "—"}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {cost ? formatUsd(cost.cost) : "—"}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            {run.config.method === "manual" ? (
+              <p className="text-xs text-muted-foreground">Labeled manually · {task.column}</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Model</TableHead>
+                    <TableHead className="text-right">Answered</TableHead>
+                    <TableHead className="text-right">Failed</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {task.models.map((model) => {
+                    const cost = run.costs.find((c) => c.task_id === task.id && c.model === model);
+                    return (
+                      <TableRow key={model}>
+                        <TableCell title={model}>{modelSlug(model)}</TableCell>
+                        <TableCell
+                          className="text-right tabular-nums"
+                          title={
+                            run.status !== "done" ? "Available when the run completes" : undefined
+                          }
+                        >
+                          {run.status === "done" && cost
+                            ? formatNumber(run.row_count - cost.failed)
+                            : "—"}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums ${cost?.failed ? "text-destructive" : "text-muted-foreground"}`}
+                        >
+                          {cost ? formatNumber(cost.failed) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {cost ? formatUsd(cost.cost) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
             <div className="space-y-1 pt-1">
               <span className="text-xs text-muted-foreground">Prompt</span>
               <p className="border-l-2 pl-3 text-sm whitespace-pre-wrap select-text">

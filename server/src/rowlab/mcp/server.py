@@ -21,7 +21,7 @@ from fastmcp.server.dependencies import get_access_token
 from pydantic import BaseModel, Field
 
 from rowlab import __version__
-from rowlab.core import auth, compare, datasets, exports, prompts, runs
+from rowlab.core import auth, compare, datasets, exports, manual, prompts, runs
 from rowlab.core import sql as sql_core
 from rowlab.core import tasks as tasks_core
 from rowlab.core.auth import Me, Role
@@ -37,6 +37,8 @@ from rowlab.core.sql import ALL_ROWS, QueryRequest, QueryResult
 from rowlab.core.tasks import Task, TaskTypes
 
 INSTRUCTIONS = (
+    "For manual labeling, run_start(method=manual), run_answers, then run_finish use the same "
+    "task definitions and dataset outputs; no model is called. "
     "rowlab labels tabular data with AI: it asks a question of every row of a dataset and writes "
     "the answers as new columns. A run never changes a dataset; it makes a new one, with the selected rows "
     "of the original and the answer columns added, named after its place in the tree (reviews__1, "
@@ -273,6 +275,7 @@ def create_server() -> FastMCP:
         dataset_id: DatasetId,
         tasks: Annotated[list[Task], Field(description="As for run_start.")],
         sql: Sql = ALL_ROWS,
+        method: Literal["llm", "manual"] = "llm",
     ) -> RunPreview:
         """What a run would do before it does: rows, calls, rough cost in USD, the prompt rendered
         for a few rows with warnings, and what stops it running. Catches a bad prompt or a
@@ -280,7 +283,7 @@ def create_server() -> FastMCP:
         cost before a run on all rows."""
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
-        request = RunRequest(sql=sql, tasks=tasks)
+        request = RunRequest(sql=sql, tasks=tasks, method=method)
         rendered = [
             prompts.render_dataset(dataset_id, RenderRequest(template=t.template, sql=sql, limit=2))
             for t in tasks
@@ -300,8 +303,11 @@ def create_server() -> FastMCP:
         ],
         sql: Sql = ALL_ROWS,
         wait_seconds: WaitSeconds = 0,
+        method: Literal["llm", "manual"] = "llm",
     ) -> Run:
-        """Ask every task of every model about the rows the SQL picks, making a new dataset with the
+        """Start labeling: method=manual creates an open manual run with no model calls or provider key.
+        Use run_answers to fill its named columns, then run_finish to lock the output.
+        With method=llm, ask every task of every model about the rows the SQL picks, making a new dataset with the
         answer columns added (`dataset_id` in the result). Start on a few rows (LIMIT 20), look,
         then run on all; the same prompt and model on a row already answered is free, anything
         changed is paid for. Small runs finish within `wait_seconds`; poll the rest with
@@ -309,9 +315,32 @@ def create_server() -> FastMCP:
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
         run = runs.create_run(
-            dataset_id, RunRequest(sql=sql, tasks=tasks), me.user.id if me.user else None
+            dataset_id,
+            RunRequest(sql=sql, tasks=tasks, method=method),
+            me.user.id if me.user else None,
         )
         return _wait(run, wait_seconds)
+
+    @tool
+    def run_answers(run_id: str, task_id: str, answers: list[manual.Answer]) -> Run:
+        """Set labels for a task in an open manual run. Null clears; yes/no uses boolean, pick one
+        and scale use an option name, pick any uses a list of names, write uses text, extract uses
+        an object keyed by field name. No model is called. Only submit labels the user supplies
+        or explicitly asks you to produce. A batch interrupted between parts can be retried with
+        the same values. Last saved value wins. Read labels with sql_query on the run's dataset.
+        """
+        me = _me("member")
+        runs.check_access(me.org.id, run_id)
+        return manual.save(run_id, task_id, manual.Answers(answers=answers))
+
+    @tool
+    def run_finish(run_id: str) -> Run:
+        """Finish a manual run and lock its output dataset. Unanswered cells remain null.
+        Repeating this call is safe; finished labels cannot be edited.
+        """
+        me = _me("member")
+        runs.check_access(me.org.id, run_id)
+        return manual.finish(run_id)
 
     @tool
     def run_get(run_id: str, wait_seconds: WaitSeconds = 0) -> Run:

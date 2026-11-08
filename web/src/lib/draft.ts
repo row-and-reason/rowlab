@@ -6,7 +6,7 @@ import type { Task } from "@/lib/api/client";
 import type { View } from "@/lib/sql";
 
 /** What the next run of a dataset will be: which rows (the view) and what to ask (the tasks). */
-export type Draft = { view: View; tasks: Task[] };
+export type Draft = { view: View; tasks: Task[]; method?: "llm" | "manual" };
 
 // Drafts live in this browser only: the server only ever sees runs.
 const key = (datasetId: string) => `rowlab.draft.${datasetId}`;

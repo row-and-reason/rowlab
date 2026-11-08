@@ -48,7 +48,7 @@ export default defineConfig({
           label: "Agents",
           items: [
             { label: "MCP", slug: "agents/mcp" },
-            { label: "Skills", slug: "agents/skills" },
+            { label: "Skill", slug: "agents/skills" },
           ],
         },
         {

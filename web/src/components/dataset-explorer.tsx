@@ -87,6 +87,9 @@ export function DatasetExplorer({
   onViewChange,
   version,
   priorityColumns,
+  onCount,
+  onPickRow,
+  selectedPosition,
 }: {
   dataset: Dataset;
   view: View;
@@ -94,6 +97,9 @@ export function DatasetExplorer({
   onViewChange: (changes: Partial<View>) => void;
   version?: number;
   priorityColumns?: string[];
+  onCount?: (count: number) => void;
+  onPickRow?: (position: number) => void;
+  selectedPosition?: number;
 }) {
   const { search, filters } = view;
   const custom = view.sql !== null;
@@ -153,6 +159,10 @@ export function DatasetExplorer({
       current = false;
     };
   }, [dataset.id, request, version]);
+
+  useEffect(() => {
+    if (result?.data) onCount?.(result.data.total);
+  }, [result, onCount]);
 
   // The last good page stays on screen while the next one loads.
   const [shown, setShown] = useState<QueryResult>();
@@ -350,8 +360,13 @@ export function DatasetExplorer({
             ))}
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id} className="border-border/60">
+            {table.getRowModel().rows.map((row, index) => (
+              <TableRow
+                key={row.id}
+                className="border-border/60"
+                data-state={selectedPosition === page * pageSize + index ? "selected" : undefined}
+                onClick={() => onPickRow?.(page * pageSize + index)}
+              >
                 {row.getAllCells().map((cell) => (
                   <TableCell key={cell.id} className="max-w-96 truncate px-3 tabular-nums">
                     <table.FlexRender cell={cell} />

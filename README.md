@@ -29,7 +29,8 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
   [a shared server](https://docs.rowlab.dev/self-host/hosted): Postgres, S3, sign-in with WorkOS,
   limits.
 - [MCP](https://docs.rowlab.dev/agents/mcp) for agents, with
-  [skills](https://github.com/row-and-reason/agent-skills) that teach them to label well:
+  [one Rowlab skill](https://github.com/row-and-reason/agent-skills/tree/main/skills/rowlab) for
+  labeling, comparison and scaling:
   `claude mcp add --transport http rowlab http://localhost:8000/mcp`.
 - [API reference](https://docs.rowlab.dev/api/): the web app uses only the public API, so anything
   it can do, a script can do.
@@ -122,7 +123,7 @@ and [CONTRIBUTING.md](CONTRIBUTING.md) how to send a change.
 ## Agent setup and dataset names
 
 Open **Settings → Connect agents** for copyable Codex and Claude Code commands, including sign-in
-on hosted servers and installation of all three rowlab skills. The commands use this server's URL.
+on hosted servers and installation of the single Rowlab skill. The commands use this server's URL.
 Rename imports or run results from the dataset menu, the command palette, or MCP `dataset_rename`.
 Names are display labels; IDs and lineage stay unchanged.
 
@@ -131,3 +132,21 @@ MCP `models_list` returns 20 models by default with `total` and `next_offset`; f
 with per-class precision and recall; use `detail="full"` for distributions and all drill-down filters.
 New sampled runs contain only selected rows, preserving source `__row_id` values. Existing result
 datasets keep their stored rows; rerun from the source to create a result using the new behavior.
+
+### Label manually
+
+Define the same task and select **Label manually** instead of **Label with an LLM**. The new
+run opens its selected rows with the rendered prompt and answer choices. Choosing an answer
+saves it and advances to the next row. For text, press Enter to submit; Shift+Enter adds a
+new line. You can return later to continue. **Finish labeling** locks the output dataset;
+unanswered cells remain null. Compare, query, export and subsequent runs work as usual.
+
+Manual labels use the task's output name without a model suffix, probability or status column.
+All task types are supported; structured extraction accepts JSON matching the task's fields.
+No model is called and no provider key is required.
+
+The API uses `POST /v1/datasets/{id}/runs` with `method: "manual"`,
+`PUT /v1/runs/{id}/tasks/{task_id}/answers` with
+`{"answers": [{"row_id": 0, "value": true}]}`, and `POST /v1/runs/{id}/finish`.
+Null clears an answer. MCP exposes the same flow as `run_start(method="manual")`,
+`run_answers`, and `run_finish`.

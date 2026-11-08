@@ -57,7 +57,8 @@ const STARTING_PROMPTS: Record<AnswerType, string> = {
   pick_one: "Choose the one option that best describes the following text:\n\n",
   pick_any: "Select all options that apply to the following text:\n\n",
   scale: "Rate the following text on the configured scale for [quality to assess]:\n\n",
-  extract: "Extract the configured fields from the following text. Leave missing information empty:\n\n",
+  extract:
+    "Extract the configured fields from the following text. Leave missing information empty:\n\n",
   write: "Write [what to produce] based on the following text:\n\n",
 };
 
@@ -108,7 +109,13 @@ export function withExtraction(task: Task, shape: "single" | "structure", types:
         task.template,
         "Extract [value to extract] from the following text. Leave it empty if not stated:\n\n",
       ),
-      fields: [{ ...EMPTY_FIELD, name: "value", type: type === "items" || type === "list" ? "text" : type }],
+      fields: [
+        {
+          ...EMPTY_FIELD,
+          name: "value",
+          type: type === "items" || type === "list" ? "text" : type,
+        },
+      ],
     };
   }
   return changed;
@@ -150,11 +157,13 @@ export function withPreset(task: Task, preset: Preset, language?: string): Task 
 
 /** A task's options, fields, reason and result column, as its answer type needs. */
 export function AnswerSettings({
+  manual = false,
   task,
   types,
   models,
   onChange,
 }: {
+  manual?: boolean;
   task: Task;
   types: TaskTypes;
   models: Model[];
@@ -174,18 +183,19 @@ export function AnswerSettings({
           onChange={(options) => onChange({ ...task, options })}
         />
       )}
-      {task.type === "extract" && (
-        task.extraction_mode === "single" ? (
+      {task.type === "extract" &&
+        (task.extraction_mode === "single" ? (
           <Field>
             <FieldLabel htmlFor={`scalar-${task.id}`}>Value type</FieldLabel>
             <Select
               items={scalarTypes}
               value={task.fields[0]?.type ?? "text"}
               onValueChange={(type) => {
-                if (type) onChange({
-                  ...task,
-                  fields: [{ ...EMPTY_FIELD, name: "value", type: type as FieldType }],
-                });
+                if (type)
+                  onChange({
+                    ...task,
+                    fields: [{ ...EMPTY_FIELD, name: "value", type: type as FieldType }],
+                  });
               }}
             >
               <SelectTrigger id={`scalar-${task.id}`} className="w-40">
@@ -193,7 +203,9 @@ export function AnswerSettings({
               </SelectTrigger>
               <SelectContent>
                 {scalarTypes.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -205,8 +217,7 @@ export function AnswerSettings({
             fieldTypes={types.field_types}
             onChange={(fields) => onChange({ ...task, fields })}
           />
-        )
-      )}
+        ))}
       <Field>
         <div className="flex items-center gap-1">
           <FieldLabel htmlFor={`column-${task.id}`}>Result column</FieldLabel>
@@ -219,7 +230,9 @@ export function AnswerSettings({
               <InfoIcon />
             </PopoverTrigger>
             <PopoverContent align="end" className="w-72 text-sm">
-              {columnsDescription(task)}
+              {manual
+                ? "Manual labels use this name, without a model suffix. Pick any and structured extraction add an option or field name when needed."
+                : columnsDescription(task)}
             </PopoverContent>
           </Popover>
         </div>
@@ -229,7 +242,7 @@ export function AnswerSettings({
           onChange={(e) => onChange({ ...task, column: e.target.value })}
         />
       </Field>
-      {family !== "write" && (
+      {!manual && family !== "write" && (
         <Field orientation="horizontal">
           <Checkbox
             id={`reason-${task.id}`}
@@ -531,7 +544,8 @@ export function ModelPicker({
       </Combobox>
       <FieldDescription>
         Pick several to compare them.
-        {!llmOnly && " Decision models are fast and cheap; language models cost more and are slower, but can reason through harder questions."}
+        {!llmOnly &&
+          " Decision models are fast and cheap; language models cost more and are slower, but can reason through harder questions."}
       </FieldDescription>
     </Field>
   );
