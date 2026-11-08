@@ -14,8 +14,8 @@ def create_run(dataset_id: str, request: RunRequest, me: CanEdit) -> Run:
     Queue a run of every task with every model on the rows in the scope (all rows if none is
     given). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer
     columns of the rows in scope fill in as the run works through them in the background: poll
-    `GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the
-    response cache.
+    `GET /v1/runs/{id}` for its progress. Answers already given to the same rows, by a run
+    in the same dataset tree, are free: they are reused.
 
     A task needs only its `template` and `type`; the result column and models default to ones that
     suit the type (see `GET /v1/utils/task-types`)."""

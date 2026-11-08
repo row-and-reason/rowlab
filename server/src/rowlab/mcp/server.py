@@ -21,7 +21,7 @@ from fastmcp.server.dependencies import get_access_token
 from pydantic import BaseModel, Field
 
 from rowlab import __version__
-from rowlab.core import auth, compare, datasets, exports, manual, prompts, runs
+from rowlab.core import auth, compare, datasets, exports, links, manual, prompts, runs
 from rowlab.core import sql as sql_core
 from rowlab.core import tasks as tasks_core
 from rowlab.core.auth import Me, Role
@@ -30,6 +30,7 @@ from rowlab.core.config import config
 from rowlab.core.datasets import ColumnProfile, Dataset
 from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
 from rowlab.core.exports import ExportFormat, ExportRequest, ExportResult
+from rowlab.core.links import Link
 from rowlab.core.prompts import RenderRequest, RenderResult
 from rowlab.core.providers import openrouter
 from rowlab.core.runs import Estimate, Run, RunRequest
@@ -37,8 +38,6 @@ from rowlab.core.sql import ALL_ROWS, QueryRequest, QueryResult
 from rowlab.core.tasks import Task, TaskTypes
 
 INSTRUCTIONS = (
-    "For manual labeling, run_start(method=manual), run_answers, then run_finish use the same "
-    "task definitions and dataset outputs; no model is called. "
     "rowlab labels tabular data with AI: it asks a question of every row of a dataset and writes "
     "the answers as new columns. A run never changes a dataset; it makes a new one, with the selected rows "
     "of the original and the answer columns added, named after its place in the tree (reviews__1, "
@@ -49,8 +48,11 @@ INSTRUCTIONS = (
     "and columns_compare their columns, against labels you trust if there are any. Runs cost money "
     "and take time: tell the user the estimate before a run on all rows, and don't start another "
     "run on the same rows unless something changed. Failed answers can be asked again with "
-    "run_resume; a changed prompt, options or model is a new run on the source dataset. The "
-    "API does the same work, for scripts."
+    "run_resume; a changed prompt, options or model is a new run on the source dataset. For "
+    "manual labeling, run_start(method=manual), run_answers, then run_finish use the same task "
+    "definitions and dataset outputs; no model is called. A file on your machine goes in with "
+    "dataset_upload and comes out with dataset_download, through curl. The API does the same "
+    "work, for scripts."
 )
 
 DatasetId = Annotated[str, Field(description="A dataset's id, from datasets_list.")]
@@ -189,9 +191,18 @@ def create_server() -> FastMCP:
         ] = None,
     ) -> Dataset:
         """Add a dataset from a URL, S3 or a file. Use it when the data isn't in rowlab yet; the
-        result lists the columns, so the next step is a prompt or a query."""
+        result lists the columns, so the next step is a prompt or a query. For a file on your
+        machine on hosted rowlab, use dataset_upload."""
         me = _me("member")
         return datasets.create_dataset(me.org.id, source, connection_id)
+
+    @tool
+    def dataset_upload() -> Link:
+        """A link to upload a file on your machine as a dataset, for when it has no public URL:
+        run its `command` with the file's path; curl prints the new dataset. CSV, TSV, JSON, JSONL
+        or Parquet, gzipped or not. Hosted rowlab; the link works for 15 minutes."""
+        me = _me("member")
+        return links.upload_link(me.org.id)
 
     @tool
     def dataset_rename(dataset_id: DatasetId, name: str) -> Dataset:
@@ -386,7 +397,8 @@ def create_server() -> FastMCP:
         include_row_id: Annotated[bool, Field(description="Keep rowlab's `__row_id`.")] = False,
     ) -> ExportResult:
         """Write a dataset, or the rows a SELECT picks, as CSV, JSONL or Parquet, to S3 or a local
-        file. The last step: hand the user the data with its answer columns, where they use it."""
+        file. The last step: hand the user the data with its answer columns, where they use it. To
+        your own machine on hosted rowlab, use dataset_download."""
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
         request = ExportRequest(
@@ -397,6 +409,22 @@ def create_server() -> FastMCP:
             include_row_id=include_row_id,
         )
         return exports.export_to_path(dataset_id, request)
+
+    @tool
+    def dataset_download(
+        dataset_id: DatasetId,
+        format: ExportFormat,
+        sql: Annotated[
+            str | None, Field(description="Only the rows this SELECT picks; all by default.")
+        ] = None,
+        include_row_id: Annotated[bool, Field(description="Keep rowlab's `__row_id`.")] = False,
+    ) -> Link:
+        """A link to download a dataset, or the rows a SELECT picks, as CSV, JSONL or Parquet to
+        your machine: run its `command`. Hosted rowlab; the link works for 15 minutes. The last
+        step, like dataset_export, when the user wants the file where you are."""
+        me = _me("member")
+        datasets.check_access(me.org.id, dataset_id)
+        return links.download_link(dataset_id, format, include_row_id=include_row_id, query=sql)
 
     @tool
     def task_types_get() -> TaskTypes:

@@ -39,7 +39,8 @@ def test_hosted_the_api_needs_sign_in(hosted):
     paths = create_app().openapi()["paths"]
     assert len(paths) > 20
     for path, methods in paths.items():
-        if path == "/v1/health":
+        # Links carry their own permission; test_links checks they refuse bad tokens.
+        if path == "/v1/health" or path.startswith("/v1/links/"):
             continue
         for method in methods:
             response = client.request(method, re.sub(r"{\w+}", "x", path))

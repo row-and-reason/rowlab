@@ -8,18 +8,14 @@ lives here.
 Both report their cost in USD as `usage.cost`, and the tokens used.
 """
 
-import hashlib
-import json
 import random
 import time
-from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
 from pydantic import BaseModel
 
 from rowlab import __version__
-from rowlab.core import db
 from rowlab.core.errors import InvalidRequest
 
 BASE_URL = "https://openrouter.ai/api"
@@ -45,7 +41,6 @@ class Response(BaseModel):
 
     data: Any
     cost: float
-    cached: bool
     input_tokens: int = 0
     output_tokens: int = 0
 
@@ -130,42 +125,47 @@ def check_key(api_key: str) -> None:
         raise InvalidRequest(f"OpenRouter did not accept the key: {e}") from e
 
 
-def decide(
-    model: str,
-    state: str,
-    questions: dict[str, Any],
-    *,
-    org_id: str,
-    api_key: str,
-    fresh: bool = False,
-) -> Response:
-    """Ask a decision model typed questions about `state`. `data` is the answers by question."""
-    body = {"model": model, "state": state, "questions": questions}
-    response, cached = _cached_post("/alpha/decisions", body, org_id, api_key, fresh=fresh)
-    return Response(data=response["answers"], cached=cached, **_usage(response))
+class Request(BaseModel):
+    """A call to make: where to, and what to send."""
+
+    path: str
+    body: dict[str, Any]
 
 
-def complete(
-    model: str,
-    messages: list[dict[str, str]],
-    schema: dict[str, Any],
-    *,
-    org_id: str,
-    api_key: str,
-    fresh: bool = False,
-) -> Response:
-    """Ask an LLM for a JSON reply matching `schema`. `data` is the reply's text."""
-    body = {
-        "model": model,
-        "messages": messages,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {"name": "answer", "strict": True, "schema": schema},
+DECISIONS = "/alpha/decisions"
+COMPLETIONS = "/v1/chat/completions"
+
+
+def decision_request(model: str, state: str, questions: dict[str, Any]) -> Request:
+    """Typed questions to a decision model about `state`."""
+    return Request(path=DECISIONS, body={"model": model, "state": state, "questions": questions})
+
+
+def completion_request(
+    model: str, messages: list[dict[str, str]], schema: dict[str, Any]
+) -> Request:
+    """Messages to an LLM, for a JSON reply matching `schema`."""
+    return Request(
+        path=COMPLETIONS,
+        body={
+            "model": model,
+            "messages": messages,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "answer", "strict": True, "schema": schema},
+            },
         },
-    }
-    response, cached = _cached_post("/v1/chat/completions", body, org_id, api_key, fresh=fresh)
-    content = (response.get("choices") or [{}])[0].get("message", {}).get("content")
-    return Response(data=content, cached=cached, **_usage(response))
+    )
+
+
+def post(request: Request, api_key: str) -> Response:
+    """Make a call, paid for. `data` is the decision answers by question, or the reply's text."""
+    response = _post_with_retries(request.path, request.body, api_key)
+    if request.path == DECISIONS:
+        data = response["answers"]
+    else:
+        data = (response.get("choices") or [{}])[0].get("message", {}).get("content")
+    return Response(data=data, **_usage(response))
 
 
 def _usage(response: dict[str, Any]) -> dict[str, Any]:
@@ -176,30 +176,6 @@ def _usage(response: dict[str, Any]) -> dict[str, Any]:
         "input_tokens": usage.get("prompt_tokens") or usage.get("input_tokens") or 0,
         "output_tokens": usage.get("completion_tokens") or usage.get("output_tokens") or 0,
     }
-
-
-def _cached_post(
-    path: str, body: dict[str, Any], org_id: str, api_key: str, *, fresh: bool = False
-) -> tuple[dict[str, Any], bool]:
-    """POST, unless the organisation asked the identical request before: a paid call is never made
-    twice. Each organisation has its own answers, which nobody else sees or gets for free. `fresh`
-    asks again anyway, e.g. when the cached reply was unusable, and caches the new reply."""
-    key = hashlib.sha256(
-        json.dumps({"org": org_id, "path": path, "body": body}, sort_keys=True).encode()
-    ).hexdigest()
-    with db.connect() as conn:
-        row = conn.execute("SELECT response FROM responses WHERE key = ?", (key,)).fetchone()
-    if row is not None and not fresh:
-        return json.loads(row["response"]), True
-    response = _post_with_retries(path, body, api_key)
-    with db.connect() as conn:
-        conn.execute(
-            "INSERT INTO responses (key, response, created_at) VALUES (?, ?, ?)"
-            " ON CONFLICT (key) DO UPDATE SET response = excluded.response,"
-            " created_at = excluded.created_at",
-            (key, json.dumps(response), datetime.now(UTC).isoformat()),
-        )
-    return response, False
 
 
 def _post_with_retries(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:

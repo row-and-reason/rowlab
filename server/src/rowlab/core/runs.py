@@ -5,8 +5,9 @@ they get their answers as the run goes. The run keeps
 a frozen copy of its query and tasks. It works in chunks of those rows by `__row_id` (chunk k is always
 the same rows). A chunk's answers are written to the dataset's `parts/part-{k}.parquet` in one go, and
 only then does the run's bookmark (`next_chunk`) move on. So a stop, a crash or a restart loses at most
-the chunk in progress, and redoing it costs nothing: answers come from the response cache. When every
-chunk is written, the dataset is written out as one Parquet file.
+the chunk in progress, and redoing it costs nothing: the replies paid for are journaled until the chunk
+is written (see `answers`). When every chunk is written, the dataset is written out as one Parquet
+file.
 
 Runners take turns: a runner does one chunk of a run, then puts it back in the queue (`process_next`).
 The next turn goes to a run that has waited long (`ROWLAB_RUN_WAIT_SECONDS`), or else to the one with
@@ -25,7 +26,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets, db, prompts, settings, sql, storage, tasks, usage
+from rowlab.core import answers, datasets, db, prompts, settings, sql, storage, tasks, usage
 from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest, NotFound
@@ -56,6 +57,8 @@ class TaskModelCost(BaseModel):
     task_id: str
     model: str
     cost: float = Field(description="USD spent by this run; cached answers are free.")
+    input_tokens: int = Field(0, description="Prompt tokens billed, as the provider counts them.")
+    output_tokens: int = Field(0, description="Answer tokens billed.")
     failed: int = Field(description="Rows without an answer.")
 
 
@@ -98,7 +101,7 @@ class Estimate(BaseModel):
     calls: int = Field(description="Model calls it would make.")
     cost: float = Field(
         description="Roughly what it would cost in USD, from sample rows' token counts and the models' "
-        "prices; answers already in the response cache would be free."
+        "prices; answers already given to the same rows in the dataset's tree would be free."
     )
     problem: str | None = Field(description="Why it can't run as it is, and what to change.")
 
@@ -236,6 +239,10 @@ def check(dataset_id: str, request: RunRequest) -> None:
 # Rows sampled to estimate prompt sizes, and roughly how many tokens answers take.
 ESTIMATE_SAMPLE_ROWS = 20
 _ANSWER_TOKENS = {"classify": 20, "field": 15, "reason": 60}
+# Decision APIs wrap each call in their own instructions, billed as prompt tokens. Measured in
+# November 2026, this makes typesafe/jev-1.14 (the default for yes/no) come out within a few percent;
+# upstage/solar-decide adds a bit more, and many add next to none, so for those it errs high.
+_DECISION_FRAMING_TOKENS = 260
 
 
 def estimate(dataset_id: str, request: RunRequest) -> Estimate:
@@ -267,25 +274,25 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
     prices = {m.id: m for m in openrouter.models()}
     cost = 0.0
     for task in request.tasks:
-        prompt_tokens = sum(
-            prompts.count_tokens(prompts.render(task.template, row, keys)) for row in rows
-        ) / len(rows)
+        prompts_by_row = [prompts.render(task.template, row, keys) for row in rows]
         if task.type == "write":
             # Rewrites and translations are about as long as what they're given; summaries shorter.
-            answer_tokens = prompt_tokens
+            answer_tokens = sum(prompts.count_tokens(p) for p in prompts_by_row) / len(rows)
         elif task.type == "extract":
             answer_tokens = _ANSWER_TOKENS["field"] * len(task.fields)
         else:
             answer_tokens = _ANSWER_TOKENS["classify"] * max(1, len(task.options))
         answer_tokens += _ANSWER_TOKENS["reason"] if task.reason else 0
         for model in task.models:
-            instructions = (
-                prompts.count_tokens(tasks.llm_instructions(task))
-                if prices[model].kind == "llm"
-                else 0
-            )
+            # All of what is sent is billed: instructions, options and schema too, not just the prompt.
+            prompt_tokens = sum(
+                prompts.count_tokens(json.dumps(_request(task, model, p).body, ensure_ascii=False))
+                for p in prompts_by_row
+            ) / len(rows)
+            if prices[model].kind == "decision":
+                prompt_tokens += _DECISION_FRAMING_TOKENS
             cost += total * (
-                (prompt_tokens + instructions) * prices[model].prompt_price
+                prompt_tokens * prices[model].prompt_price
                 + answer_tokens * prices[model].completion_price
             )
     return Estimate(rows=total, calls=calls, cost=cost, problem=problem)
@@ -439,6 +446,7 @@ def _process(run_id: str) -> None:
         retry = retry if retry is not None and retry < run.next_chunk else None
         if retry is None and run.next_chunk >= chunks:
             datasets.finish_run_dataset(run.dataset_id)
+            answers.finish(run.dataset_id)
             _set(run_id, status="done", retry_chunk=None)
             return
         # Back in the queue, unless it was stopped meanwhile.
@@ -469,9 +477,12 @@ def _process_chunk(
     *,
     retry: bool = False,
 ) -> bool:
-    """Ask every task and model for the chunk's rows and write its part file. With `retry`, the part
-    is already written: only its failed answers are asked again, past the response cache, and it is
-    written again. Returns False, writing nothing, if the run was stopped meanwhile."""
+    """Ask every task and model for the chunk's rows and write its part file, with the replies beside
+    it. A reply already paid for, in the journal or the tree's done datasets, is used instead of
+    asking.
+    With `retry`, the part is already written: only its failed answers are asked again, past the
+    replies kept, and it is written again. Returns False, writing nothing, if the run was stopped
+    meanwhile."""
     rows = datasets.read_run_rows(run.dataset_id, offset=chunk * CHUNK_ROWS, limit=CHUNK_ROWS)
     name = f"part-{chunk:06d}"
     written = datasets.read_run_part(run.dataset_id, name) if retry else {}
@@ -487,8 +498,25 @@ def _process_chunk(
     ]
     if not units:
         return True
+    requests = [
+        _request(task, model, prompts.render(task.template, row, keys))
+        for row, task, model in units
+    ]
+    request_keys = [answers.key(org_id, request) for request in requests]
+    row_ids = [row[ROW_ID] for row in rows]
+    # A retry asks past the replies kept, but not past those paid for in it before a stop or crash.
+    found = (
+        {}
+        if retry
+        else answers.stored(
+            run.dataset_id, [model for task in run.config.tasks for model in task.models], row_ids
+        )
+    ) | answers.journaled(run.id)
     stopping = threading.Event()
-    answers: list[_Answer | None] = [None] * len(units)
+    given: list[_Answer | None] = [None] * len(units)
+    # The replies, to write beside the part; those paid for now are journaled until it is.
+    replies: list[answers.Reply | None] = [None] * len(units)
+    paid: list[answers.Reply] = []
     # What the answers so far cost, by task and model, until it is added to the usage.
     spent: dict[tuple[str, str], usage.Spent] = {}
     spent_lock = threading.Lock()
@@ -497,21 +525,31 @@ def _process_chunk(
         if stopping.is_set():
             return
         row, task, model = units[i]
-        prompt = prompts.render(task.template, row, keys)
+        saved = found.get(request_keys[i])
         try:
-            answer = answers[i] = _ask(task, model, prompt, org_id, api_key, fresh=retry)
+            answer, data = _ask(task, model, requests[i], api_key, saved)
         except KeyProblem:
             stopping.set()
             raise
+        given[i] = answer
+        if data is not None:
+            replies[i] = (request_keys[i], row[ROW_ID], data)
         with spent_lock:
             _count(spent.setdefault((task.id, model), usage.Spent()), answer)
+            if data is not None and saved is None:
+                paid.append(replies[i])
 
     def record_spent() -> None:
-        """Add what was spent since the last time to the usage: paid is paid, however the chunk
-        ends."""
+        """Add what was spent since the last time to the usage, and journal the replies paid for:
+        paid is paid, however the chunk ends."""
         with spent_lock:
             taken = dict(spent)
             spent.clear()
+            journaled = list(paid)
+        answers.journal(run.id, journaled)
+        # Only once they are journaled: if that fails, the next try (or the `finally`) has them.
+        with spent_lock:
+            del paid[: len(journaled)]
         if taken:
             with db.connect() as conn:
                 usage.add(
@@ -532,7 +570,7 @@ def _process_chunk(
                 if retry:
                     _set(run.id)
                 else:
-                    _set(run.id, done=done_before + sum(a is not None for a in answers))
+                    _set(run.id, done=done_before + sum(a is not None for a in given))
                 record_spent()
                 # A deleted dataset takes its run with it.
                 if _status(run.id) in ("stopping", None):
@@ -547,7 +585,7 @@ def _process_chunk(
     by_row: dict[int, dict[str, Any]] = {
         row[ROW_ID]: dict(written.get(row[ROW_ID], {})) for row in rows
     }
-    for (row, task, model), answer in zip(units, answers):
+    for (row, task, model), answer in zip(units, given):
         assert answer is not None
         out = by_row[row[ROW_ID]]
         failed = [f for f in out.get(datasets.FAILED) or [] if f != f"{task.id} {model}"]
@@ -556,14 +594,18 @@ def _process_chunk(
         else:
             failed.append(f"{task.id} {model}")
         out[datasets.FAILED] = failed
+    answers.write_part(run.dataset_id, name, [r for r in replies if r is not None])
     _write_part(run.dataset_id, run.config.tasks, name, by_row)
     costs = {(c.task_id, c.model): c for c in run.costs}
-    for (_, task, model), answer in zip(units, answers):
+    for (_, task, model), answer in zip(units, given):
         assert answer is not None
         cost = costs.setdefault(
             (task.id, model), TaskModelCost(task_id=task.id, model=model, cost=0, failed=0)
         )
-        cost.cost += 0 if answer.cached else answer.cost
+        if not answer.cached:
+            cost.cost += answer.cost
+            cost.input_tokens += answer.input_tokens
+            cost.output_tokens += answer.output_tokens
         if retry:
             cost.failed -= answer.error is None
         else:
@@ -575,6 +617,7 @@ def _process_chunk(
         costs=json.dumps([c.model_dump() for c in costs.values()]),
         cost=sum(c.cost for c in costs.values()),
     )
+    answers.clear_journal(run.id, row_ids)
     return True
 
 
@@ -647,42 +690,44 @@ _KEY_PROBLEMS = {
 }
 
 
-def _ask(
-    task: Task, model: str, prompt: str, org_id: str, api_key: str, *, fresh: bool = False
-) -> _Answer:
-    """One task for one row from one model, as base columns. `fresh` asks past the cache."""
-    decision = openrouter.model_kind(model) == "decision"
-    try:
-        if decision:
-            questions = tasks.decision_questions(task)
-            response = openrouter.decide(
-                model, prompt, questions, org_id=org_id, api_key=api_key, fresh=fresh
-            )
-        else:
-            messages = tasks.llm_messages(task, prompt)
-            schema = tasks.llm_schema(task)
-            response = openrouter.complete(
-                model, messages, schema, org_id=org_id, api_key=api_key, fresh=fresh
-            )
-    except openrouter.OpenRouterError as e:
-        if e.status in _KEY_PROBLEMS:
-            raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
-        return _Answer(error=str(e))
-    # Paid for even when the reply turns out unusable.
-    answer = _Answer(
-        cost=response.cost,
-        cached=response.cached,
-        input_tokens=response.input_tokens,
-        output_tokens=response.output_tokens,
+def _request(task: Task, model: str, prompt: str) -> openrouter.Request:
+    """The call asking one task for one row of one model."""
+    if openrouter.model_kind(model) == "decision":
+        return openrouter.decision_request(model, prompt, tasks.decision_questions(task))
+    return openrouter.completion_request(
+        model, tasks.llm_messages(task, prompt), tasks.llm_schema(task)
     )
+
+
+def _ask(
+    task: Task, model: str, request: openrouter.Request, api_key: str, saved: Any = None
+) -> tuple[_Answer, Any]:
+    """One task for one row from one model, as base columns, with the reply's data (None if there
+    was no reply). `saved` is a reply already paid for, used instead of asking."""
+    if saved is not None:
+        answer, data = _Answer(cached=True), saved
+    else:
+        try:
+            response = openrouter.post(request, api_key)
+        except openrouter.OpenRouterError as e:
+            if e.status in _KEY_PROBLEMS:
+                raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
+            return _Answer(error=str(e)), None
+        # Paid for even when the reply turns out unusable.
+        answer = _Answer(
+            cost=response.cost,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
+        data = response.data
     try:
-        if decision:
-            answer.values = tasks.read_decision(task, response.data)
+        if request.path == openrouter.DECISIONS:
+            answer.values = tasks.read_decision(task, data)
         else:
-            answer.values = tasks.read_llm(task, response.data)
+            answer.values = tasks.read_llm(task, data)
     except tasks.AnswerFormatError as e:
         answer.error = str(e)
-    return answer
+    return answer, data
 
 
 def _status(run_id: str) -> str | None:

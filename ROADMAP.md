@@ -153,7 +153,7 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 - Every model writes its own columns, named after it: `<column>__<model>` and `<column>__<model>_proba`,
   the probability that the answer is right (pick any: `<column>_<option>__<model>`), e.g.
   `team__jev-1.14`, `team__kimi-k3`. Decision models give probabilities; LLMs are asked for one in a
-  JSON reply whose shape is enforced by a schema and checked on arrival (`core/answers.py`).
+  JSON reply whose shape is enforced by a schema and checked on arrival (`core/tasks.py`).
 - A task has one prompt: the question with the row's columns in it. Decision models get it as `state` with
   a fixed instruction ("Answer the question in the text."), which answers the same as sending the question
   separately (checked on 3 models); LLMs get it as the user message.
@@ -450,6 +450,10 @@ which only says who someone is and which organisation they are in. Locally, the 
   model providers, Cloudflare, PostHog). The web app masks all page text from PostHog, so rows,
   prompts and answers never reach it.
 - ✅ The repo is public (7 November 2026), with private vulnerability reporting on.
+- ✅ The database keeps only a working set, so it doesn't grow with every row labelled: model
+  replies live with the datasets runs make (`answers/*.parquet`) and go when they are deleted; the
+  database journals only the replies of chunks under way (`core/answers.py`). Runs reuse the replies
+  of the done runs in their dataset tree, replacing the response cache table.
 - `rowlab` 0.1.0 on PyPI via GitHub Actions trusted publishing.
 
 ## After launch

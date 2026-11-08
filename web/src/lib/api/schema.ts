@@ -232,6 +232,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/links/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download With Link
+         * @description Download a dataset, with a download link instead of signing in.
+         */
+        get: operations["downloadWithLink"];
+        put?: never;
+        /**
+         * Upload With Link
+         * @description Add a dataset from a file, with an upload link instead of signing in.
+         */
+        post: operations["uploadWithLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/members": {
         parameters: {
             query?: never;
@@ -329,8 +353,8 @@ export interface paths {
          *     Queue a run of every task with every model on the rows in the scope (all rows if none is
          *     given). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer
          *     columns of the rows in scope fill in as the run works through them in the background: poll
-         *     `GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the
-         *     response cache.
+         *     `GET /v1/runs/{id}` for its progress. Answers already given to the same rows, by a run
+         *     in the same dataset tree, are free: they are reused.
          *
          *     A task needs only its `template` and `type`; the result column and models default to ones that
          *     suit the type (see `GET /v1/utils/task-types`).
@@ -694,6 +718,14 @@ export interface components {
              */
             connection_id?: string | null;
         };
+        /** Body_uploadWithLink */
+        Body_uploadWithLink: {
+            /**
+             * File
+             * @description File to upload.
+             */
+            file: string;
+        };
         /** ByModel */
         ByModel: {
             /**
@@ -1036,7 +1068,7 @@ export interface components {
             calls: number;
             /**
              * Cost
-             * @description Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already in the response cache would be free.
+             * @description Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already given to the same rows in the dataset's tree would be free.
              */
             cost: number;
             /**
@@ -1741,6 +1773,18 @@ export interface components {
              * @description USD spent by this run; cached answers are free.
              */
             cost: number;
+            /**
+             * Input Tokens
+             * @description Prompt tokens billed, as the provider counts them.
+             * @default 0
+             */
+            input_tokens: number;
+            /**
+             * Output Tokens
+             * @description Answer tokens billed.
+             * @default 0
+             */
+            output_tokens: number;
             /**
              * Failed
              * @description Rows without an answer.
@@ -2464,6 +2508,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    downloadWithLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    uploadWithLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_uploadWithLink"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dataset"];
                 };
             };
             /** @description Validation Error */

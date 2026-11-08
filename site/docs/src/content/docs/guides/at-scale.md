@@ -25,8 +25,8 @@ a first pass that misses rows loses them for good.
 Several facts from the same rows go in one Extract task with several fields: one call answers them
 all. Separate tasks are each a call per row and model.
 
-The same prompt and model on the same row is never paid for twice, so iterate on a sample before the
-full run, and resume a stopped or failed run rather than starting a new one. When the data grows, add
+The same prompt and model on the same row is never paid for twice in the datasets made from one
+file, so iterate on a sample of it before the full run, and resume a stopped or failed run rather than starting a new one. When the data grows, add
 the new rows as a new dataset (a file of just them, with a stable id), run on it, and join the
 results to the earlier ones where you keep your data.
 

@@ -1,4 +1,5 @@
-"""Saved keys (OpenRouter, S3) encrypted at rest with `ROWLAB_SECRET_KEY`, when it is set.
+"""Saved keys (OpenRouter, S3) encrypted at rest with `ROWLAB_SECRET_KEY`, when it is set, and
+sealed tokens for links (see `links`).
 
 Encrypted values are stored as `enc:<token>`; anything else is a key saved before there was a secret
 key, read as it is.
@@ -25,6 +26,21 @@ def decrypt(stored: str) -> str:
     if not config().secret_key:
         raise RuntimeError("A saved key is encrypted, but ROWLAB_SECRET_KEY isn't set.")
     return _fernet().decrypt(stored.removeprefix(PREFIX).encode()).decode()
+
+
+def seal(value: str) -> str:
+    """Encrypt and sign `value`, with the time, for `unseal`. Needs the secret key."""
+    return _fernet().encrypt(value.encode()).decode()
+
+
+def unseal(token: str, max_age_seconds: int) -> str | None:
+    """What `seal` was given, or None if the token is forged, mangled or older than `max_age`."""
+    from cryptography.fernet import InvalidToken
+
+    try:
+        return _fernet().decrypt(token.encode(), ttl=max_age_seconds).decode()
+    except InvalidToken:
+        return None
 
 
 def _fernet() -> Any:

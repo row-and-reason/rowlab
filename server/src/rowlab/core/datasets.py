@@ -390,7 +390,7 @@ def _register(
     parent_id: str | None = None,
     branch: str | None = None,
 ) -> Dataset:
-    """Record a dataset whose files have been written."""
+    """Record a dataset whose files have been written, in its parent's tree or as a new tree's root."""
     file = storage.location(dataset_id, "data.parquet")
     if not storage.exists(file):
         file = storage.location(dataset_id, "rows.parquet")
@@ -404,7 +404,8 @@ def _register(
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO datasets (id, org_id, name, source, row_count, size_bytes, columns,"
-            " created_at, parent_id, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " created_at, parent_id, branch, root_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+            " coalesce((SELECT root_id FROM datasets WHERE id = ?), ?))",
             (
                 dataset_id,
                 org_id,
@@ -416,6 +417,8 @@ def _register(
                 datetime.now(UTC).isoformat(),
                 parent_id,
                 branch,
+                parent_id,
+                dataset_id,
             ),
         )
     return get_dataset(dataset_id)

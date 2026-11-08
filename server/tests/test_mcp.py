@@ -62,6 +62,8 @@ def test_every_tool_says_what_it_is_for(mcp):
         "run_stop",
         "run_resume",
         "dataset_export",
+        "dataset_upload",
+        "dataset_download",
         "task_types_get",
         "models_list",
     }
@@ -116,6 +118,28 @@ def test_the_catalog_tools(mcp):
     assert [m["id"] for m in call(mcp, "models_list", search="haiku")["models"]] == [
         "anthropic/claude-haiku-5.5"
     ]
+
+
+def test_tool_calls_need_no_session(monkeypatch):
+    # As after a restart: no `initialize` first and no session id, and the call still works.
+    monkeypatch.setenv("ROWLAB_NO_RUNNER", "1")  # The app's lifespan would start one, for good.
+    from fastapi.testclient import TestClient
+
+    from rowlab.app import create_app
+
+    with TestClient(create_app()) as client:
+        reply = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "task_types_get", "arguments": {}},
+            },
+            headers={"accept": "application/json, text/event-stream"},
+        )
+    assert reply.status_code == 200
+    assert "yes_no" in reply.text
 
 
 def test_hosted_mcp_needs_a_token(hosted):

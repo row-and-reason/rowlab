@@ -36,3 +36,25 @@ def test_processes_starting_together_migrate_once():
     with db.connect() as conn:
         versions = conn.execute("SELECT version FROM schema_version").fetchall()
     assert len(versions) == len(list(db.MIGRATIONS_DIR.glob("*.sql")))
+
+
+def test_the_answers_migration_finds_each_datasets_tree():
+    # A tree whose middle dataset was deleted: what was made from it stays in the tree.
+    sql = (db.MIGRATIONS_DIR / "005_answers.sql").read_text()
+    backfill = sql[sql.index("WITH RECURSIVE") : sql.index("CREATE INDEX")]
+    made = [("root", None), ("child", "root"), ("orphan", "deleted"), ("grandchild", "child")]
+    with db.connect() as conn:
+        for id_, parent in made:
+            conn.execute(
+                "INSERT INTO datasets (id, org_id, name, source, row_count, size_bytes, columns,"
+                " created_at, parent_id) VALUES (?, 'local', ?, '', 0, 0, '[]', '', ?)",
+                (id_, id_, parent),
+            )
+        conn.execute(backfill)
+        roots = conn.execute("SELECT id, root_id FROM datasets").fetchall()
+    assert {r["id"]: r["root_id"] for r in roots} == {
+        "root": "root",
+        "child": "root",
+        "grandchild": "root",
+        "orphan": "deleted",
+    }

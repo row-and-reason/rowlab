@@ -24,7 +24,9 @@ Write the file where the data lives instead: a folder on the server's disk (loca
 `ROWLAB_SERVER_FILES` on), or an `s3://` path through a storage connection. A destination ending in
 `/` gets `<dataset>.<format>` in it; otherwise it is the file's name, replacing a file that is there.
 
-Over MCP, agents export with `dataset_export`, with the same options.
+Over MCP, agents export with `dataset_export`, with the same options. An agent using a hosted
+rowlab gets the file onto its own machine with `dataset_download` instead: a link it downloads with
+curl, for 15 minutes ([MCP](/agents/mcp#files-on-the-agents-machine)).
 
 ## Row ids
 
