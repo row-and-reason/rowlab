@@ -850,6 +850,96 @@
         }
       }
     },
+    "/v1/links/{token}": {
+      "post": {
+        "tags": [
+          "links"
+        ],
+        "summary": "Upload With Link",
+        "description": "Add a dataset from a file, with an upload link instead of signing in.",
+        "operationId": "uploadWithLink",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_uploadWithLink"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dataset"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "links"
+        ],
+        "summary": "Download With Link",
+        "description": "Download a dataset, with a download link instead of signing in.",
+        "operationId": "downloadWithLink",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/members": {
       "get": {
         "tags": [
@@ -1082,7 +1172,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Start labeling with models (method=llm), or enter labels yourself (method=manual).\nManual runs need no provider key and use the named output columns without model suffixes.\nQueue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given are free: they come from the\nresponse cache.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
+        "description": "Start labeling with models (method=llm), or enter labels yourself (method=manual).\nManual runs need no provider key and use the named output columns without model suffixes.\nQueue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer\ncolumns of the rows in scope fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given to the same rows, by a run\nin the same dataset tree, are free: they are reused.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
         "operationId": "createRun",
         "security": [
           {
@@ -1995,6 +2085,21 @@
         "type": "object",
         "title": "Body_createDataset"
       },
+      "Body_uploadWithLink": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "File to upload."
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_uploadWithLink"
+      },
       "ByModel": {
         "properties": {
           "answers": {
@@ -2736,7 +2841,7 @@
           "cost": {
             "type": "number",
             "title": "Cost",
-            "description": "Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already in the response cache would be free."
+            "description": "Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already given to the same rows in the dataset's tree would be free."
           },
           "problem": {
             "anyOf": [
@@ -4193,6 +4298,18 @@
             "type": "number",
             "title": "Cost",
             "description": "USD spent by this run; cached answers are free."
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens",
+            "description": "Prompt tokens billed, as the provider counts them.",
+            "default": 0
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens",
+            "description": "Answer tokens billed.",
+            "default": 0
           },
           "failed": {
             "type": "integer",

@@ -20,10 +20,9 @@ reused only within the organisation that paid for it.
 
 ## Deleting
 
-Deleting a dataset removes its files and the run that made it straight away. Datasets made from it
-stay. What stays after it:
+Deleting a dataset removes its files, the model replies its run kept with them, and the run that
+made it, straight away. Datasets made from it stay, with the replies they used. What stays after it:
 
-- **Model replies**, so the same question about the same row is never paid for twice.
 - **Usage**: how many answers, tokens and dollars a run used, per task, model and day, for
   **Settings → Usage**. No rows.
 - **Backups** of the database, for 7 days.

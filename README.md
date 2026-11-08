@@ -82,8 +82,9 @@ apply to that same query. The UI compares the whole dataset.
 - **Data in → process → data out.** Your storage stays the source of truth; rowlab is a workspace.
 - **API first.** The web UI uses only the public API — anything the UI can do, an agent can do.
 - **Easy to run.** One process, one SQLite file, one data folder: `uvx rowlab`.
-- **Paid calls are never repeated.** Per-row results are stored as they complete, and responses are
-  cached by `hash(model + params + questions + rendered prompt)`.
+- **Paid calls are never repeated.** Per-row results are stored as they complete, and model replies are
+  kept with the datasets they made, by `hash(model + params + questions + rendered prompt)`: a run
+  reuses those of the done runs in its dataset tree. The database holds only the replies of chunks under way.
 
 
 ## Development

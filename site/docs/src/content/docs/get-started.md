@@ -50,7 +50,7 @@ prompt rendered for the first rows, the number of calls, and the estimated cost.
 The run makes a new dataset, `reviews__1`, with a column `delivery__jev-1.14` and its probability.
 Read the answers next to the rows they came from. If the question was unclear for some rows, fix the
 prompt and run again from the original dataset: the cost of twenty rows is nothing, and the same
-prompt on the same row is never paid for twice.
+prompt on the same row is never paid for twice in the datasets made from one file.
 
 Then take the `LIMIT` off and run on all rows. Export the result as CSV, JSONL or Parquet when it is
 done.

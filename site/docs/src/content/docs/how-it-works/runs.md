@@ -20,11 +20,17 @@ an LLM also explains its answer in `<column>__<model>_reason`.
 ## Cost
 
 Before a run starts, the estimate says how many rows, how many calls (rows × tasks × models) and what
-they cost, from each model's price. A finished run says what it did cost.
+they cost, from each model's price. It counts all a call sends, not just the prompt: an LLM's
+instructions and answer schema, a decision model's options, and the instructions decision APIs add
+themselves (about 260 tokens a call; some models add none, so for them it errs high). A finished run
+says what it did cost, and how many tokens each model was billed for.
 
-The same prompt, model and row is never paid for twice: answers are cached by a hash of the model, its
-settings, the question and the rendered prompt. Running again on the same rows with the same task
-costs nothing; a changed prompt, options or model is a new question.
+The same prompt, model and row is never paid for twice in a dataset's tree: the datasets made from one
+added file, through any number of runs. A run keeps each model reply with the dataset it makes, by a
+hash of the model, its settings, the question and the rendered prompt, and reuses the replies of the
+done runs in its tree. So a run on all rows after a try on twenty pays only for the rest; a changed
+prompt, options or model is a new question. Deleting a dataset deletes the replies kept with it, and a
+file added again is a new tree, asked again.
 
 ## Progress and turns
 
@@ -37,8 +43,8 @@ another's twenty. Each organisation has `ROWLAB_RUNS_PER_ORG` runs going at once
 
 ## Stop, fail, resume
 
-A stopped run keeps the chunks it finished; the chunk under way is dropped, though its answers stay
-in the cache and cost nothing when asked again. A run fails, with the reason shown above its rows,
+A stopped run keeps the chunks it finished; the chunk under way is dropped, though the replies paid
+for in it are kept until it is redone, and cost nothing then. A run fails, with the reason shown above its rows,
 when OpenRouter refuses the key or the key is out of credits, since every call would fail alike; the
 rows answered so far stay. Other calls fail on their own (rate limits, a provider error, a reply that
 doesn't fit the answer type): the run finishes with those rows marked failed. _Resume_ asks the

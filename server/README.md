@@ -51,4 +51,4 @@ Manual saves reuse the run's typed Parquet parts, rewriting only affected chunks
 Saves and finishing serialize on the run. Last saved value wins; retry an interrupted batch
 with the same values, since a batch spanning parts can be partially saved. After a crash
 before finish commits, readers still use the parts and finishing can be retried. Deleting
-the output dataset deletes its run and files. The answer cache is unrelated and unchanged.
+the output dataset deletes its run and files. Manual runs ask no models, so keep no model replies.

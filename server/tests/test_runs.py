@@ -1,4 +1,5 @@
 import json
+import time
 
 import pytest
 from conftest import stored, stored_datasets
@@ -258,6 +259,9 @@ def test_run_runs_every_task_with_every_model(client, job, api_key):
         ("x/llm", 3),
     ]
     assert finished["cost"] == pytest.approx(0.003 + 0.03 + 0.03)
+    # Tokens as billed, three rows of the fake decision model's 100 in and 1 out.
+    jev = finished["costs"][0]
+    assert (jev["input_tokens"], jev["output_tokens"]) == (300, 3)
 
 
 def test_runs_go_in_chunks_and_never_pay_twice(client, job, api_key, fake, monkeypatch):
@@ -502,6 +506,23 @@ def test_estimate_counts_rows_calls_and_cost(client, dataset, api_key):
     assert 0 < estimate["cost"] < 0.01
 
 
+def test_an_estimate_counts_all_that_is_sent(client, dataset, api_key):
+    def cost(task):
+        body = {"sql": "SELECT * FROM data LIMIT 1", "tasks": [task]}
+        return client.post(f"/v1/datasets/{dataset['id']}/estimate", json=body).json()["cost"]
+
+    short = {
+        "template": "{{review}}",
+        "type": "pick_one",
+        "options": [{"name": "a"}, {"name": "b"}],
+    }
+    long = {**short, "options": [{"name": "a", "description": "word " * 200}, {"name": "b"}]}
+    # A decision model is billed for the options and its own framing, not just the prompt.
+    jev = 0.00000004
+    assert cost(short) > runs._DECISION_FRAMING_TOKENS * jev
+    assert cost(long) - cost(short) > 100 * jev
+
+
 def test_task_types_list_the_families_presets_and_field_types(client):
     types = client.get("/v1/utils/task-types").json()
     assert [(t["id"], t["family"], t["llm_only"]) for t in types["types"]] == [
@@ -744,6 +765,124 @@ def test_usage_counts_what_was_paid_for_in_a_chunk_cut_off_mid_way(client, job, 
     total = client.get("/v1/settings/usage").json()["total"]
     assert total["cost"] == pytest.approx(0.003)
     assert total["input_tokens"] == 300
+
+
+def _paid_calls(fake):
+    return [c for c in fake.calls if c[0] == "POST"]
+
+
+def test_a_run_on_all_rows_after_a_try_on_a_few_pays_only_for_the_rest(client, job, api_key, fake):
+    run(client, update(job, sql="SELECT * FROM data LIMIT 1"))
+    fake.calls.clear()
+    done = run(client, job)
+    assert len(_paid_calls(fake)) == 2
+    assert done["cost"] == pytest.approx(0.002)
+    # The replies are kept with the dataset; the database keeps none once the run is done.
+    assert stored(done["dataset_id"], "answers.parquet")
+    with db.connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM answer_journal").fetchone()["n"] == 0
+
+
+def test_answers_are_reused_in_their_tree_until_their_datasets_are_deleted(
+    client, job, api_key, fake
+):
+    first = run(client, job)
+    fake.calls.clear()
+    # The same question again, on the dataset the first run made.
+    again = run(
+        client,
+        update(job, dataset_id=first["dataset_id"], tasks=[{**NEGATIVE, "column": "again"}]),
+    )
+    assert again["status"] == "done"
+    assert _paid_calls(fake) == []
+    # Each dataset keeps the replies it used: with the first one gone, the second still has them.
+    assert client.delete(f"/v1/datasets/{first['dataset_id']}").status_code == 204
+    run(client, job)
+    assert _paid_calls(fake) == []
+    for made in client.get("/v1/datasets").json():
+        if made["parent_id"]:
+            assert client.delete(f"/v1/datasets/{made['id']}").status_code == 204
+    run(client, job)
+    assert len(_paid_calls(fake)) == 3
+
+
+def test_a_dataset_added_again_is_a_new_tree_and_asked_again(client, job, api_key, fake, tmp_path):
+    run(client, job)
+    path = tmp_path / "again.csv"
+    path.write_text(CSV)
+    added = client.post("/v1/datasets", data={"source": str(path)}).json()
+    fake.calls.clear()
+    run(client, update(job, dataset_id=added["id"]))
+    assert len(_paid_calls(fake)) == 3
+
+
+def test_rows_with_the_same_prompt_each_keep_their_reply(client, api_key, fake, tmp_path):
+    path = tmp_path / "same.csv"
+    path.write_text("review\nLove it\nLove it\nLove it\n")
+    added = client.post("/v1/datasets", data={"source": str(path)}).json()
+    job = {"dataset_id": added["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
+    run(client, job)
+    fake.calls.clear()
+    run(client, update(job, sql="SELECT * FROM data WHERE __row_id = 0"))
+    assert _paid_calls(fake) == []
+
+
+def _paid_for(fake, prompt):
+    return [c for c in _paid_calls(fake) if c[3]["state"] == prompt]
+
+
+def test_a_retry_cut_off_mid_way_keeps_what_it_paid_for(client, job, api_key, fake):
+    love, broke = "Is this review negative? Love it", "Is this review negative? Broke after a day"
+    fake.flaky = {love, broke}
+    finished = run(client, job)
+    assert finished["costs"][0]["failed"] == 2
+    client.post(f"/v1/runs/{finished['id']}/resume")
+    fake.calls.clear()
+    fake.crash_on = broke
+    with pytest.raises(KeyboardInterrupt):
+        runs.process_next()
+    runs.recover_interrupted_runs(stale_after=0)
+    while runs.process_next():
+        pass
+    assert client.get(f"/v1/runs/{finished['id']}").json()["costs"][0]["failed"] == 0
+    assert len(_paid_for(fake, love)) == 1
+    with db.connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM answer_journal").fetchone()["n"] == 0
+
+
+def test_replies_stay_to_be_journaled_when_journaling_fails_once(
+    client, job, api_key, fake, monkeypatch
+):
+    from rowlab.core import answers
+
+    journal, failed = answers.journal, []
+
+    def flaky_journal(run_id, replies):
+        if replies and not failed:
+            failed.append(True)
+            raise RuntimeError("database away")
+        journal(run_id, replies)
+
+    def slow(method, path, *, api_key, body=None):
+        # One slow call, so the others are journaled while it is under way.
+        if body and body.get("state") == "Is this review negative? Broke after a day":
+            time.sleep(0.3)
+        return fake(method, path, api_key=api_key, body=body)
+
+    monkeypatch.setattr(answers, "journal", flaky_journal)
+    monkeypatch.setattr(openrouter, "_request", slow)
+    created = start(client, job)
+    with pytest.raises(RuntimeError):
+        runs.process_next()
+    # The `finally` journaled what the failed try didn't.
+    with db.connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM answer_journal").fetchone()["n"] == 3
+    fake.calls.clear()
+    client.post(f"/v1/runs/{created['id']}/resume")
+    while runs.process_next():
+        pass
+    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "done"
+    assert _paid_calls(fake) == []
 
 
 def test_an_unusable_reply_from_the_cache_counts_as_failed_not_cached():

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from starlette.routing import Mount
 
 from rowlab import __version__
-from rowlab.api import auth, connections, datasets, members, runs, settings, utils
+from rowlab.api import auth, connections, datasets, links, members, runs, settings, utils
 from rowlab.core import runs as runs_core
 from rowlab.core.config import config
 from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Runs execute in this process, unless runners run on their own (`rowlab serve --no-runner`).
     if not os.environ.get("ROWLAB_NO_RUNNER"):
         runs_core.start_runner()
-    # The MCP app, mounted below, has sessions to start and stop.
+    # The MCP app, mounted below, needs its lifespan to serve requests.
     async with app.state.mcp.lifespan(app.state.mcp):
         yield
 
@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(connections.router)
     app.include_router(datasets.router)
+    app.include_router(links.router)
     app.include_router(members.router)
     app.include_router(runs.router)
     app.include_router(settings.router)
@@ -112,7 +113,8 @@ def create_app() -> FastAPI:
     if STATIC_DIR.is_dir():
         # Where FastMCP keeps the routes `custom_route` adds, with the lowest precedence.
         mcp._additional_http_routes.append(Mount("/", StaticFiles(directory=STATIC_DIR, html=True)))
-    app.state.mcp = mcp.http_app(path="/mcp")
+    # Stateless: every call stands alone, so a restart or deploy doesn't end agents' sessions.
+    app.state.mcp = mcp.http_app(path="/mcp", stateless_http=True)
     app.mount("/", app.state.mcp)
 
     return app

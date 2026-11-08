@@ -48,17 +48,18 @@ organisation.
 
 ## Tools
 
-| Tool                                             | What it does                                                                |
-| ------------------------------------------------ | --------------------------------------------------------------------------- |
-| `datasets_list`, `dataset_get`                   | the datasets, and one dataset with its columns, lineage and profile         |
-| `dataset_add`, `dataset_rename`, `dataset_delete`                  | add a file from a path, URL or S3; rename; delete                                   |
-| `sql_query`                                      | rows from one DuckDB `SELECT` over `data`                                   |
-| `columns_compare`                                | agreement between answer columns, and accuracy against a reference          |
-| `run_preview`                                    | the estimate and the rendered prompts for a run, before it costs anything   |
-| `run_start`, `run_get`, `run_resume`, `run_stop` | runs, with `run_get` and `run_resume` waiting up to 30 seconds for progress |
-| `run_answers`, `run_finish` | save manual labels and finish the manual run |
-| `dataset_export`                                 | a dataset as CSV, JSONL or Parquet, to a path or S3                         |
-| `task_types_get`, `models_list`                  | the answer types and their fields; models by name or kind                   |
+| Tool                                              | What it does                                                                |
+| ------------------------------------------------- | --------------------------------------------------------------------------- |
+| `datasets_list`, `dataset_get`                    | the datasets, and one dataset with its columns, lineage and profile         |
+| `dataset_add`, `dataset_rename`, `dataset_delete` | add a file from a URL or S3 (locally, also a path); rename; delete          |
+| `dataset_upload`, `dataset_download`              | links to upload a file from the agent's machine, or download one, with curl |
+| `sql_query`                                       | rows from one DuckDB `SELECT` over `data`                                   |
+| `columns_compare`                                 | agreement between answer columns, and accuracy against a reference          |
+| `run_preview`                                     | the estimate and the rendered prompts for a run, before it costs anything   |
+| `run_start`, `run_get`, `run_resume`, `run_stop`  | runs, with `run_get` and `run_resume` waiting up to 30 seconds for progress |
+| `run_answers`, `run_finish`                       | save manual labels and finish the manual run                                |
+| `dataset_export`                                  | a dataset as CSV, JSONL or Parquet, to S3 (locally, also a path)            |
+| `task_types_get`, `models_list`                   | the answer types and their fields; models by name or kind                   |
 
 Each tool's description says why it exists and when to use it, and the server's instructions give the
 order of work: read the dataset, run on a few rows, read the answers, then run on all. The
@@ -68,6 +69,23 @@ order of work: read the dataset, run on a few rows, read the answers, then run o
 Use `search` and `kind` to narrow results and `offset` to continue. `columns_compare` keeps per-class
 precision and recall in its default summary; `detail="full"` includes distributions and all row
 filters. New run datasets contain only the selected source rows, keeping their original row IDs.
+
+Each call stands alone (the server keeps no MCP sessions), so a restart or deploy doesn't disconnect
+agents.
+
+## Files on the agent's machine
+
+A local rowlab reads and writes paths on its own disk, which is the agent's. A hosted one can't, so
+`dataset_upload` gives a link to post a file to, and `dataset_download` a link to get a dataset from,
+each with the curl command to run:
+
+```sh
+curl -fsS -F 'file=@reviews.csv' 'https://app.rowlab.dev/v1/links/…'    # prints the new dataset
+curl -fsS -o 'reviews__1.csv' 'https://app.rowlab.dev/v1/links/…'
+```
+
+A link needs no sign-in: it acts for the organisation of whoever asked for it, so treat it like a
+password. It works for 15 minutes.
 
 ## Manual labeling
 

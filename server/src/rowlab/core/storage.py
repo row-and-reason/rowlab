@@ -105,15 +105,25 @@ def configure(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def write(
-    con: duckdb.DuckDBPyConnection, query: str, target: str, params: list[Any] | None = None
+    con: duckdb.DuckDBPyConnection,
+    query: str,
+    target: str,
+    params: list[Any] | None = None,
+    *,
+    row_group_size: int | None = None,
 ) -> None:
     """Write what a query returns to a Parquet file in one go: locally, to a temporary name that
-    then replaces the file; on S3, where an object appears complete or not at all, directly."""
+    then replaces the file; on S3, where an object appears complete or not at all, directly. Small
+    row groups let a reader filtering on a sorted column skip more of the file."""
+    options = "FORMAT parquet" + (
+        f", ROW_GROUP_SIZE {int(row_group_size)}" if row_group_size else ""
+    )
     if config().s3_storage:
-        con.execute(f"COPY ({query}) TO {_quote(target)} (FORMAT parquet)", params or [])
+        con.execute(f"COPY ({query}) TO {_quote(target)} ({options})", params or [])
         return
+    Path(target).parent.mkdir(exist_ok=True)
     temporary = f"{target}.tmp"
-    con.execute(f"COPY ({query}) TO {_quote(temporary)} (FORMAT parquet)", params or [])
+    con.execute(f"COPY ({query}) TO {_quote(temporary)} ({options})", params or [])
     os.replace(temporary, target)
 
 
