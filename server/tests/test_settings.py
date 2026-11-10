@@ -1,6 +1,7 @@
 """Settings: the OpenRouter key, and the models it opens up."""
 
 import pytest
+from helpers import NEGATIVE, run
 
 pytestmark = pytest.mark.usefixtures("fake")
 
@@ -15,9 +16,18 @@ def test_saving_a_key_checks_it_and_never_returns_it(client):
     assert "sk-good" not in client.get("/v1/settings").text
 
 
-def test_environment_key_wins(client, monkeypatch):
+def test_environment_key_wins(client, api_key, fake, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
     assert client.get("/v1/settings").json()["openrouter_key"] == "environment"
+    files = {"file": ("reviews.csv", b"review\nLove it\n")}
+    dataset = client.post("/v1/datasets", files=files).json()
+    run(client, {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]})
+    asked = {
+        key
+        for method, path, key, body in fake.calls
+        if not path.startswith(("/v1/key", "/v1/models"))
+    }
+    assert asked == {"sk-env"}
 
 
 def test_lists_decision_models_then_llms_with_structured_outputs(client):
