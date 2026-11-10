@@ -6,7 +6,7 @@ import json
 
 from fastmcp import Client
 
-from rowlab.core import storage
+from rowlab.core import runs, storage
 from rowlab.core.config import config
 from rowlab.core.providers import openrouter
 
@@ -145,3 +145,22 @@ def tools(mcp):
             return {t.name: t.description for t in await client.list_tools()}
 
     return asyncio.run(go())
+
+
+NEGATIVE = {"template": "Is this review negative? {{review}}", "column": "negative"}
+
+
+def start(client, job):
+    """Queue a run of the job, as the Run button does."""
+    body = {"sql": job["sql"], "tasks": job["tasks"]}
+    return client.post(f"/v1/datasets/{job['dataset_id']}/runs", json=body).json()
+
+
+def run(client, job):
+    """Queue a run and let the runner process it, as its thread would."""
+    created = start(client, job)
+    if "id" not in created:
+        return created
+    while runs.process_next():
+        pass
+    return client.get(f"/v1/runs/{created['id']}").json()

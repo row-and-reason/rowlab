@@ -348,13 +348,15 @@ export interface paths {
         put?: never;
         /**
          * Create Run
-         * @description Start labeling with models (method=llm), or enter labels yourself (method=manual).
-         *     Manual runs need no provider key and use the named output columns without model suffixes.
-         *     Queue a run of every task with every model on the rows in the scope (all rows if none is
-         *     given). It makes a new dataset (`dataset_id`), created right away with only the selected rows; the answer
-         *     columns of the rows in scope fill in as the run works through them in the background: poll
-         *     `GET /v1/runs/{id}` for its progress. Answers already given to the same rows, by a run
-         *     in the same dataset tree, are free: they are reused.
+         * @description Queue a run of every task with every model on the rows in the scope (all rows if none is
+         *     given). It makes a new dataset (`dataset_id`), created right away with only the selected rows;
+         *     the answer columns fill in as the run works through them in the background: poll
+         *     `GET /v1/runs/{id}` for its progress. Answers already given to the same rows, by a run in the
+         *     same dataset tree, are free: they are reused.
+         *
+         *     With `method: "manual"` no model is asked and no provider key is needed: the run waits for
+         *     answers (`PUT /v1/runs/{id}/tasks/{task_id}/answers`) in columns named after the tasks, without
+         *     model suffixes, until `POST /v1/runs/{id}/finish`.
          *
          *     A task needs only its `template` and `type`; the result column and models default to ones that
          *     suit the type (see `GET /v1/utils/task-types`).

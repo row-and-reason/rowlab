@@ -45,3 +45,5 @@ jobs:
       - run: git diff --exit-code -- openapi.json web/src/lib/api/schema.ts
       # The website and the docs; the docs build their API reference from openapi.json.
       - run: make site
+      # Titles, descriptions and social images on all three builds.
+      - run: python3 brand/check.py

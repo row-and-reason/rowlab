@@ -316,13 +316,14 @@ def create_server() -> FastMCP:
         wait_seconds: WaitSeconds = 0,
         method: Literal["llm", "manual"] = "llm",
     ) -> Run:
-        """Start labeling: method=manual creates an open manual run with no model calls or provider key.
-        Use run_answers to fill its named columns, then run_finish to lock the output.
-        With method=llm, ask every task of every model about the rows the SQL picks, making a new dataset with the
-        answer columns added (`dataset_id` in the result). Start on a few rows (LIMIT 20), look,
-        then run on all; the same prompt and model on a row already answered is free, anything
-        changed is paid for. Small runs finish within `wait_seconds`; poll the rest with
-        run_get."""
+        """Ask every task of every model about the rows the SQL picks, making a new dataset with
+        the answer columns added (`dataset_id` in the result). Start on a few rows (LIMIT 20),
+        look, then run on all; the same prompt and model on a row already answered is free,
+        anything changed is paid for. Small runs finish within `wait_seconds`; poll the rest with
+        run_get.
+
+        With method=manual no model is asked and no provider key is needed: fill the run's columns
+        with run_answers, then lock the output with run_finish."""
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
         run = runs.create_run(
