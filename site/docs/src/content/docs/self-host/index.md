@@ -59,5 +59,6 @@ Locally, `~/.rowlab` (or `ROWLAB_DATA_DIR`) holds the SQLite database, the datas
 temporary files. Back it up like any folder; delete it to start over. A saved OpenRouter key is in
 the database, never returned by the API, and encrypted when `ROWLAB_SECRET_KEY` is set.
 
-rowlab sends nothing home: no telemetry, no update checks. Model calls go to OpenRouter with your
+rowlab sends nothing home: no telemetry, no update checks. (A shared server can turn on
+[product analytics](/self-host/hosted#analytics) of its own; locally it never does.) Model calls go to OpenRouter with your
 key, and nowhere else.

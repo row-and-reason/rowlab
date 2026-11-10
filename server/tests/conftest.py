@@ -11,6 +11,12 @@ import os
 import uuid
 
 import pytest
+
+# Nothing from the shell running the tests reaches a real database or storage, not even on import.
+for name in [n for n in os.environ if n.startswith(("ROWLAB_", "WORKOS_"))]:
+    if not name.startswith("ROWLAB_TEST_"):
+        del os.environ[name]
+
 from fastapi.testclient import TestClient
 from helpers import FakeOpenRouter
 

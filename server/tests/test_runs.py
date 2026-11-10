@@ -401,6 +401,7 @@ def test_task_types_say_which_need_an_llm(client):
         "write": ("write", True),
     }
     assert {p["id"] for p in types["presets"]} == {"summarize", "translate"}
+    assert "items" in [f["id"] for f in types["field_types"]]
 
 
 def test_a_query_picking_no_rows_makes_nothing(client, job, api_key):
