@@ -1,9 +1,9 @@
 import asyncio
 
 import pytest
-from conftest import call, tools
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken
+from helpers import call, tools
 
 from rowlab.core import runs
 from rowlab.core.providers import openrouter
@@ -17,7 +17,7 @@ def mcp(api_key):
     return server.create_server()
 
 
-def test_every_tool_says_what_it_is_for(mcp):
+def test_every_tool_is_listed_with_a_description(mcp):
     found = tools(mcp)
     assert set(found) == {
         "datasets_list",
@@ -49,6 +49,8 @@ def test_the_workflow_from_a_file_to_an_export(mcp, tmp_path):
     added = call(mcp, "dataset_add", source=str(path))
     assert [c["name"] for c in added["columns"]] == ["__row_id", "review"]
     assert [d["id"] for d in call(mcp, "datasets_list")] == [added["id"]]
+    decision = call(mcp, "models_list", kind="decision")["models"]
+    assert decision and {m["kind"] for m in decision} == {"decision"}
     renamed = call(mcp, "dataset_rename", dataset_id=added["id"], name="Reviews")
     assert renamed == {**added, "name": "Reviews"}
 

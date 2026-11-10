@@ -450,11 +450,7 @@ function useEstimate(
 ): { estimate?: Estimate; problem?: string } {
   // What the API says the run would cost, and why it can't start, if it can't: its own answer, or
   // the request's error (e.g. OpenRouter can't be reached).
-  const [estimate, setEstimate] = useState<{
-    key: string;
-    estimate?: Estimate;
-    problem?: string;
-  }>();
+  const [estimate, setEstimate] = useState<{ estimate?: Estimate; problem?: string }>();
   const key = JSON.stringify([sql, tasks, method]);
   useEffect(() => {
     if (!enabled) return;
@@ -467,8 +463,8 @@ function useEstimate(
         })
         .then(({ data, error }) => {
           if (!current) return;
-          if (data) setEstimate({ key, estimate: data, problem: data.problem ?? undefined });
-          else setEstimate({ key, problem: errorMessage(error) });
+          if (data) setEstimate({ estimate: data, problem: data.problem ?? undefined });
+          else setEstimate({ problem: errorMessage(error) });
         });
     }, 500);
     return () => {

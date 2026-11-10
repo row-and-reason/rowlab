@@ -28,7 +28,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          cache-dependency-path: |
+            web/pnpm-lock.yaml
+            site/docs/pnpm-lock.yaml
+            site/www/pnpm-lock.yaml
       - run: cd web && pnpm install --frozen-lockfile
       - run: cd server && uv sync --locked
       - run: make lint test build
@@ -40,5 +43,5 @@ jobs:
           ROWLAB_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       # The API and the generated client must match: `make build` regenerates them.
       - run: git diff --exit-code -- openapi.json web/src/lib/api/schema.ts
-      # The docs build the API reference from openapi.json, so build them too.
-      - run: cd site/docs && pnpm install --frozen-lockfile && pnpm build
+      # The website and the docs; the docs build their API reference from openapi.json.
+      - run: make site

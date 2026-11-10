@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from conftest import call
+from helpers import call
 
 from rowlab.core import db, manual, runs, storage
 from rowlab.core.providers import openrouter

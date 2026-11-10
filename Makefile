@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := dev
 .PHONY: setup dev api web gen-client test test-hosted lint build smoke smoke-compose site
 
 # Install the server's and the web app's dependencies.
@@ -51,5 +52,5 @@ smoke-compose:
 
 # Build the website (rowlab.dev) and the docs (docs.rowlab.dev); see site/README.md.
 site:
-	cd site/www && pnpm install && pnpm build
-	cd site/docs && pnpm install && pnpm build
+	cd site/www && pnpm install --frozen-lockfile && pnpm build
+	cd site/docs && pnpm install --frozen-lockfile && pnpm build

@@ -61,7 +61,7 @@ One page with three resizable columns (widths are remembered):
   you came from.
 - **Rows** — the selected dataset's data: the rows table (search, filters, sort, limit, and the SQL they
   make, to read or write by hand), a Columns tab with statistics for every column and nested field, a
-  Compare tab, and a Origin tab. Columns are dragged from here into a task's prompt. The table's query
+  Compare tab, and an Origin tab. Columns are dragged from here into a task's prompt. The table's query
   is the next run's: the table shows exactly the rows it asks about. A dataset still being made shows its answers as they come in,
   with Stop/Resume in its toolbar.
 - **New run** — the tasks (each a prompt with columns dragged in, an answer type, a result column and

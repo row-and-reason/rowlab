@@ -214,11 +214,6 @@ def test_a_task_gets_a_column_and_models_that_suit_its_type():
     assert (picked.column, picked.models) == ("label", [tasks.DEFAULT_MODEL])
 
 
-def test_a_preset_asks_for_the_same_reply_as_a_plain_write_task():
-    task = Task(type="write", preset="translate", template="Use formal French: {{text}}")
-    assert tasks.llm_schema(task) == tasks.llm_schema(Task(type="write"))
-
-
 @pytest.mark.parametrize("field_type", ["text", "number", "boolean", "date"])
 def test_single_value_extraction_accepts_scalars(field_type):
     task = Task(

@@ -11,7 +11,7 @@ The app itself is served by the Python package, at app.rowlab.dev.
 
 ## Working on them
 
-Node 24 (`.nvmrc`) and pnpm. In either folder:
+Node 24 (the root `.nvmrc`) and pnpm. In either folder:
 
 ```sh
 pnpm install

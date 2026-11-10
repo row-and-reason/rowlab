@@ -48,12 +48,13 @@ Then [export](/guides/exporting).
 
 Define the task as usual and choose **Label manually** rather than **Label with an LLM**. The run
 shows its rows one at a time, with the rendered prompt and the answer choices; choosing an answer
-saves it and moves to the next row. For text, Enter saves and Shift+Enter adds a line. Come back any
+saves it and moves to the next row. For pick any, tick the options and press **Save & next**; for
+text, Enter saves and Shift+Enter adds a line. Come back any
 time to continue. **Finish labeling** locks the dataset, leaving unanswered rows empty.
 
 No model is called, so no key is needed. Every answer type works; an extract answer is JSON with
-the task's fields. The column is named after the task alone, with no model, `_proba` or status
-columns, and compares, queries and exports like any other. Agents do the same over
+the task's fields. Columns are named as for a model run but without the model's name, and there are
+no `_proba` or status columns; they compare, query and export like any other. Agents do the same over
 [MCP](/agents/mcp#manual-labeling), scripts with the [API](/how-it-works/runs#manual-runs).
 
 ## Inspect a dataset’s origin
