@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := dev
-.PHONY: setup dev api web gen-client test test-hosted lint build smoke smoke-compose site
+.PHONY: setup dev api web gen-client test test-hosted lint build smoke smoke-compose site brand
 
 # Install the server's and the web app's dependencies.
 setup:
@@ -54,3 +54,8 @@ smoke-compose:
 site:
 	cd site/www && pnpm install --frozen-lockfile && pnpm build
 	cd site/docs && pnpm install --frozen-lockfile && pnpm build
+
+# Regenerate the icons and social cards of all three sites from brand/mark.svg; see brand/README.md.
+brand:
+	pnpm --dir site/docs install --frozen-lockfile
+	node brand/generate.mjs

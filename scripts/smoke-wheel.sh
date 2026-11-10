@@ -2,6 +2,8 @@
 # The built wheel, installed fresh as a user would, serving a scratch data folder; then smoke.py
 # against it. `make smoke` builds the wheel first.
 set -euo pipefail
+# A scratch server: none of the shell's rowlab settings, so it can't reach a real database or bucket.
+unset $(compgen -e | grep -E '^(ROWLAB|WORKOS)_') || true
 port=${SMOKE_PORT:-8001}
 dir=$(mktemp -d)
 pid=
