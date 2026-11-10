@@ -25,8 +25,30 @@ into rows where the prompt is ambiguous (fix the prompt, and the models will agr
 model is wrong (count which), and rows where the reference is wrong (references are often older than
 the data).
 
+The **Compare** tab has a table of every model against the reference, or every pair without one.
+Select a row for its confusion table, with precision and recall per label, or for numbers a
+histogram of the differences, with the mean absolute difference, bias and error quantiles. The
+confusion table counts the rows where both columns have an answer. Click a count or a bar to see
+those rows in **Rows** (this replaces its search and filters); ⌘↵ shows the rows that differ. The
+columns, reference, rules and selected pair are kept in the URL, so a comparison can be shared.
+
 Without a reference, agreement is not accuracy: two models can agree on a wrong answer. When the
-stakes warrant it, label 30 to 50 of the sampled rows by hand and use that as the reference.
+stakes warrant it, [label](/guides/labeling#label-by-hand) 30 to 50 of the sampled rows by hand and
+use that as the reference.
+
+## Matching rules
+
+Answers match only when they are equal, unless you loosen it:
+
+- **Ignore case** and **trim whitespace**, for text. They change what counts as the same, never the
+  data.
+- **A tolerance**, for numbers and dates (in days). It must be zero or more.
+
+An empty string is an answer; a null is a missing one, left out of accuracy and counted apart.
+Macro F1 and balanced accuracy use all labels, even when the confusion table shows only some.
+
+The API and MCP `columns_compare` do the same, and can compare the rows of a `SELECT` rather than
+the whole dataset; the `WHERE` clauses they return apply to that query.
 
 ## Choose
 

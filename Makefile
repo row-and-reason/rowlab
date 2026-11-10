@@ -1,4 +1,9 @@
-.PHONY: dev api web gen-client test test-hosted lint build smoke smoke-compose site
+.PHONY: setup dev api web gen-client test test-hosted lint build smoke smoke-compose site
+
+# Install the server's and the web app's dependencies.
+setup:
+	cd server && uv sync
+	cd web && pnpm install
 
 # Run the API (:8000) and the web dev server (:3000) together.
 dev:
@@ -20,10 +25,11 @@ test:
 
 # The same tests on a hosted setup: Postgres (ROWLAB_TEST_DATABASE_URL) and datasets on S3 (moto).
 test-hosted:
+	@test -n "$$ROWLAB_TEST_DATABASE_URL" || { echo "Set ROWLAB_TEST_DATABASE_URL=postgresql://… first."; exit 1; }
 	cd server && ROWLAB_TEST_STORAGE=s3 uv run pytest
 
 lint:
-	cd server && uv run ruff check . ../scripts && uv run ruff format --check . ../scripts
+	cd server && uv run ruff check . ../scripts ../brand && uv run ruff format --check . ../scripts ../brand
 	cd web && pnpm lint && pnpm typecheck
 
 # Build the web UI, bundle it into the Python package, and build the wheel.
@@ -39,9 +45,9 @@ smoke: build
 	scripts/smoke-wheel.sh
 
 smoke-compose:
-	ROWLAB_IMAGE=rowlab:smoke ROWLAB_PORT=8002 docker compose -p rowlab-smoke up -d --build --wait
-	python3 scripts/smoke.py http://127.0.0.1:8002; status=$$?; \
-	  docker compose -p rowlab-smoke down -v; exit $$status
+	trap 'docker compose -p rowlab-smoke down -v' EXIT; \
+	  ROWLAB_IMAGE=rowlab:smoke ROWLAB_PORT=8002 docker compose -p rowlab-smoke up -d --build --wait && \
+	  python3 scripts/smoke.py http://127.0.0.1:8002
 
 # Build the website (rowlab.dev) and the docs (docs.rowlab.dev); see site/README.md.
 site:

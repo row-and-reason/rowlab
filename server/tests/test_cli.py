@@ -3,7 +3,7 @@ import sys
 import pytest
 import uvicorn
 
-from rowlab import cli
+from rowlab import __version__, cli
 
 
 def test_rowlab_alone_serves(monkeypatch):
@@ -18,4 +18,4 @@ def test_version(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["rowlab", "--version"])
     with pytest.raises(SystemExit):
         cli.main()
-    assert capsys.readouterr().out == "rowlab 0.1.0\n"
+    assert capsys.readouterr().out == f"rowlab {__version__}\n"

@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from conftest import call
 
 from rowlab.core import db, manual, runs, storage
 from rowlab.core.providers import openrouter
@@ -220,8 +221,6 @@ def test_access(hosted):
 
 
 def test_mcp_manual_flow(client, source):
-    from test_mcp import call
-
     from rowlab.mcp.server import create_server
 
     mcp = create_server()

@@ -52,3 +52,20 @@ failed rows again, and continues a stopped or failed run; it never re-asks what 
 
 A run's tasks are frozen when it starts. To change the prompt, start a new run from the source
 dataset.
+
+## Manual runs
+
+A run can be answered [by hand](/guides/labeling#label-by-hand) instead:
+`POST /v1/datasets/{id}/runs` with `"method": "manual"` (the default is `"llm"`). It freezes the
+tasks and rows, makes the new dataset, and waits in status `manual`. Save answers with
+`PUT /v1/runs/{id}/tasks/{task_id}/answers`, up to 1,000 at a time:
+
+```json
+{ "answers": [{ "row_id": 0, "value": true }] }
+```
+
+The value follows the [answer type](/how-it-works/answer-types): a boolean for yes/no, an option's
+name for pick one and scale, a list of names for pick any, text for write, an object keyed by field
+for extract. Null clears an answer. The last saved value wins; a batch that was cut off may be
+partly saved, so send it again. `POST /v1/runs/{id}/finish` locks the dataset, with unanswered cells
+null, and is safe to repeat.

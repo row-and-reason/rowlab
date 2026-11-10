@@ -1,6 +1,6 @@
 # Roadmap to MVP
 
-**Today:** milestones 1 to 8 are done; the rest of the launch plan (9 to 14) is next. CSV, TSV, JSON, JSONL and Parquet
+**Today:** milestones 1 to 13 are done, and launch (14) is done apart from the first PyPI release. CSV, TSV, JSON, JSONL and Parquet
 files are uploaded, or loaded by local path, public http(s) URL or from S3, and explored with SQL
 (which the UI's search, filters and sort write for you) and paging; 1M rows ingest in under a second and
 every page query returns in about 0.1 s. A run asks several tasks, each with one or more decision models
@@ -30,7 +30,7 @@ resumed without paying twice, shows all work and its live progress, and writes t
 - **Task** — one thing to produce per row: a prompt (the question, with the row's columns in it), an answer
   type with its options, a result column name, and the models that answer it.
 - **Run** — the tasks asked about the rows a query picks, which makes a new dataset. Holds a frozen copy
-  of its query and tasks, its progress and costs. It belongs to the dataset it makes: that dataset's Lineage tab shows it.
+  of its query and tasks, its progress and costs. It belongs to the dataset it makes: that dataset's Origin tab shows it.
 
 ## Workflow: a loop
 
@@ -43,7 +43,7 @@ rows only.
   result columns. A 100-row sample makes a 100-row result. `__row_id` is kept from
   the parent, so every row can be traced back to the original file.
 - It records its parent dataset and the run that made it: it sits under its parent in the dataset list,
-  and its Lineage tab shows what it was made from and how (query, tasks, models, costs). Its rows are
+  and its Origin tab shows what it was made from and how (query, tasks, models, costs). Its rows are
   copied when the run starts, so it doesn't depend on its parent; each run is a full copy, which a cheaper
   storage model can replace later if needed.
 
@@ -54,14 +54,14 @@ One page with three resizable columns (widths are remembered):
 - **Datasets** — every dataset as a tree: added files at the root, and each run's dataset under the one
   it ran on, with a thin live progress bar while a run is making it, plus "Add data". Families go by their
   latest activity, so a run brings its family to the top; a dataset folds away what was made from it,
-  except while a run is still making one. Indentation stops after three levels. At the bottom, "Your
-  account" (it will show who is signed in once there are accounts): Settings, API keys & MCP
-  connections and Log out (both still to come). Settings is its own page (`/settings/`, ⌘,): sections
+  except while a run is still making one. Indentation stops after three levels. At the bottom, the
+  account menu (who is signed in, on a hosted server): Settings, and when signed in API keys and Log
+  out. Settings is its own page (`/settings/`, ⌘,): sections
   on the left (Providers, with the OpenRouter key; Storage, with S3 connections), Back or Esc returns to the dataset
   you came from.
 - **Rows** — the selected dataset's data: the rows table (search, filters, sort, limit, and the SQL they
   make, to read or write by hand), a Columns tab with statistics for every column and nested field, a
-  Compare tab, and a Lineage tab. Columns are dragged from here into a task's prompt. The table's query
+  Compare tab, and a Origin tab. Columns are dragged from here into a task's prompt. The table's query
   is the next run's: the table shows exactly the rows it asks about. A dataset still being made shows its answers as they come in,
   with Stop/Resume in its toolbar.
 - **New run** — the tasks (each a prompt with columns dragged in, an answer type, a result column and
@@ -159,8 +159,9 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
   separately (checked on 3 models); LLMs get it as the user message.
 - `core/providers/openrouter.py`: one model catalog — decision models, then LLMs supporting structured
   outputs — cached for an hour; Decisions API and chat completion calls.
-- Response cache in SQLite, keyed on a hash of the full request, pulled forward from milestone 4: running
-  the same task on the same row with the same model never pays twice.
+- Response cache, keyed on a hash of the full request, pulled forward from milestone 4: running
+  the same task on the same row with the same model never pays twice. (Since launch, replies are kept
+  with the datasets they made instead of in a database table; see milestone 14.)
 - OpenRouter key from `OPENROUTER_API_KEY` or saved in Settings after OpenRouter accepts it.
 - Each dataset has a draft of its next run, its query and tasks, kept in the browser and saved as you
   edit (it was a server-side "job" until queries became SQL). A new draft is limited to 20 rows, so its
@@ -222,7 +223,7 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
   files stay next to it, so its failed answers can be asked again later.
   Deleting a dataset deletes the run that makes it; datasets made from it stay.
 - UI: Run opens the new dataset. Its rows fill in as chunks finish; its toolbar has Stop or Resume; its
-  Lineage tab shows what it was made from, the run's status, progress bar, answers per second and time
+  Origin tab shows what it was made from, the run's status, progress bar, answers per second and time
   left, its settings and costs, and "Use these settings again" (puts its query and tasks in the parent's draft).
 
 ### 5. Live progress in the dataset feed ✅
@@ -230,7 +231,7 @@ columns, so choosing one is a matter of cost, speed and accuracy. Extract and Wr
 - In the dataset list, a run brings its family to the top, sliding there, with its dataset under the one
   it ran on. While a run is making it, a thin progress bar shows on top of it, refreshed every second
   while any run is active.
-- A dataset being made shows its rows filling in, and its Lineage tab the progress, answers per second,
+- A dataset being made shows its rows filling in, and its Origin tab the progress, answers per second,
   time left, cost so far and failed answers per task and model.
 
 ### 6. Export to local ✅

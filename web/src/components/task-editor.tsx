@@ -13,15 +13,7 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import {
-  AnswerSettings,
-  ModelPicker,
-  modelSlug,
-  withExtraction,
-  withFittingModels,
-  withPreset,
-  withType,
-} from "@/components/answer-settings";
+import { AnswerSettings, ModelPicker } from "@/components/answer-settings";
 import { PromptComposer } from "@/components/prompt-composer";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -46,6 +38,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { Dataset, Model, Task, TaskTypes } from "@/lib/api/client";
 import { useModels, useTaskTypes } from "@/lib/catalog";
 import { settingsUrl } from "@/lib/settings";
+import { modelSlug, withExtraction, withFittingModels, withPreset, withType } from "@/lib/tasks";
 
 /** The next run's tasks as compact rows: the answer type and models are edited in place, and a row
  * expands to its prompt, options and result column. `sql` picks the rows its prompt is previewed on. */

@@ -22,12 +22,8 @@ export function saveDraft(datasetId: string, draft: Draft): void {
   localStorage.setItem(key(datasetId), JSON.stringify(draft));
 }
 
-/**
- * The dataset's draft, saved as it changes. Without a saved one it starts from `initial`; `isNew`
- * says so, for defaults that need more to go on.
- */
+/** The dataset's draft, saved as it changes. Without a saved one it starts from `initial`. */
 export function useDraft(datasetId: string, initial: () => Draft) {
-  const [isNew] = useState(() => loadDraft(datasetId) === undefined);
   const [draft, setDraft] = useState<Draft>(() => loadDraft(datasetId) ?? initial());
 
   const update = useCallback(
@@ -41,5 +37,5 @@ export function useDraft(datasetId: string, initial: () => Draft) {
     [datasetId],
   );
 
-  return { draft, update, isNew };
+  return { draft, update };
 }

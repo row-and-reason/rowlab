@@ -11,7 +11,6 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { withFittingModels, withPreset } from "@/components/answer-settings";
 import { ColumnProfiles } from "@/components/column-profiles";
 import { CompareView } from "@/components/compare-view";
 import { DatasetExplorer } from "@/components/dataset-explorer";
@@ -42,6 +41,7 @@ import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format
 import { useDraft } from "@/lib/draft";
 import { isActive } from "@/lib/runs";
 import { type View, viewSql, type WhereFilter } from "@/lib/sql";
+import { withFittingModels, withPreset } from "@/lib/tasks";
 
 export const TABS = ["rows", "columns", "compare", "origin"] as const;
 export type Tab = (typeof TABS)[number];

@@ -1,8 +1,9 @@
 """Check built branding metadata: python3 brand/check.py after building all sites."""
+
+import struct
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
-import struct
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -46,7 +47,19 @@ for directory, host in [
             continue
         head = Head()
         head.feed(page.read_text().split("</head>")[0])
-        for key in ["title", "description", "canonical", "og:title", "og:description", "og:url", "og:image", "twitter:card", "twitter:title", "twitter:description", "twitter:image"]:
+        for key in [
+            "title",
+            "description",
+            "canonical",
+            "og:title",
+            "og:description",
+            "og:url",
+            "og:image",
+            "twitter:card",
+            "twitter:title",
+            "twitter:description",
+            "twitter:image",
+        ]:
             values = head.values.get(key, [])
             assert len(values) == 1 and values[0], (page, key, values)
         assert head.values["twitter:card"] == ["summary_large_image"], page

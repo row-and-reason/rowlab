@@ -1,4 +1,3 @@
-import json
 import time
 
 import pytest
@@ -11,116 +10,7 @@ from rowlab.core.providers import openrouter
 CSV = "review,stars\nTerrible product,1\nLove it,5\nBroke after a day,1\n"
 
 
-def chat_model(id_, price, structured=True):
-    return {
-        "id": id_,
-        "name": id_.title(),
-        "pricing": {"prompt": price, "completion": "0.000001"},
-        "architecture": {"output_modalities": ["text"]},
-        "supported_parameters": ["structured_outputs"] if structured else [],
-    }
-
-
-class FakeOpenRouter:
-    """Stands in for OpenRouter's HTTP API. Says yes when the prompt mentions a bad experience.
-
-    `busy` makes the next calls fail with a rate limit; `crash_on` makes the call for that prompt
-    fail once like a killed server would, with an error nothing catches; `flaky` prompts fail once,
-    with an error that isn't retried."""
-
-    def __init__(self):
-        self.calls = []
-        self.busy = 0
-        self.crash_on = None
-        self.flaky = set()
-
-    def __call__(self, method, path, *, api_key, body=None):
-        self.calls.append((method, path, api_key, body))
-        if path == "/v1/key":
-            if api_key != "sk-good":
-                raise openrouter.OpenRouterError("HTTP 401: Invalid key", status=401)
-            return {"data": {}}
-        if path == "/v1/models?output_modalities=decisions":
-            return {
-                "data": [
-                    {"id": "typesafe/jev-1.14", "name": "Jev", "pricing": {"prompt": "0.00000004"}},
-                    {"id": "a/cheap", "name": "Cheap", "pricing": {"prompt": "0.00000001"}},
-                ]
-            }
-        if path == "/v1/models":
-            return {
-                "data": [
-                    chat_model("x/llm", "0.000002"),
-                    chat_model("anthropic/claude-haiku-5.5", "0.0000001"),
-                    chat_model("y/no-schema", "0.000001", structured=False),
-                ]
-            }
-        if path == "/v1/chat/completions":
-            prompt = body["messages"][1]["content"]
-            schema = body["response_format"]["json_schema"]["schema"]
-            content = json.dumps(_llm_reply(schema, prompt))
-            return {"choices": [{"message": {"content": content}}], "usage": {"cost": 0.01}}
-        if self.busy:
-            self.busy -= 1
-            raise openrouter.OpenRouterError("HTTP 429: Rate limited", status=429)
-        if body["state"] == self.crash_on:
-            self.crash_on = None
-            raise KeyboardInterrupt
-        if body["state"] in self.flaky:
-            self.flaky.remove(body["state"])
-            raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
-        if body["state"] == "fail":
-            raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
-        if body["state"] == "no credits":
-            raise openrouter.OpenRouterError("HTTP 402: Insufficient credits", status=402)
-        return {
-            "answers": {"answer": {"type": "noul", "noul": 0.9 if _bad(body["state"]) else 0.1}},
-            "usage": {"input_tokens": 100, "output_tokens": 1, "cost": 0.001},
-        }
-
-
-def _llm_reply(schema, prompt):
-    """A reply with the shape the schema asks for. Yes/no answers say whether the prompt is bad."""
-    reply = {}
-    for name, prop in schema["properties"].items():
-        if name == "answer":
-            reply[name] = _bad(prompt)
-        elif name == "proba":
-            reply[name] = 0.8
-        elif name == "reason":
-            reply[name] = "Because it says so."
-        elif name == "text":
-            reply[name] = f"In short: {prompt}"
-        else:
-            reply[name] = _fake_value(prop)
-    return reply
-
-
-def _fake_value(prop):
-    types = prop["type"] if isinstance(prop["type"], list) else [prop["type"]]
-    if "array" in types:
-        item = prop["items"]
-        return [_llm_reply(item, "")] if item["type"] == "object" else ["red", "blue"]
-    if "number" in types:
-        return 4
-    if "boolean" in types:
-        return True
-    return "2024-05-01" if prop.get("description") == "YYYY-MM-DD" else "Widget"
-
-
-def _bad(text):
-    return any(word in text for word in ["Terrible", "Broke"])
-
-
-@pytest.fixture(autouse=True)
-def fake(monkeypatch):
-    fake = FakeOpenRouter()
-    monkeypatch.setattr(openrouter, "_request", fake)
-    monkeypatch.setattr(openrouter, "_catalog", None)
-    monkeypatch.setattr(openrouter, "RETRY_BASE_SECONDS", 0)
-    monkeypatch.setattr(runs, "PROGRESS_INTERVAL_SECONDS", 0.01)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    return fake
+pytestmark = pytest.mark.usefixtures("fake")
 
 
 @pytest.fixture
@@ -137,11 +27,6 @@ NEGATIVE = {"template": "Is this review negative? {{review}}", "column": "negati
 def job(dataset):
     """What to run, as the UI's draft holds it: the dataset, a query for the rows, and the tasks."""
     return {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
-
-
-@pytest.fixture
-def api_key(client):
-    assert client.put("/v1/settings/openrouter-key", json={"key": "sk-good"}).status_code == 200
 
 
 def update(job, **changes):
@@ -523,20 +408,6 @@ def test_an_estimate_counts_all_that_is_sent(client, dataset, api_key):
     assert cost(long) - cost(short) > 100 * jev
 
 
-def test_task_types_list_the_families_presets_and_field_types(client):
-    types = client.get("/v1/utils/task-types").json()
-    assert [(t["id"], t["family"], t["llm_only"]) for t in types["types"]] == [
-        ("yes_no", "classify", False),
-        ("pick_one", "classify", False),
-        ("pick_any", "classify", False),
-        ("scale", "classify", False),
-        ("extract", "extract", True),
-        ("write", "write", True),
-    ]
-    assert [p["id"] for p in types["presets"]] == ["summarize", "translate"]
-    assert "items" in [f["id"] for f in types["field_types"]]
-
-
 def test_a_query_picking_no_rows_makes_nothing(client, job, api_key):
     empty = update(job, sql="SELECT * FROM data WHERE review = 'no such review'")
     assert start(client, empty)["detail"] == "The query picks no rows."
@@ -750,6 +621,30 @@ def test_admins_see_everyones_usage_and_others_their_own(hosted, fake, tmp_path)
     assert person["user"]["email"] == "bob@example.com"
     # Ada started nothing herself; as an admin she sees the organisation's anyway.
     assert ada.get("/v1/settings/usage").json()["scope"] == "organisation"
+
+
+# Storage is organisation-wide and current, even when run activity is personal or historical.
+def test_storage_is_current_org_scoped_and_shared_by_members(hosted):
+    admin = hosted("admin@example.com")
+    admin.post("/v1/settings/invites", json={"email": "member@example.com"})
+    member = hosted("member@example.com")
+    other = hosted("other@example.com")
+    dataset = admin.post("/v1/datasets", files={"file": ("data.csv", b"name\nAda\nBob\n")}).json()
+    other_dataset = other.post(
+        "/v1/datasets", files={"file": ("other.csv", b"name\nSomeone else\n")}
+    ).json()
+    for caller in (admin, member):
+        for month in (None, "2020-01"):
+            usage = caller.get(
+                "/v1/settings/usage", params={"month": month} if month else {}
+            ).json()
+            assert usage["storage_bytes"] == dataset["size_bytes"]
+    assert member.get("/v1/settings/usage").json()["scope"] == "you"
+    assert admin.delete(f"/v1/datasets/{dataset['id']}").status_code == 204
+    assert (
+        member.get("/v1/settings/usage", params={"month": "2020-01"}).json()["storage_bytes"] == 0
+    )
+    assert other.get("/v1/settings/usage").json()["storage_bytes"] == other_dataset["size_bytes"]
 
 
 def test_usage_counts_what_was_paid_for_in_a_chunk_cut_off_mid_way(client, job, api_key, fake):
