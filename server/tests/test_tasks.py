@@ -235,3 +235,12 @@ def test_single_value_extraction_rejects_structures(fields):
     )
     with pytest.raises(InvalidRequest, match="exactly one scalar"):
         tasks.check(task)
+
+
+def test_task_types_say_which_need_an_llm(client):
+    # The web app picks models, presets and field types from this.
+    types = client.get("/v1/utils/task-types").json()
+    for t in types["types"]:
+        assert t["llm_only"] == (t["family"] != "classify"), t["id"]
+    assert types["presets"]
+    assert "items" in [f["id"] for f in types["field_types"]]

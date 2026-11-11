@@ -125,3 +125,24 @@ export function withPreset(task: Task, preset: Preset, language?: string): Task 
 export function modelSlug(model: string): string {
   return model.split("/").pop()!;
 }
+
+/** A new yes/no task, with the models of the last task (or the default decision model). */
+export function emptyTask(existing: Task[]): Task {
+  return {
+    id: newId(),
+    template: "",
+    type: "yes_no",
+    preset: null,
+    extraction_mode: "structure",
+    column: `answer_${existing.length + 1}`,
+    options: [],
+    fields: [],
+    reason: false,
+    models: existing.at(-1)?.models ?? ["typesafe/jev-1.14"],
+  };
+}
+
+/** A short random id for a task. */
+export function newId(): string {
+  return crypto.randomUUID().replaceAll("-", "").slice(0, 8);
+}

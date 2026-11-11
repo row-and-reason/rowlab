@@ -64,6 +64,6 @@ Guidance for AI agents (and humans) working in this repo. See `README.md` for wh
 - **Fix what you notice nearby.** Small issues in the code you are already editing (misleading names,
   duplicated logic, outdated docs) get fixed in the same change. If a cleanup is large or unrelated,
   stop and ask instead of starting it halfway.
-- **Leave the repo consistent.** Before you finish, `make lint test build site` passes (plus
+- **Leave the repo consistent.** Before you finish, `make check` (lint, test, build, site) passes (plus
   `make test-hosted` if you touched the database or storage), `openapi.json` and the web client are
   committed as `make build` regenerated them, and the README still describes reality.

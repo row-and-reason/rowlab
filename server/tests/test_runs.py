@@ -389,21 +389,6 @@ def test_an_estimate_counts_all_that_is_sent(client, dataset, api_key):
     assert cost(long) - cost(short) > 100 * jev
 
 
-def test_task_types_say_which_need_an_llm(client):
-    # The web app picks models and presets from this.
-    types = client.get("/v1/utils/task-types").json()
-    assert {t["id"]: (t["family"], t["llm_only"]) for t in types["types"]} == {
-        "yes_no": ("classify", False),
-        "pick_one": ("classify", False),
-        "pick_any": ("classify", False),
-        "scale": ("classify", False),
-        "extract": ("extract", True),
-        "write": ("write", True),
-    }
-    assert {p["id"] for p in types["presets"]} == {"summarize", "translate"}
-    assert "items" in [f["id"] for f in types["field_types"]]
-
-
 def test_a_query_picking_no_rows_makes_nothing(client, job, api_key):
     empty = update(job, sql="SELECT * FROM data WHERE review = 'no such review'")
     assert start(client, empty)["detail"] == "The query picks no rows."

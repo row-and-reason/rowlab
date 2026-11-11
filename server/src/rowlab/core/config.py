@@ -22,6 +22,8 @@ needs are on. Everything else is configuration:
   `hosted` mode; locally, keys are kept as they are without it.
 - `ROWLAB_POSTHOG_TOKEN`, `ROWLAB_POSTHOG_HOST` (`https://eu.i.posthog.com`): product analytics in
   the web app, `hosted` mode only; nothing is collected without a token, or locally.
+- `ROWLAB_CORS_ORIGINS`: comma-separated origins allowed to call the API from a browser; only needed
+  in development, when the web app runs on its own dev server (`make dev` sets it).
 
 Limits, the same in both modes; raise them for bigger data:
 
@@ -56,6 +58,7 @@ class Config:
     secret_key: str
     posthog_token: str
     posthog_host: str
+    cors_origins: tuple[str, ...]
     duckdb_memory: str
     duckdb_threads: int
     duckdb_temp: str
@@ -111,6 +114,7 @@ def config() -> Config:
         posthog_host=(os.environ.get("ROWLAB_POSTHOG_HOST") or "https://eu.i.posthog.com").rstrip(
             "/"
         ),
+        cors_origins=tuple(o for o in os.environ.get("ROWLAB_CORS_ORIGINS", "").split(",") if o),
         duckdb_memory=_size("ROWLAB_DUCKDB_MEMORY", "1GB")[0],
         duckdb_threads=_number("ROWLAB_DUCKDB_THREADS", 2, int),
         duckdb_temp=_size("ROWLAB_DUCKDB_TEMP", "10GB")[0],

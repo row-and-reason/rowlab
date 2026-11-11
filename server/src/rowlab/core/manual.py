@@ -6,8 +6,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from rowlab.core import datasets, db, runs, storage, tasks
-from rowlab.core.datasets import sql_ident, sql_string
 from rowlab.core.errors import InvalidRequest, NotFound
+from rowlab.core.storage import sql_string
 
 
 class Answer(BaseModel):
@@ -54,27 +54,15 @@ def save(run_id: str, task_id: str, request: Answers) -> runs.Run:
             for row_id, values in by_row.items():
                 if row_id // runs.CHUNK_ROWS == chunk:
                     current[row_id] = current.get(row_id, {}) | values
-            runs._write_part(run.dataset_id, run.config.tasks, name, current, manual=True)
-        done = count(run)
+            datasets.write_run_part(
+                run.dataset_id, runs.part_columns(run.config.tasks, manual=True), name, current
+            )
+        done = runs.manual_done(run)
         conn.execute(
             "UPDATE runs SET done = ?, updated_at = ? WHERE id = ?",
             (done, datetime.now(UTC).isoformat(), run_id),
         )
     return runs.get_run(run_id)
-
-
-def count(run: runs.Run) -> int:
-    """Saved answers, including false and empty text; entirely empty answers are unanswered."""
-    expressions = [
-        "count(*) FILTER (WHERE "
-        + " OR ".join(f"{sql_ident(name)} IS NOT NULL" for name, _ in tasks.manual_columns(task))
-        + ")"
-        for task in run.config.tasks
-    ]
-    with storage.connect() as con:
-        return con.execute(
-            f"SELECT {' + '.join(expressions)} FROM read_parquet({sql_string(storage.location(run.dataset_id, 'parts', '*.parquet'))})"
-        ).fetchone()[0]
 
 
 def finish(run_id: str) -> runs.Run:
@@ -101,6 +89,6 @@ def finish(run_id: str) -> runs.Run:
         )
         conn.execute(
             "UPDATE runs SET status = 'done', done = ?, updated_at = ? WHERE id = ?",
-            (count(run), datetime.now(UTC).isoformat(), run_id),
+            (runs.manual_done(run), datetime.now(UTC).isoformat(), run_id),
         )
     return runs.get_run(run_id)

@@ -31,6 +31,7 @@ from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest, NotFound
 from rowlab.core.providers import openrouter
+from rowlab.core.storage import sql_ident, sql_string
 from rowlab.core.tasks import Task
 
 # Rows per chunk: the most work a stop or crash can lose (and redo for free).
@@ -122,14 +123,8 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
     """Queue a run of every task with every model on the rows the query picks, started by
     `created_by` (a user; nobody locally). Its dataset, with the selected rows of the dataset and empty
     answer columns, is created right away."""
-    if request.method == "manual":
-        request = request.model_copy(
-            update={
-                "tasks": [
-                    t.model_copy(update={"models": [], "reason": False}) for t in request.tasks
-                ]
-            }
-        )
+    request = _normalized(request)
+    manual = request.method == "manual"
     check(dataset_id, request)
     if request.method == "llm" and settings.openrouter_key(datasets.org_of(dataset_id)) is None:
         raise InvalidRequest("Set your OpenRouter API key first.")
@@ -142,7 +137,9 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
     made_id = datasets.write_run_rows(dataset_id, asked)
     try:
         # An empty part gives the answer columns their types before any chunk is written.
-        _write_part(made_id, request.tasks, "part-schema", {}, manual=request.method == "manual")
+        datasets.write_run_part(
+            made_id, part_columns(request.tasks, manual=manual), "part-schema", {}
+        )
         datasets.register_run_dataset(made_id, dataset_id)
         run_id = uuid.uuid4().hex
         with db.connect() as conn:
@@ -153,25 +150,17 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
                 (
                     run_id,
                     made_id,
-                    "manual" if request.method == "manual" else "queued",
+                    "manual" if manual else "queued",
                     request.model_dump_json(),
                     json.dumps(
                         [
                             c
                             for task in request.tasks
-                            for c in (
-                                [name for name, _ in tasks.manual_columns(task)]
-                                if request.method == "manual"
-                                else tasks.result_columns(task)
-                            )
+                            for c in tasks.answer_columns(task, manual=manual)
                         ]
                     ),
                     len(asked),
-                    len(asked)
-                    * sum(
-                        1 if request.method == "manual" else len(task.models)
-                        for task in request.tasks
-                    ),
+                    len(asked) * sum(1 if manual else len(task.models) for task in request.tasks),
                     datetime.now(UTC).isoformat(),
                     datetime.now(UTC).isoformat(),
                     created_by,
@@ -186,8 +175,20 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
     return get_run(run_id)
 
 
+def _normalized(request: RunRequest) -> RunRequest:
+    """The request as it runs: manual tasks ask no models and give no reasons."""
+    if request.method == "llm":
+        return request
+    return request.model_copy(
+        update={
+            "tasks": [t.model_copy(update={"models": [], "reason": False}) for t in request.tasks]
+        }
+    )
+
+
 def check(dataset_id: str, request: RunRequest) -> None:
-    """Raise InvalidRequest, naming the task, if the run can't go as configured."""
+    """Raise InvalidRequest, naming the task, if the run can't go as configured. Takes a
+    `_normalized` request."""
     if not request.tasks:
         raise InvalidRequest("Add a task.")
     if len({t.id for t in request.tasks}) != len(request.tasks) or any(
@@ -197,13 +198,11 @@ def check(dataset_id: str, request: RunRequest) -> None:
     parent = datasets.get_dataset(dataset_id)
     if parent.run and parent.run.status == "manual":
         raise InvalidRequest("Finish this dataset before starting another run on it.")
+    manual = request.method == "manual"
     for task in request.tasks:
         try:
-            tasks.check(
-                task.model_copy(update={"reason": False}) if request.method == "manual" else task,
-                manual=request.method == "manual",
-            )
-            for model in [] if request.method == "manual" else task.models:
+            tasks.check(task, manual=manual)
+            for model in task.models:
                 kind = openrouter.model_kind(model)
                 if kind == "decision" and task.type in tasks.LLM_ONLY:
                     raise InvalidRequest(
@@ -216,15 +215,7 @@ def check(dataset_id: str, request: RunRequest) -> None:
                     )
         except InvalidRequest as e:
             raise InvalidRequest(f"Task {task.column or 'without a column name'}: {e}") from e
-    columns = [
-        c
-        for task in request.tasks
-        for c in (
-            [name for name, _ in tasks.manual_columns(task)]
-            if request.method == "manual"
-            else tasks.result_columns(task)
-        )
-    ]
+    columns = [c for task in request.tasks for c in tasks.answer_columns(task, manual=manual)]
     duplicates = sorted({c for c in columns if columns.count(c) > 1})
     if duplicates:
         raise InvalidRequest(f"Two tasks write the same column: {', '.join(duplicates)}.")
@@ -247,6 +238,7 @@ _DECISION_FRAMING_TOKENS = 260
 
 def estimate(dataset_id: str, request: RunRequest) -> Estimate:
     """How many rows and model calls a run would take, and roughly what it would cost."""
+    request = _normalized(request)
     try:
         total = sql.count(dataset_id, request.sql)
         rows = sql.query(
@@ -305,11 +297,23 @@ def get_run(run_id: str) -> Run:
         raise NotFound(f"Run {run_id} not found")
     run = _from_row(row)
     if run.status == "manual":
-        from rowlab.core import manual
-
         # Parts are authoritative if a save stopped before updating progress.
-        run.done = manual.count(run)
+        run.done = manual_done(run)
     return run
+
+
+def manual_done(run: Run) -> int:
+    """Saved answers, including false and empty text; entirely empty answers are unanswered."""
+    expressions = [
+        "count(*) FILTER (WHERE "
+        + " OR ".join(f"{sql_ident(name)} IS NOT NULL" for name, _ in tasks.manual_columns(task))
+        + ")"
+        for task in run.config.tasks
+    ]
+    with storage.connect() as con:
+        return con.execute(
+            f"SELECT {' + '.join(expressions)} FROM read_parquet({sql_string(storage.location(run.dataset_id, 'parts', '*.parquet'))})"
+        ).fetchone()[0]
 
 
 def check_access(org_id: str, run_id: str) -> None:
@@ -595,7 +599,9 @@ def _process_chunk(
             failed.append(f"{task.id} {model}")
         out[datasets.FAILED] = failed
     answers.write_part(run.dataset_id, name, [r for r in replies if r is not None])
-    _write_part(run.dataset_id, run.config.tasks, name, by_row)
+    datasets.write_run_part(
+        run.dataset_id, part_columns(run.config.tasks, manual=False), name, by_row
+    )
     costs = {(c.task_id, c.model): c for c in run.costs}
     for (_, task, model), answer in zip(units, given):
         assert answer is not None
@@ -637,46 +643,9 @@ def _failed(written: dict[str, Any], task: Task, model: str) -> bool:
     return f"{task.id} {model}" in (written.get(datasets.FAILED) or [])
 
 
-def _write_part(
-    dataset_id: str,
-    run_tasks: list[Task],
-    name: str,
-    by_row: dict[int, dict[str, Any]],
-    *,
-    manual: bool = False,
-) -> None:
-    """Write answers as one Parquet file: `__row_id`, every answer column (empty where the model
-    failed), and `__failed`, which models failed which tasks, as `<task id> <model>`. Written to a
-    temporary name first, so a part is complete or absent."""
-    columns = [
-        (column, sql_type)
-        for task in run_tasks
-        for model in task.models
-        for column, sql_type in tasks.columns(task, model)
-    ]
-    if manual:
-        columns = [column for task in run_tasks for column in tasks.manual_columns(task)]
-    columns.append((datasets.FAILED, "VARCHAR[]"))
-    with storage.connect() as con:
-        con.execute(
-            "CREATE TABLE part ("
-            + ", ".join(
-                [f"{datasets.sql_ident(ROW_ID)} BIGINT"]
-                + [f"{datasets.sql_ident(n)} {t}" for n, t in columns]
-            )
-            + ")"
-        )
-        if by_row:
-            con.executemany(
-                f"INSERT INTO part VALUES ({', '.join('?' for _ in range(len(columns) + 1))})",
-                [
-                    [row_id, *(values.get(n) for n, _ in columns)]
-                    for row_id, values in by_row.items()
-                ],
-            )
-        storage.write(
-            con, "SELECT * FROM part", storage.location(dataset_id, "parts", f"{name}.parquet")
-        )
+def part_columns(run_tasks: list[Task], *, manual: bool) -> list[tuple[str, str]]:
+    """The answer columns of a run's parts, with their SQL types."""
+    return [column for task in run_tasks for column in tasks.part_columns(task, manual=manual)]
 
 
 class KeyProblem(Exception):

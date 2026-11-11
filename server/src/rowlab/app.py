@@ -41,11 +41,10 @@ def create_app() -> FastAPI:
     app = FastAPI(title="rowlab", version=__version__, lifespan=lifespan)
 
     # Only needed in development, when the web app runs on its own dev server.
-    cors_origins = os.environ.get("ROWLAB_CORS_ORIGINS")
-    if cors_origins:
+    if config().cors_origins:
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=cors_origins.split(","),
+            allow_origins=list(config().cors_origins),
             allow_methods=["*"],
             allow_headers=["*"],
         )

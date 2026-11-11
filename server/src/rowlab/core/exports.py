@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 
 from rowlab.core import connections, datasets, db, sql, storage
 from rowlab.core.config import config
-from rowlab.core.datasets import ROW_ID, sql_ident, sql_string
+from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest
 from rowlab.core.runs import ACTIVE
+from rowlab.core.storage import sql_ident, sql_string
 
 ExportFormat = Literal["csv", "jsonl", "parquet"]
 

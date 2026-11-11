@@ -41,7 +41,7 @@ import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format
 import { useDraft } from "@/lib/draft";
 import { isActive } from "@/lib/runs";
 import { type View, viewSql, type WhereFilter } from "@/lib/sql";
-import { withFittingModels, withPreset } from "@/lib/tasks";
+import { emptyTask, newId, withFittingModels, withPreset } from "@/lib/tasks";
 
 export const TABS = ["rows", "columns", "compare", "origin"] as const;
 export type Tab = (typeof TABS)[number];
@@ -425,21 +425,6 @@ export function DatasetPanels({
   );
 }
 
-function emptyTask(existing: Task[]): Task {
-  return {
-    id: newId(),
-    template: "",
-    type: "yes_no",
-    preset: null,
-    extraction_mode: "structure",
-    column: `answer_${existing.length + 1}`,
-    options: [],
-    fields: [],
-    reason: false,
-    models: existing.at(-1)?.models ?? ["typesafe/jev-1.14"],
-  };
-}
-
 /** What running the draft would take and cost, or why it can't run: fetched again as it changes. */
 function useEstimate(
   datasetId: string,
@@ -475,8 +460,4 @@ function useEstimate(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId, key, enabled]);
   return { estimate: estimate?.estimate, problem: estimate?.problem };
-}
-
-function newId(): string {
-  return crypto.randomUUID().replaceAll("-", "").slice(0, 8);
 }

@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := dev
-.PHONY: setup dev api web gen-client test test-hosted lint build smoke smoke-compose site brand
+.PHONY: setup dev api web gen-client test test-hosted lint build smoke smoke-compose site brand check
 
 # Install the server's and the web app's dependencies.
 setup:
@@ -28,6 +28,9 @@ test:
 test-hosted:
 	@test -n "$$ROWLAB_TEST_DATABASE_URL" || { echo "Set ROWLAB_TEST_DATABASE_URL=postgresql://… first."; exit 1; }
 	cd server && ROWLAB_TEST_STORAGE=s3 uv run pytest
+
+# Everything CI checks, apart from the hosted tests and the smoke test: run before you finish.
+check: lint test build site
 
 lint:
 	cd server && uv run ruff check . ../scripts ../brand && uv run ruff format --check . ../scripts ../brand
