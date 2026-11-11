@@ -40,7 +40,8 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Dataset } from "@/lib/api/client";
 import { columnLabel, formatNumber } from "@/lib/format";
-import { ALL_ROWS, type WhereFilter } from "@/lib/sql";
+import type { InspectRows } from "@/lib/comparison";
+import { ALL_ROWS } from "@/lib/sql";
 import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
 
 const NO_REFERENCE = "none";
@@ -54,7 +55,7 @@ export function CompareView({
 }: {
   dataset: Dataset;
   actionsRef: React.RefObject<ComparisonActions | null>;
-  onFilter: (filters: WhereFilter[], columns: string[]) => void;
+  onFilter: InspectRows;
 }) {
   const router = useRouter();
   const [columnsOpen, setColumnsOpen] = useState(false);

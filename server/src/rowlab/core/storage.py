@@ -197,6 +197,7 @@ def check_not_storage(uri: str) -> None:
         raise InvalidRequest("That bucket is where rowlab keeps datasets. Use another one.")
 
 
+# Quoting for the SQL every module builds; here because storage is what every module imports.
 def sql_ident(name: str) -> str:
     """A column name quoted for SQL."""
     return '"' + name.replace('"', '""') + '"'

@@ -138,7 +138,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
     try:
         # An empty part gives the answer columns their types before any chunk is written.
         datasets.write_run_part(
-            made_id, part_columns(request.tasks, manual=manual), "part-schema", {}
+            made_id, tasks.part_columns(request.tasks, manual=manual), "part-schema", {}
         )
         datasets.register_run_dataset(made_id, dataset_id)
         run_id = uuid.uuid4().hex
@@ -152,13 +152,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
                     made_id,
                     "manual" if manual else "queued",
                     request.model_dump_json(),
-                    json.dumps(
-                        [
-                            c
-                            for task in request.tasks
-                            for c in tasks.answer_columns(task, manual=manual)
-                        ]
-                    ),
+                    json.dumps(tasks.answer_columns(request.tasks, manual=manual)),
                     len(asked),
                     len(asked) * sum(1 if manual else len(task.models) for task in request.tasks),
                     datetime.now(UTC).isoformat(),
@@ -215,7 +209,7 @@ def check(dataset_id: str, request: RunRequest) -> None:
                     )
         except InvalidRequest as e:
             raise InvalidRequest(f"Task {task.column or 'without a column name'}: {e}") from e
-    columns = [c for task in request.tasks for c in tasks.answer_columns(task, manual=manual)]
+    columns = tasks.answer_columns(request.tasks, manual=manual)
     duplicates = sorted({c for c in columns if columns.count(c) > 1})
     if duplicates:
         raise InvalidRequest(f"Two tasks write the same column: {', '.join(duplicates)}.")
@@ -600,7 +594,7 @@ def _process_chunk(
         out[datasets.FAILED] = failed
     answers.write_part(run.dataset_id, name, [r for r in replies if r is not None])
     datasets.write_run_part(
-        run.dataset_id, part_columns(run.config.tasks, manual=False), name, by_row
+        run.dataset_id, tasks.part_columns(run.config.tasks, manual=False), name, by_row
     )
     costs = {(c.task_id, c.model): c for c in run.costs}
     for (_, task, model), answer in zip(units, given):
@@ -641,11 +635,6 @@ def _count(spent: usage.Spent, answer: _Answer) -> None:
 def _failed(written: dict[str, Any], task: Task, model: str) -> bool:
     """Whether a model failed a task in a written row."""
     return f"{task.id} {model}" in (written.get(datasets.FAILED) or [])
-
-
-def part_columns(run_tasks: list[Task], *, manual: bool) -> list[tuple[str, str]]:
-    """The answer columns of a run's parts, with their SQL types."""
-    return [column for task in run_tasks for column in tasks.part_columns(task, manual=manual)]
 
 
 class KeyProblem(Exception):

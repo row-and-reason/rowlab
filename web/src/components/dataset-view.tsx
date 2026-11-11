@@ -34,11 +34,12 @@ import {
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api, type Dataset, type Estimate, type Preset, type Task } from "@/lib/api/client";
+import { api, type Dataset, type Preset, type Task } from "@/lib/api/client";
 import type { ComparisonActions } from "@/lib/use-comparison";
 import { useModels, useTaskTypes } from "@/lib/catalog";
 import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format";
 import { useDraft } from "@/lib/draft";
+import { useEstimate } from "@/lib/use-estimate";
 import { isActive } from "@/lib/runs";
 import { type View, viewSql, type WhereFilter } from "@/lib/sql";
 import { emptyTask, newId, withFittingModels, withPreset } from "@/lib/tasks";
@@ -423,41 +424,4 @@ export function DatasetPanels({
       </ResizablePanel>
     </>
   );
-}
-
-/** What running the draft would take and cost, or why it can't run: fetched again as it changes. */
-function useEstimate(
-  datasetId: string,
-  sql: string,
-  tasks: Task[],
-  enabled: boolean,
-  method: "llm" | "manual",
-): { estimate?: Estimate; problem?: string } {
-  // What the API says the run would cost, and why it can't start, if it can't: its own answer, or
-  // the request's error (e.g. OpenRouter can't be reached).
-  const [estimate, setEstimate] = useState<{ estimate?: Estimate; problem?: string }>();
-  const key = JSON.stringify([sql, tasks, method]);
-  useEffect(() => {
-    if (!enabled) return;
-    let current = true;
-    const timer = setTimeout(() => {
-      api
-        .POST("/v1/datasets/{dataset_id}/estimate", {
-          params: { path: { dataset_id: datasetId } },
-          body: { sql, tasks, method },
-        })
-        .then(({ data, error }) => {
-          if (!current) return;
-          if (data) setEstimate({ estimate: data, problem: data.problem ?? undefined });
-          else setEstimate({ problem: errorMessage(error) });
-        });
-    }, 500);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-    // The key stands for the query and tasks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datasetId, key, enabled]);
-  return { estimate: estimate?.estimate, problem: estimate?.problem };
 }

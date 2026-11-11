@@ -55,7 +55,7 @@ def save(run_id: str, task_id: str, request: Answers) -> runs.Run:
                 if row_id // runs.CHUNK_ROWS == chunk:
                     current[row_id] = current.get(row_id, {}) | values
             datasets.write_run_part(
-                run.dataset_id, runs.part_columns(run.config.tasks, manual=True), name, current
+                run.dataset_id, tasks.part_columns(run.config.tasks, manual=True), name, current
             )
         done = runs.manual_done(run)
         conn.execute(

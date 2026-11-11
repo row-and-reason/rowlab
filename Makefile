@@ -29,8 +29,10 @@ test-hosted:
 	@test -n "$$ROWLAB_TEST_DATABASE_URL" || { echo "Set ROWLAB_TEST_DATABASE_URL=postgresql://… first."; exit 1; }
 	cd server && ROWLAB_TEST_STORAGE=s3 uv run pytest
 
-# Everything CI checks, apart from the hosted tests and the smoke test: run before you finish.
+# What CI checks, apart from the hosted and smoke tests: run before you finish. (CI also checks that
+# the openapi.json and web client this regenerates are the committed ones.)
 check: lint test build site
+	python3 brand/check.py
 
 lint:
 	cd server && uv run ruff check . ../scripts ../brand && uv run ruff format --check . ../scripts ../brand
