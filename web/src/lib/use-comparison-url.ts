@@ -1,21 +1,33 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { api, type Dataset } from "@/lib/api/client";
+import { api, type Column } from "@/lib/api/client";
 import { comparableColumns, modelGroup, parseComparedColumns } from "@/lib/comparison";
 
+/**
+ * The dataset's columns, as the same array for as long as their names and types stay the same. The
+ * dataset list is polled during runs, which gives new arrays each second; a comparison must not be
+ * asked again for that.
+ */
+export function useSameColumns(columns: Column[]): Column[] {
+  const [same, setSame] = useState(columns);
+  const key = (cs: Column[]) => JSON.stringify(cs.map((c) => [c.name, c.type]));
+  if (same !== columns && key(same) !== key(columns)) setSame(columns);
+  return same;
+}
+
 /** The comparison setup kept in the URL, and a way to change it without adding history entries. */
-export function useComparisonUrl(dataset: Dataset) {
+export function useComparisonUrl(datasetColumns: Column[]) {
   const params = useSearchParams();
   const encoded = params.get("compare");
   const columns = useMemo(
-    () => parseComparedColumns(encoded, dataset.columns),
-    [encoded, dataset.columns],
+    () => parseComparedColumns(encoded, datasetColumns),
+    [encoded, datasetColumns],
   );
   const referenceParam = params.get("reference");
-  const reference = comparableColumns(dataset.columns).some((c) => c.name === referenceParam)
+  const reference = comparableColumns(datasetColumns).some((c) => c.name === referenceParam)
     ? referenceParam
     : null;
 
@@ -58,7 +70,7 @@ export function useComparisonUrl(dataset: Dataset) {
 }
 
 /** Pre-select the run's model group when the URL doesn't choose columns yet. */
-export function useRunDefaultColumns(run: Dataset["run"]) {
+export function useRunDefaultColumns(runId: string | undefined) {
   const router = useRouter();
   const params = useSearchParams();
   // Defaults from a run must not overwrite a selection made while that request was pending.
@@ -67,10 +79,10 @@ export function useRunDefaultColumns(run: Dataset["run"]) {
     latestParams.current = params;
   }, [params]);
   useEffect(() => {
-    if (!run) return;
+    if (!runId) return;
     let current = true;
     api
-      .GET("/v1/runs/{run_id}", { params: { path: { run_id: run.id } } })
+      .GET("/v1/runs/{run_id}", { params: { path: { run_id: runId } } })
       .then(({ data }) => {
         if (!current || !data || latestParams.current.has("compare")) return;
         const group = modelGroup(data.columns);
@@ -85,5 +97,5 @@ export function useRunDefaultColumns(run: Dataset["run"]) {
     return () => {
       current = false;
     };
-  }, [run?.id, run, router]);
+  }, [runId, router]);
 }

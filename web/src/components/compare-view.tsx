@@ -41,7 +41,7 @@ import type { Dataset } from "@/lib/api/client";
 import { comparableColumns, comparisonSetup, type InspectRows } from "@/lib/comparison";
 import { columnLabel, formatNumber } from "@/lib/format";
 import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
-import { useComparisonUrl, useRunDefaultColumns } from "@/lib/use-comparison-url";
+import { useComparisonUrl, useRunDefaultColumns, useSameColumns } from "@/lib/use-comparison-url";
 
 const NO_REFERENCE = "none";
 
@@ -68,19 +68,20 @@ export function CompareView({
     };
   }, [actionsRef]);
   const anchor = useComboboxAnchor();
-  const choices = comparableColumns(dataset.columns);
+  const datasetColumns = useSameColumns(dataset.columns);
+  const choices = comparableColumns(datasetColumns);
   const { columns, reference, tolerance, ignoreCase, trimWhitespace, change, urlChanged } =
-    useComparisonUrl(dataset);
+    useComparisonUrl(datasetColumns);
   const { numeric, text, dates, mixed, problem, request } = useMemo(
     () =>
       comparisonSetup(
         { columns, reference, tolerance, ignoreCase, trimWhitespace },
-        dataset.columns,
+        datasetColumns,
       ),
-    [columns, reference, tolerance, ignoreCase, trimWhitespace, dataset.columns],
+    [columns, reference, tolerance, ignoreCase, trimWhitespace, datasetColumns],
   );
   const result = useComparison(dataset.id, request, dataset.run?.done);
-  useRunDefaultColumns(dataset.run);
+  useRunDefaultColumns(dataset.run?.id);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
