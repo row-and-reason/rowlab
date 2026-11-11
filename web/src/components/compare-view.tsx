@@ -1,8 +1,7 @@
 "use client";
 
 import { Columns3Icon, GitCompareArrowsIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ComparisonResults } from "@/components/comparison-results";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -38,14 +37,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { api, type Dataset } from "@/lib/api/client";
+import type { Dataset } from "@/lib/api/client";
+import { comparableColumns, comparisonSetup, type InspectRows } from "@/lib/comparison";
 import { columnLabel, formatNumber } from "@/lib/format";
-import type { InspectRows } from "@/lib/comparison";
-import { ALL_ROWS } from "@/lib/sql";
 import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
+import { useComparisonUrl, useRunDefaultColumns } from "@/lib/use-comparison-url";
 
 const NO_REFERENCE = "none";
-const NUMERIC = /^(U?TINYINT|U?SMALLINT|U?INTEGER|U?BIGINT|U?HUGEINT|FLOAT|DOUBLE|DECIMAL.*|DATE)$/;
 
 /** Compare the whole dataset. URL-backed setup survives reloads and trips to the underlying rows. */
 export function CompareView({
@@ -57,7 +55,6 @@ export function CompareView({
   actionsRef: React.RefObject<ComparisonActions | null>;
   onFilter: InspectRows;
 }) {
-  const router = useRouter();
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   useEffect(() => {
@@ -70,118 +67,20 @@ export function CompareView({
       actionsRef.current = { ...actionsRef.current, rules: undefined, columns: undefined };
     };
   }, [actionsRef]);
-  const params = useSearchParams();
   const anchor = useComboboxAnchor();
-  const choices = dataset.columns.filter((c) => c.name !== "__row_id");
-  const encoded = params.get("compare");
-  const columns = useMemo(() => {
-    try {
-      const parsed: unknown = JSON.parse(encoded ?? "[]");
-      return Array.isArray(parsed)
-        ? [
-            ...new Set(
-              parsed.filter(
-                (name): name is string =>
-                  typeof name === "string" &&
-                  dataset.columns.some((c) => c.name === name && name !== "__row_id"),
-              ),
-            ),
-          ]
-        : [];
-    } catch {
-      return [];
-    }
-  }, [encoded, dataset.columns]);
-  const referenceParam = params.get("reference");
-  const reference = choices.some((c) => c.name === referenceParam) ? referenceParam : null;
-  const tolerance = params.get("tolerance") ?? "";
-  const ignoreCase = params.get("ignore_case") === "true";
-  const trimWhitespace = params.get("trim_whitespace") === "true";
-  const compared = reference ? [...columns, reference] : columns;
-  const types = compared.map((name) => choices.find((c) => c.name === name)!.type);
-  const numeric =
-    types.length > 0 &&
-    types.every((type) => NUMERIC.test(type)) &&
-    (types.every((t) => t === "DATE") || types.every((t) => t !== "DATE"));
-  const text = types.length > 0 && types.every((t) => t === "VARCHAR");
-  const dates = types.length > 0 && types.every((type) => type === "DATE");
-  const mixed = new Set(types).size > 1 && !numeric;
-  const enough = columns.length >= 2 || (columns.length === 1 && !!reference);
-  const problem =
-    reference && columns.includes(reference)
-      ? "The reference must be different from the compared columns."
-      : numeric &&
-          tolerance !== "" &&
-          (!Number.isFinite(Number(tolerance)) || Number(tolerance) < 0)
-        ? "Tolerance must be a finite number of zero or more."
-        : undefined;
-  const request = useMemo(
+  const choices = comparableColumns(dataset.columns);
+  const { columns, reference, tolerance, ignoreCase, trimWhitespace, change, urlChanged } =
+    useComparisonUrl(dataset);
+  const { numeric, text, dates, mixed, problem, request } = useMemo(
     () =>
-      enough && !problem
-        ? {
-            sql: ALL_ROWS,
-            columns,
-            reference,
-            ignore_case: text && ignoreCase,
-            trim_whitespace: text && trimWhitespace,
-            tolerance: numeric && tolerance !== "" ? Number(tolerance) : null,
-          }
-        : undefined,
-    [enough, problem, columns, reference, numeric, tolerance, text, ignoreCase, trimWhitespace],
+      comparisonSetup(
+        { columns, reference, tolerance, ignoreCase, trimWhitespace },
+        dataset.columns,
+      ),
+    [columns, reference, tolerance, ignoreCase, trimWhitespace, dataset.columns],
   );
   const result = useComparison(dataset.id, request, dataset.run?.done);
-
-  function change(next: {
-    columns?: string[];
-    reference?: string | null;
-    tolerance?: string;
-    ignore_case?: boolean;
-    trim_whitespace?: boolean;
-  }) {
-    const query = new URLSearchParams(window.location.search);
-    if (next.columns) query.set("compare", JSON.stringify(next.columns));
-    if (next.reference !== undefined) {
-      if (next.reference) query.set("reference", next.reference);
-      else query.delete("reference");
-    }
-    if (next.tolerance !== undefined) {
-      if (next.tolerance) query.set("tolerance", next.tolerance);
-      else query.delete("tolerance");
-    }
-    for (const key of ["ignore_case", "trim_whitespace"] as const) {
-      if (next[key] !== undefined) {
-        if (next[key]) query.set(key, "true");
-        else query.delete(key);
-      }
-    }
-    window.history.replaceState(null, "", `/?${query}`);
-  }
-
-  // Defaults from a run must not overwrite a selection made while that request was pending.
-  const latestParams = useRef(params);
-  useEffect(() => {
-    latestParams.current = params;
-  }, [params]);
-  useEffect(() => {
-    if (!dataset.run) return;
-    let current = true;
-    api
-      .GET("/v1/runs/{run_id}", { params: { path: { run_id: dataset.run.id } } })
-      .then(({ data }) => {
-        if (!current || !data || latestParams.current.has("compare")) return;
-        const group = modelGroup(data.columns);
-        if (!group.length) return;
-        const query = new URLSearchParams(latestParams.current);
-        query.set("compare", JSON.stringify(group));
-        router.replace(`/?${query}`, { scroll: false });
-      })
-      .catch(() => {
-        /* Manual selection remains available if run defaults cannot load. */
-      });
-    return () => {
-      current = false;
-    };
-  }, [dataset.run?.id, dataset.run, router]);
+  useRunDefaultColumns(dataset.run);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -370,8 +269,7 @@ export function CompareView({
               comparison={result.data}
               onFilter={(filters, selectedColumns) => {
                 // A shortcut can arrive in the same event turn as a rule or selection change.
-                if (params.toString() !== new URLSearchParams(window.location.search).toString())
-                  return;
+                if (urlChanged()) return;
                 const rules = [
                   request.ignore_case && "ignore case",
                   request.trim_whitespace && "trim whitespace",
@@ -392,14 +290,4 @@ export function CompareView({
       </div>
     </div>
   );
-}
-
-/** The first task answered by several models, excluding probability/reason output columns. */
-function modelGroup(runColumns: string[]): string[] {
-  const groups = new Map<string, string[]>();
-  for (const column of runColumns.filter((c) => !c.endsWith("_proba") && !c.endsWith("_reason"))) {
-    const base = column.split("__")[0];
-    groups.set(base, [...(groups.get(base) ?? []), column]);
-  }
-  return [...groups.values()].find((g) => g.length > 1) ?? [];
 }

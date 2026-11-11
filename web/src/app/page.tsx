@@ -1,35 +1,18 @@
 "use client";
 
-import {
-  CloudIcon,
-  DatabaseIcon,
-  DownloadIcon,
-  GlobeIcon,
-  GitCompareArrowsIcon,
-  ListChecksIcon,
-  ListRestartIcon,
-  MoonIcon,
-  PenLineIcon,
-  PlayIcon,
-  PlusIcon,
-  SearchIcon,
-  SettingsIcon,
-  TableIcon,
-  UploadIcon,
-} from "lucide-react";
+import { CloudIcon, DatabaseIcon, GlobeIcon, ListChecksIcon, UploadIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTheme } from "next-themes";
 import { Suspense, use, useCallback, useEffect, useRef, useState } from "react";
 import { browser } from "react-dom";
 import { useDefaultLayout } from "react-resizable-panels";
-import { toast } from "sonner";
 
 import { AddDataset, type SourceKind } from "@/components/add-dataset";
+import { CommandPalette } from "@/components/command-palette";
 import { DatasetPanels, TABS, type TaskActions, type Tab } from "@/components/dataset-view";
 import { DatasetsPanel } from "@/components/datasets-panel";
 import { RenameDataset } from "@/components/rename-dataset";
 import { ExportDataset } from "@/components/export-dataset";
-import { useCan, useMe } from "@/components/me";
+import { useCan } from "@/components/me";
 import { PaneHeader } from "@/components/pane";
 import { Keys } from "@/components/tooltip-button";
 import {
@@ -42,16 +25,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Command,
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandShortcut,
-} from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -64,15 +37,14 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Dataset, type Settings } from "@/lib/api/client";
-import { errorMessage } from "@/lib/format";
 import type { ComparisonActions } from "@/lib/use-comparison";
-import { useTaskTypes } from "@/lib/catalog";
 import { datasetTree } from "@/lib/dataset-tree";
 import type { OriginActions } from "@/components/origin";
 import { loadDraft } from "@/lib/draft";
 import { isActive } from "@/lib/runs";
 import { viewSql } from "@/lib/sql";
-import { type Section, sections, settingsUrl } from "@/lib/settings";
+import { type Section, settingsUrl } from "@/lib/settings";
+import { useDatasets } from "@/lib/use-datasets";
 
 // The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
 // in the query string (`/?dataset=<id>&tab=rows`), because a static export can't have routes for
@@ -89,10 +61,9 @@ function Workspace() {
   use(browser("Column widths are stored in localStorage."));
   const router = useRouter();
   const params = useSearchParams();
-  const { resolvedTheme, setTheme } = useTheme();
   const selectedId = params.get("dataset");
   const tab: Tab = TABS.find((t) => t === params.get("tab")) ?? "rows";
-  const [datasets, setDatasets] = useState<Dataset[] | null>(null);
+  const { datasets, load, remove } = useDatasets(selectedId);
   const [settings, setSettings] = useState<Settings>();
   // Open with "add data" at its first step, or at a source's step when that's already picked.
   const [adding, setAdding] = useState<SourceKind | "choose">();
@@ -108,32 +79,14 @@ function Workspace() {
   const taskActionsRef = useRef<TaskActions | null>(null);
   const [comparisonReady, setComparisonReady] = useState(false);
   const comparisonActionsRef = useRef<ComparisonActions | null>({ setReady: setComparisonReady });
-  const taskTypes = useTaskTypes();
-  const me = useMe();
   // Verifiers read; adding, running and exporting need a member.
   const canEdit = useCan("member");
   // Remembers the column widths you drag to, in localStorage.
   const layout = useDefaultLayout({ id: "rowlab.workspace" });
 
-  const load = useCallback(async () => {
-    const { data, error } = await api.GET("/v1/datasets");
-    if (error) toast.error(errorMessage(error));
-    else setDatasets(data);
-  }, []);
-
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount
-    load();
     api.GET("/v1/settings").then(({ data }) => setSettings(data));
-  }, [load]);
-
-  // While a run is going, keep its progress and its dataset's rows current.
-  const anyRunning = datasets?.some((d) => d.run && isActive(d.run)) ?? false;
-  useEffect(() => {
-    if (!anyRunning) return;
-    const timer = setInterval(load, 1000);
-    return () => clearInterval(timer);
-  }, [anyRunning, load]);
+  }, []);
 
   const selected = datasets?.find((d) => d.id === selectedId);
   // A dataset a run is still making can't be exported yet.
@@ -177,22 +130,6 @@ function Workspace() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [datasets, selectedId, select, selected, exportable, openSettings, tab]);
-
-  async function remove(dataset: Dataset) {
-    const { error } = await api.DELETE("/v1/datasets/{dataset_id}", {
-      params: { path: { dataset_id: dataset.id } },
-    });
-    if (error) toast.error(errorMessage(error));
-    else toast.success(`Deleted ${dataset.name}`);
-    if (dataset.id === selectedId) router.push("/");
-    load();
-  }
-
-  // Runs a palette command after closing the palette.
-  function command(action: () => void) {
-    setPalette(false);
-    action();
-  }
 
   return (
     <main className="min-h-0 flex-1">
@@ -314,187 +251,24 @@ function Workspace() {
         )}
       </ResizablePanelGroup>
 
-      <CommandDialog open={palette} onOpenChange={setPalette}>
-        <Command>
-          <CommandInput placeholder="Type a command or a dataset name" />
-          <CommandList>
-            <CommandEmpty>Nothing found.</CommandEmpty>
-            <CommandGroup heading="Actions">
-              {selected && (
-                <>
-                  <CommandItem
-                    disabled={!canEdit}
-                    onSelect={() => command(() => setRenaming(selected))}
-                  >
-                    Rename dataset…
-                  </CommandItem>
-                  <CommandItem
-                    onSelect={() =>
-                      command(() => {
-                        const query = new URLSearchParams(params);
-                        query.set("tab", "compare");
-                        router.push(`/?${query}`);
-                      })
-                    }
-                  >
-                    <GitCompareArrowsIcon />
-                    Compare columns
-                  </CommandItem>
-                  <CommandItem
-                    onSelect={() =>
-                      command(() => {
-                        const query = new URLSearchParams(window.location.search);
-                        query.set("tab", "origin");
-                        router.push(`/?${query}`);
-                      })
-                    }
-                  >
-                    View origin
-                  </CommandItem>
-                  {tab === "origin" &&
-                    canEdit &&
-                    selected.run &&
-                    datasets?.some((d) => d.id === selected.parent_id) && (
-                      <CommandItem
-                        onSelect={() => command(() => originActionsRef.current?.edit?.())}
-                      >
-                        Edit original run settings
-                      </CommandItem>
-                    )}
-                </>
-              )}
-              {selected && tab === "compare" && (
-                <>
-                  <CommandItem
-                    disabled={!comparisonReady}
-                    onSelect={() => command(() => comparisonActionsRef.current?.different?.())}
-                  >
-                    <GitCompareArrowsIcon />
-                    Inspect different rows<CommandShortcut>⌘↵</CommandShortcut>
-                  </CommandItem>
-                  <CommandItem
-                    onSelect={() =>
-                      command(() => setTimeout(() => comparisonActionsRef.current?.rules?.(), 50))
-                    }
-                  >
-                    <SettingsIcon />
-                    Comparison match rules
-                  </CommandItem>
-                  <CommandItem
-                    onSelect={() =>
-                      command(() => setTimeout(() => comparisonActionsRef.current?.columns?.(), 50))
-                    }
-                  >
-                    <TableIcon />
-                    Choose compared columns
-                  </CommandItem>
-                </>
-              )}
-              {selected && canEdit && (
-                <>
-                  {tab !== "compare" && (
-                    <>
-                      <CommandItem onSelect={() => command(() => taskActionsRef.current?.run())}>
-                        <PlayIcon />
-                        Label selected rows
-                        <CommandShortcut>⌘↵</CommandShortcut>
-                      </CommandItem>
-                      <CommandItem onSelect={() => command(() => taskActionsRef.current?.manual())}>
-                        Label manually
-                      </CommandItem>
-                      {selected.run?.status === "manual" && (
-                        <CommandItem
-                          onSelect={() => command(() => taskActionsRef.current?.finish())}
-                        >
-                          Finish labeling
-                        </CommandItem>
-                      )}
-                      <CommandItem
-                        onSelect={() => command(() => taskActionsRef.current?.clearTasks())}
-                      >
-                        <ListRestartIcon />
-                        Clear tasks
-                      </CommandItem>
-                      <CommandItem
-                        onSelect={() => command(() => taskActionsRef.current?.addTask())}
-                      >
-                        <ListChecksIcon />
-                        Add task
-                      </CommandItem>
-                      {taskTypes?.presets.map((preset) => (
-                        <CommandItem
-                          key={preset.id}
-                          value={`add ${preset.label} task`}
-                          onSelect={() => command(() => taskActionsRef.current?.addTask(preset))}
-                        >
-                          <PenLineIcon />
-                          {preset.label}…
-                        </CommandItem>
-                      ))}
-                      <CommandItem
-                        onSelect={() =>
-                          command(() =>
-                            // Once the palette has closed and handed focus back.
-                            setTimeout(() => document.getElementById("rows-search")?.focus(), 50),
-                          )
-                        }
-                      >
-                        <SearchIcon />
-                        Search rows
-                        <CommandShortcut>/</CommandShortcut>
-                      </CommandItem>
-                    </>
-                  )}
-                  {exportable && (
-                    <CommandItem onSelect={() => command(() => setExporting(selected))}>
-                      <DownloadIcon />
-                      Export dataset…
-                      <CommandShortcut>E</CommandShortcut>
-                    </CommandItem>
-                  )}
-                </>
-              )}
-              {canEdit && (
-                <CommandItem onSelect={() => command(() => setAdding("choose"))}>
-                  <PlusIcon />
-                  Add data
-                </CommandItem>
-              )}
-              {sections(me).map((section) => (
-                <CommandItem
-                  key={section.id}
-                  value={`settings ${section.label} ${section.keywords}`}
-                  onSelect={() => command(() => openSettings(section.id))}
-                >
-                  <SettingsIcon />
-                  Settings: {section.label}
-                  {section.id === "providers" && <CommandShortcut>⌘,</CommandShortcut>}
-                </CommandItem>
-              ))}
-              <CommandItem
-                onSelect={() =>
-                  command(() => setTheme(resolvedTheme === "dark" ? "light" : "dark"))
-                }
-              >
-                <MoonIcon />
-                {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
-              </CommandItem>
-            </CommandGroup>
-            <CommandGroup heading="Datasets">
-              {datasets?.map((dataset) => (
-                <CommandItem
-                  key={dataset.id}
-                  value={`dataset ${dataset.name} ${dataset.id}`}
-                  onSelect={() => command(() => select(dataset.id))}
-                >
-                  <TableIcon />
-                  {dataset.name}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </CommandDialog>
+      <CommandPalette
+        open={palette}
+        onOpenChange={setPalette}
+        datasets={datasets}
+        selected={selected}
+        tab={tab}
+        canEdit={canEdit}
+        exportable={exportable}
+        comparisonReady={comparisonReady}
+        originActionsRef={originActionsRef}
+        taskActionsRef={taskActionsRef}
+        comparisonActionsRef={comparisonActionsRef}
+        onSelect={select}
+        onRename={setRenaming}
+        onExport={setExporting}
+        onAdd={() => setAdding("choose")}
+        onSettings={openSettings}
+      />
 
       <AddDataset
         // A new start each time it opens, at the step it was opened for.
