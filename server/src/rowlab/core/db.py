@@ -108,13 +108,6 @@ def _migrate(raw: Any, postgres: bool) -> None:
     raw.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
     row = raw.execute("SELECT max(version) AS version FROM schema_version").fetchone()
     version = row["version"] or 0
-    if not postgres and version == 0:
-        legacy = raw.execute("PRAGMA user_version").fetchone()["user_version"]
-        if legacy:
-            raise RuntimeError(
-                f"{data_dir()} holds a database from before rowlab's migrations were reset. "
-                "Move that folder aside to start afresh."
-            )
     for file in sorted(MIGRATIONS_DIR.glob("*.sql")):
         number = int(file.name.split("_")[0])
         if number <= version:

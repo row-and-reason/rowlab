@@ -71,7 +71,7 @@ Run the built package as a user would: `uvx --from server/dist/rowlab-*.whl rowl
   `openapi.json`
 - `site/` — the website and the docs (Astro, Starlight); see [site/README.md](site/README.md)
 
-[ROADMAP.md](ROADMAP.md) has the milestones to MVP, [AGENTS.md](AGENTS.md) how to work in this repo,
+[ROADMAP.md](ROADMAP.md) has what comes next, [AGENTS.md](AGENTS.md) how to work in this repo,
 and [CONTRIBUTING.md](CONTRIBUTING.md) how to send a change.
 
 ## Non-goals
