@@ -49,6 +49,9 @@ export function useManualLabeling({
   const [refresh, setRefresh] = useState(0);
   const [pending, setPending] = useState<Answer>();
   const busy = useRef(false);
+  // Bumped whenever another row is loaded, e.g. one picked in the table while a save or move is
+  // under way: their late responses then no longer apply.
+  const loads = useRef(0);
   const task = run?.config.tasks.find((t) => t.id === taskId) ?? run?.config.tasks[0];
   const query = sql.trim().replace(/;\s*$/, "");
 
@@ -72,6 +75,7 @@ export function useManualLabeling({
   useEffect(() => {
     if (!task) return;
     let current = true;
+    loads.current += 1;
     async function load() {
       setLoading(true);
       setError(undefined);
@@ -121,12 +125,14 @@ export function useManualLabeling({
         return;
       }
       // Filters can remove a row after it is labeled. Locate it again before advancing.
+      const started = loads.current;
       setLoading(true);
       try {
         const found = await api.POST("/v1/datasets/{dataset_id}/query", {
           params: { path: { dataset_id: datasetId } },
           body: { sql: positionSql(query, item.row.__row_id), offset: 0, limit: 1 },
         });
+        if (loads.current !== started) return;
         if (!found.data) throw new Error(errorMessage(found.error));
         const current = found.data.rows[0]?.position;
         const next =
@@ -134,9 +140,9 @@ export function useManualLabeling({
         onPosition(Math.max(0, next));
         setRefresh((n) => n + 1);
       } catch (e) {
-        setError(errorMessage(e));
+        if (loads.current === started) setError(errorMessage(e));
       } finally {
-        setLoading(false);
+        if (loads.current === started) setLoading(false);
       }
     },
     [item, saving, pending, datasetId, query, position, onPosition],
@@ -147,6 +153,7 @@ export function useManualLabeling({
     async (value: unknown, retry?: Answer) => {
       if (!task || !item || busy.current || !canEdit || (pending && !retry)) return;
       const answer = retry ?? { row_id: Number(item.row.__row_id), value };
+      const started = loads.current;
       busy.current = true;
       setSaving(true);
       setSaved(false);
@@ -163,8 +170,10 @@ export function useManualLabeling({
         }
         setRun((current) => ({ ...result.data!, config: current?.config ?? result.data!.config }));
         setPending(undefined);
-        setSaved(true);
         onChanged();
+        // Another row was picked meanwhile (or before a retry): the label is saved, that row stays.
+        if (loads.current !== started || answer.row_id !== Number(item.row.__row_id)) return;
+        setSaved(true);
         if (answer.value !== null) {
           await move(1, true);
           return;
@@ -173,7 +182,7 @@ export function useManualLabeling({
           params: { path: { dataset_id: datasetId } },
           body: { sql: rowSql(answer.row_id), offset: 0, limit: 1 },
         });
-        if (updated.data?.rows[0])
+        if (updated.data?.rows[0] && loads.current === started)
           setItem((current) => (current ? { ...current, row: updated.data!.rows[0] } : current));
       } catch (e) {
         // A lost response may have saved the label. Retry the same value before continuing.
