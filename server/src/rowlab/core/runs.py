@@ -117,6 +117,8 @@ class _Answer(BaseModel):
 
 
 _wake = threading.Event()
+# Set by `shut_down`: the runner takes no more turns.
+_shutdown = threading.Event()
 
 
 def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> Run:
@@ -402,9 +404,9 @@ def process_next() -> bool:
 
 
 def run_forever() -> None:
-    """Process queued runs a chunk at a time; `rowlab runner` runs just this. While idle, runs whose
-    runner stopped (another process that crashed) are queued again."""
-    while True:
+    """Process queued runs a chunk at a time, until `shut_down`; `rowlab runner` runs just this.
+    While idle, runs whose runner stopped (another process that crashed) are queued again."""
+    while not _shutdown.is_set():
         try:
             if process_next():
                 continue
@@ -414,6 +416,15 @@ def run_forever() -> None:
             log.exception("Run failed")
         _wake.wait(timeout=5)
         _wake.clear()
+    log.info("Runner shut down")
+
+
+def shut_down() -> None:
+    """Stop the runner gracefully, e.g. on SIGTERM: it takes no more turns, and a chunk under way
+    stops after the calls in flight, with what they paid for journaled. Its run goes back in the queue
+    for the next runner straight away."""
+    _shutdown.set()
+    _wake.set()
 
 
 def _process(run_id: str) -> None:
@@ -438,7 +449,13 @@ def _process(run_id: str) -> None:
                 run, run.next_chunk, keys, org_id, api_key
             )
         if not finished:
-            _set(run_id, status="stopped")
+            # Stopped by its user, or deleted; or this runner is shutting down and gives it back.
+            with db.connect() as conn:
+                conn.execute(
+                    "UPDATE runs SET status = CASE WHEN status = 'stopping' THEN 'stopped'"
+                    " ELSE 'queued' END, updated_at = ? WHERE id = ?",
+                    (datetime.now(UTC).isoformat(), run_id),
+                )
             return
         run = get_run(run_id)
         retry = retry if retry is not None and retry < run.next_chunk else None
@@ -480,7 +497,7 @@ def _process_chunk(
     asking.
     With `retry`, the part is already written: only its failed answers are asked again, past the
     replies kept, and it is written again. Returns False, writing nothing, if the run was stopped
-    meanwhile."""
+    meanwhile, or the runner is shutting down: calls not yet started are not made."""
     rows = datasets.read_run_rows(run.dataset_id, offset=chunk * CHUNK_ROWS, limit=CHUNK_ROWS)
     name = f"part-{chunk:06d}"
     written = datasets.read_run_part(run.dataset_id, name) if retry else {}
@@ -520,7 +537,7 @@ def _process_chunk(
     spent_lock = threading.Lock()
 
     def ask(i: int) -> None:
-        if stopping.is_set():
+        if stopping.is_set() or _shutdown.is_set():
             return
         row, task, model = units[i]
         saved = found.get(request_keys[i])
@@ -577,7 +594,7 @@ def _process_chunk(
                 future.result()
     finally:
         record_spent()
-    if stopping.is_set():
+    if any(answer is None for answer in given):
         return False
 
     by_row: dict[int, dict[str, Any]] = {

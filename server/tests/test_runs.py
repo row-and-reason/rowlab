@@ -1,3 +1,4 @@
+import threading
 import time
 
 import pytest
@@ -652,3 +653,31 @@ def test_an_unusable_reply_from_the_cache_counts_as_failed_not_cached():
     assert spent == usage.Spent(
         answers=2, cached=1, failed=1, input_tokens=10, output_tokens=1, cost=0.002
     )
+
+
+def test_a_runner_shutting_down_gives_its_run_back_without_paying_twice(
+    client, job, api_key, fake, monkeypatch
+):
+    monkeypatch.setattr(runs, "_shutdown", threading.Event())
+    monkeypatch.setattr(runs, "CONCURRENCY", 1)
+
+    def shut_down_mid_call(method, path, *, api_key, body=None):
+        # SIGTERM arrives while the first model call is under way.
+        if method == "POST":
+            runs.shut_down()
+        return fake(method, path, api_key=api_key, body=body)
+
+    monkeypatch.setattr(openrouter, "_request", shut_down_mid_call)
+    created = start(client, job)
+    runs.run_forever()  # Returns once the call in flight is done.
+    given_back = client.get(f"/v1/runs/{created['id']}").json()
+    assert (given_back["status"], given_back["next_chunk"]) == ("queued", 0)
+    assert len(_paid_calls(fake)) == 1
+
+    # The next runner takes it straight away, and pays only for the rest.
+    monkeypatch.setattr(runs, "_shutdown", threading.Event())
+    monkeypatch.setattr(openrouter, "_request", fake)
+    while runs.process_next():
+        pass
+    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "done"
+    assert len(_paid_calls(fake)) == 3
