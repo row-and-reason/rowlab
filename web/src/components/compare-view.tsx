@@ -270,6 +270,7 @@ export function CompareView({
             <ComparisonResults
               actionsRef={actionsRef}
               dataset={dataset}
+              version={version}
               comparison={result.data}
               onFilter={(filters, selectedColumns) => {
                 // A shortcut can arrive in the same event turn as a rule or selection change.
