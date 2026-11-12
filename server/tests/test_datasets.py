@@ -7,7 +7,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from conftest import stored, stored_datasets
+from helpers import stored, stored_datasets
 
 CSV = "name,age,city\nAda,36,London\nAlan,41,Wilmslow\nGrace,,Arlington\n"
 

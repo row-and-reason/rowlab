@@ -1,8 +1,7 @@
-import json
 import time
 
 import pytest
-from conftest import stored, stored_datasets
+from helpers import NEGATIVE, run, start, stored, stored_datasets
 
 from rowlab.core import db, runs
 from rowlab.core.config import config
@@ -11,116 +10,7 @@ from rowlab.core.providers import openrouter
 CSV = "review,stars\nTerrible product,1\nLove it,5\nBroke after a day,1\n"
 
 
-def chat_model(id_, price, structured=True):
-    return {
-        "id": id_,
-        "name": id_.title(),
-        "pricing": {"prompt": price, "completion": "0.000001"},
-        "architecture": {"output_modalities": ["text"]},
-        "supported_parameters": ["structured_outputs"] if structured else [],
-    }
-
-
-class FakeOpenRouter:
-    """Stands in for OpenRouter's HTTP API. Says yes when the prompt mentions a bad experience.
-
-    `busy` makes the next calls fail with a rate limit; `crash_on` makes the call for that prompt
-    fail once like a killed server would, with an error nothing catches; `flaky` prompts fail once,
-    with an error that isn't retried."""
-
-    def __init__(self):
-        self.calls = []
-        self.busy = 0
-        self.crash_on = None
-        self.flaky = set()
-
-    def __call__(self, method, path, *, api_key, body=None):
-        self.calls.append((method, path, api_key, body))
-        if path == "/v1/key":
-            if api_key != "sk-good":
-                raise openrouter.OpenRouterError("HTTP 401: Invalid key", status=401)
-            return {"data": {}}
-        if path == "/v1/models?output_modalities=decisions":
-            return {
-                "data": [
-                    {"id": "typesafe/jev-1.14", "name": "Jev", "pricing": {"prompt": "0.00000004"}},
-                    {"id": "a/cheap", "name": "Cheap", "pricing": {"prompt": "0.00000001"}},
-                ]
-            }
-        if path == "/v1/models":
-            return {
-                "data": [
-                    chat_model("x/llm", "0.000002"),
-                    chat_model("anthropic/claude-haiku-5.5", "0.0000001"),
-                    chat_model("y/no-schema", "0.000001", structured=False),
-                ]
-            }
-        if path == "/v1/chat/completions":
-            prompt = body["messages"][1]["content"]
-            schema = body["response_format"]["json_schema"]["schema"]
-            content = json.dumps(_llm_reply(schema, prompt))
-            return {"choices": [{"message": {"content": content}}], "usage": {"cost": 0.01}}
-        if self.busy:
-            self.busy -= 1
-            raise openrouter.OpenRouterError("HTTP 429: Rate limited", status=429)
-        if body["state"] == self.crash_on:
-            self.crash_on = None
-            raise KeyboardInterrupt
-        if body["state"] in self.flaky:
-            self.flaky.remove(body["state"])
-            raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
-        if body["state"] == "fail":
-            raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
-        if body["state"] == "no credits":
-            raise openrouter.OpenRouterError("HTTP 402: Insufficient credits", status=402)
-        return {
-            "answers": {"answer": {"type": "noul", "noul": 0.9 if _bad(body["state"]) else 0.1}},
-            "usage": {"input_tokens": 100, "output_tokens": 1, "cost": 0.001},
-        }
-
-
-def _llm_reply(schema, prompt):
-    """A reply with the shape the schema asks for. Yes/no answers say whether the prompt is bad."""
-    reply = {}
-    for name, prop in schema["properties"].items():
-        if name == "answer":
-            reply[name] = _bad(prompt)
-        elif name == "proba":
-            reply[name] = 0.8
-        elif name == "reason":
-            reply[name] = "Because it says so."
-        elif name == "text":
-            reply[name] = f"In short: {prompt}"
-        else:
-            reply[name] = _fake_value(prop)
-    return reply
-
-
-def _fake_value(prop):
-    types = prop["type"] if isinstance(prop["type"], list) else [prop["type"]]
-    if "array" in types:
-        item = prop["items"]
-        return [_llm_reply(item, "")] if item["type"] == "object" else ["red", "blue"]
-    if "number" in types:
-        return 4
-    if "boolean" in types:
-        return True
-    return "2024-05-01" if prop.get("description") == "YYYY-MM-DD" else "Widget"
-
-
-def _bad(text):
-    return any(word in text for word in ["Terrible", "Broke"])
-
-
-@pytest.fixture(autouse=True)
-def fake(monkeypatch):
-    fake = FakeOpenRouter()
-    monkeypatch.setattr(openrouter, "_request", fake)
-    monkeypatch.setattr(openrouter, "_catalog", None)
-    monkeypatch.setattr(openrouter, "RETRY_BASE_SECONDS", 0)
-    monkeypatch.setattr(runs, "PROGRESS_INTERVAL_SECONDS", 0.01)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    return fake
+pytestmark = pytest.mark.usefixtures("fake")
 
 
 @pytest.fixture
@@ -130,38 +20,14 @@ def dataset(client, tmp_path):
     return client.post("/v1/datasets", data={"source": str(path)}).json()
 
 
-NEGATIVE = {"template": "Is this review negative? {{review}}", "column": "negative"}
-
-
 @pytest.fixture
 def job(dataset):
     """What to run, as the UI's draft holds it: the dataset, a query for the rows, and the tasks."""
     return {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
 
 
-@pytest.fixture
-def api_key(client):
-    assert client.put("/v1/settings/openrouter-key", json={"key": "sk-good"}).status_code == 200
-
-
 def update(job, **changes):
     return {**job, **changes}
-
-
-def start(client, job):
-    """Queue a run of the job, as the Run button does."""
-    body = {"sql": job["sql"], "tasks": job["tasks"]}
-    return client.post(f"/v1/datasets/{job['dataset_id']}/runs", json=body).json()
-
-
-def run(client, job):
-    """Queue a run and let the runner process it, as its thread would."""
-    created = start(client, job)
-    if "id" not in created:
-        return created
-    while runs.process_next():
-        pass
-    return client.get(f"/v1/runs/{created['id']}").json()
 
 
 def rows(client, run_):
@@ -523,20 +389,6 @@ def test_an_estimate_counts_all_that_is_sent(client, dataset, api_key):
     assert cost(long) - cost(short) > 100 * jev
 
 
-def test_task_types_list_the_families_presets_and_field_types(client):
-    types = client.get("/v1/utils/task-types").json()
-    assert [(t["id"], t["family"], t["llm_only"]) for t in types["types"]] == [
-        ("yes_no", "classify", False),
-        ("pick_one", "classify", False),
-        ("pick_any", "classify", False),
-        ("scale", "classify", False),
-        ("extract", "extract", True),
-        ("write", "write", True),
-    ]
-    assert [p["id"] for p in types["presets"]] == ["summarize", "translate"]
-    assert "items" in [f["id"] for f in types["field_types"]]
-
-
 def test_a_query_picking_no_rows_makes_nothing(client, job, api_key):
     empty = update(job, sql="SELECT * FROM data WHERE review = 'no such review'")
     assert start(client, empty)["detail"] == "The query picks no rows."
@@ -571,33 +423,6 @@ def test_a_run_on_a_dataset_a_run_made_needs_new_column_names(client, job, api_k
     assert again["detail"] == (
         "The dataset already has a column negative__jev-1.14. Rename the task's result column."
     )
-
-
-def test_saving_a_key_checks_it_and_never_returns_it(client):
-    assert client.get("/v1/settings").json()["openrouter_key"] is None
-    bad = client.put("/v1/settings/openrouter-key", json={"key": "sk-bad"})
-    assert bad.status_code == 400
-    assert "did not accept" in bad.json()["detail"]
-    saved = client.put("/v1/settings/openrouter-key", json={"key": " sk-good "})
-    assert saved.json()["openrouter_key"] == "saved"
-    assert "sk-good" not in client.get("/v1/settings").text
-
-
-def test_environment_key_wins(client, monkeypatch):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
-    assert client.get("/v1/settings").json()["openrouter_key"] == "environment"
-
-
-def test_lists_decision_models_then_llms_with_structured_outputs(client):
-    models = client.get("/v1/utils/models").json()
-    assert [(m["id"], m["kind"]) for m in models] == [
-        ("a/cheap", "decision"),
-        ("typesafe/jev-1.14", "decision"),
-        ("anthropic/claude-haiku-5.5", "llm"),
-        ("x/llm", "llm"),
-    ]
-    assert models[3]["prompt_price"] == 2e-06
-    assert models[3]["completion_price"] == 1e-06
 
 
 def test_only_runs_whose_runner_went_quiet_are_taken_back(client, job, api_key, monkeypatch):
@@ -697,74 +522,6 @@ def test_an_organisation_has_a_few_runs_going_at_once(client, job, api_key, monk
     assert not runs.process_next()
     runs._set(claimed[0], status="queued")
     assert runs.process_next()
-
-
-def test_usage_adds_up_what_runs_asked(client, job, api_key, fake):
-    run(client, job)
-    run(client, job)
-    used = client.get("/v1/settings/usage").json()
-    assert used["scope"] == "organisation"
-    # Two runs of the same three rows: the second is answered from the cache, for free.
-    assert used["total"]["answers"] == 6
-    assert used["total"]["cached"] == 3
-    assert used["total"]["cost"] == pytest.approx(0.003)
-    assert used["total"]["input_tokens"] == 300
-    assert [m["model"] for m in used["by_model"]] == ["typesafe/jev-1.14"]
-    assert len(used["by_day"]) == 1
-    assert used["by_person"] == [
-        {**used["total"], "user": None},
-    ]
-    assert used["storage_bytes"] > 0
-    with db.connect() as conn:
-        assert {r["paid_by"] for r in conn.execute("SELECT paid_by FROM usage").fetchall()} == {
-            "organisation"
-        }
-
-
-def test_usage_by_month(client, job, api_key, fake):
-    run(client, job)
-    assert (
-        client.get("/v1/settings/usage", params={"month": "2020-01"}).json()["total"]["answers"]
-        == 0
-    )
-    assert client.get("/v1/settings/usage", params={"month": "2026-13"}).status_code == 400
-
-
-def test_admins_see_everyones_usage_and_others_their_own(hosted, fake, tmp_path):
-    ada = hosted("ada@example.com")
-    ada.post("/v1/settings/invites", json={"email": "bob@example.com"})
-    bob = hosted("bob@example.com")
-    assert ada.put("/v1/settings/openrouter-key", json={"key": "sk-good"}).status_code == 200
-    dataset = ada.post(
-        "/v1/datasets", files={"file": ("reviews.csv", b"review\nTerrible product\nLove it\n")}
-    ).json()
-    body = {"sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
-    assert bob.post(f"/v1/datasets/{dataset['id']}/runs", json=body).status_code == 201
-    while runs.process_next():
-        pass
-
-    mine = bob.get("/v1/settings/usage").json()
-    assert (mine["scope"], mine["total"]["answers"], mine["by_person"]) == ("you", 2, [])
-    assert ada.get("/v1/settings/usage").json()["total"]["answers"] == 2
-    [person] = ada.get("/v1/settings/usage").json()["by_person"]
-    assert person["user"]["email"] == "bob@example.com"
-    # Ada started nothing herself; as an admin she sees the organisation's anyway.
-    assert ada.get("/v1/settings/usage").json()["scope"] == "organisation"
-
-
-def test_usage_counts_what_was_paid_for_in_a_chunk_cut_off_mid_way(client, job, api_key, fake):
-    fake.crash_on = "Is this review negative? Love it"  # one chunk of three rows; the second
-    created = start(client, job)
-    with pytest.raises(KeyboardInterrupt):
-        runs.process_next()
-    runs.recover_interrupted_runs(stale_after=0)
-    while runs.process_next():
-        pass
-    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "done"
-    # The answers paid for before the crash were redone from the cache: each paid once, counted once.
-    total = client.get("/v1/settings/usage").json()["total"]
-    assert total["cost"] == pytest.approx(0.003)
-    assert total["input_tokens"] == 300
 
 
 def _paid_calls(fake):

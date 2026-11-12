@@ -11,12 +11,20 @@ import os
 import uuid
 
 import pytest
+
+# Nothing from the shell running the tests reaches a real database or storage, not even on import.
+for name in [n for n in os.environ if n.startswith(("ROWLAB_", "WORKOS_"))]:
+    if not name.startswith("ROWLAB_TEST_"):
+        del os.environ[name]
+
 from fastapi.testclient import TestClient
+from helpers import FakeOpenRouter
 
 from rowlab.api.auth import SESSION_COOKIE
 from rowlab.app import create_app
-from rowlab.core import auth, db, storage
+from rowlab.core import auth, db, runs
 from rowlab.core.config import config
+from rowlab.core.providers import openrouter
 from rowlab.core.providers.workos import SignedIn
 
 
@@ -105,16 +113,18 @@ def hosted(monkeypatch):
     return sign_in
 
 
-def stored(dataset_id, *names):
-    """Whether a dataset's file is in storage, local or S3, e.g. `stored(id, "data.parquet")`."""
-    return storage.exists(storage.location(dataset_id, *names))
+@pytest.fixture
+def fake(monkeypatch):
+    """OpenRouter replaced by a `FakeOpenRouter`, with no waiting between retries."""
+    fake = FakeOpenRouter()
+    monkeypatch.setattr(openrouter, "_request", fake)
+    monkeypatch.setattr(openrouter, "_catalog", None)
+    monkeypatch.setattr(openrouter, "RETRY_BASE_SECONDS", 0)
+    monkeypatch.setattr(runs, "PROGRESS_INTERVAL_SECONDS", 0.01)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    return fake
 
 
-def stored_datasets():
-    """The ids of the datasets with files in storage."""
-    if not config().s3_storage:
-        root = config().data_dir / "datasets"
-        return {p.name for p in root.iterdir()} if root.exists() else set()
-    bucket, prefix = storage._split(config().storage_url + "/")
-    found = storage._s3().list_objects_v2(Bucket=bucket, Prefix=prefix).get("Contents", [])
-    return {o["Key"].removeprefix(prefix).split("/")[0] for o in found}
+@pytest.fixture
+def api_key(client, fake):
+    assert client.put("/v1/settings/openrouter-key", json={"key": "sk-good"}).status_code == 200

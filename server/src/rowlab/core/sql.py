@@ -22,8 +22,9 @@ from pydantic import BaseModel, Field
 
 from rowlab.core import datasets, storage
 from rowlab.core.config import config
-from rowlab.core.datasets import ROW_ID, Column, sql_string
+from rowlab.core.datasets import ROW_ID, Column
 from rowlab.core.errors import InvalidRequest
+from rowlab.core.storage import sql_string
 
 ALL_ROWS = "SELECT * FROM data"
 

@@ -11,7 +11,7 @@ The app itself is served by the Python package, at app.rowlab.dev.
 
 ## Working on them
 
-Node 24 (`.nvmrc`) and pnpm. In either folder:
+Node 24 (the root `.nvmrc`) and pnpm. In either folder:
 
 ```sh
 pnpm install
@@ -60,6 +60,6 @@ Cloudflare caches what it serves; the pod sees little traffic.
 All three sites share the R mark, favicon set and social-card design. The source and
 regeneration command are in [`../brand/README.md`](../brand/README.md). Marketing
 pages and docs articles have page-specific metadata and preview images; generated
-API pages share an API-reference card. Regenerate assets when adding a docs article.
+API pages share an API-reference card. Regenerate assets (`make brand`) when adding a docs article.
 The app uses generic previews to avoid exposing workspace data and supports a
 build-time `NEXT_PUBLIC_APP_URL` override for its canonical origin.

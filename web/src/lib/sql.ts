@@ -72,11 +72,11 @@ export function viewSql(view: View, columns: Column[]): string {
 }
 
 /** A column name quoted for SQL. */
-export function ident(name: string): string {
+function ident(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
 /** A string literal for SQL. */
-export function sqlString(value: string): string {
+function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }

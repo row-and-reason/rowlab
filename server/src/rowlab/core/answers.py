@@ -18,8 +18,9 @@ import json
 from typing import Any
 
 from rowlab.core import db, storage
-from rowlab.core.datasets import ROW_ID, sql_ident, sql_string
+from rowlab.core.datasets import ROW_ID
 from rowlab.core.providers.openrouter import Request
+from rowlab.core.storage import sql_ident, sql_string
 
 # Rows per row group of `answers.parquet`: a chunk's lookup reads about one group of each file.
 ROW_GROUP_ROWS = 5000

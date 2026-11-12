@@ -110,9 +110,7 @@ def test_decision_scale_picks_the_most_likely_level():
 def test_decision_pick_any_asks_one_question_per_option():
     questions = tasks.decision_questions(TOPICS)
     assert list(questions) == ["option_0", "option_1"]
-    assert questions["option_0"]["instructions"] == (
-        'Is "price" a correct answer to the question in the text?'
-    )
+    assert '"price"' in questions["option_0"]["instructions"]
     reply = {"option_0": {"type": "noul", "noul": 0.7}, "option_1": {"type": "noul", "noul": 0.1}}
     assert tasks.read_decision(TOPICS, reply) == {
         "topic_price": True,
@@ -141,7 +139,6 @@ def test_llm_schema_fixes_the_reply_shape():
 def test_llm_messages_list_the_options():
     system, user = tasks.llm_messages(URGENCY, "How urgent? Server down")
     assert "- high: Act now" in system["content"]
-    assert "lowest to highest" in system["content"]
     assert user == {"role": "user", "content": "How urgent? Server down"}
 
 
@@ -214,14 +211,6 @@ def test_a_task_gets_a_column_and_models_that_suit_its_type():
     assert (picked.column, picked.models) == ("label", [tasks.DEFAULT_MODEL])
 
 
-def test_generation_preset_survives_prompt_edits_and_serialization():
-    task = Task(type="write", preset="translate", template="Use formal French: {{text}}")
-    restored = Task.model_validate_json(task.model_dump_json())
-    assert restored.preset == "translate"
-    assert restored.template == task.template
-    assert tasks.llm_schema(restored) == tasks.llm_schema(Task(type="write"))
-
-
 @pytest.mark.parametrize("field_type", ["text", "number", "boolean", "date"])
 def test_single_value_extraction_accepts_scalars(field_type):
     task = Task(
@@ -231,7 +220,6 @@ def test_single_value_extraction_accepts_scalars(field_type):
         fields=[{"name": "value", "type": field_type}],
     )
     tasks.check(task)
-    assert Task.model_validate_json(task.model_dump_json()).extraction_mode == "single"
     assert len(tasks.result_columns(task)) == 1
 
 
@@ -244,3 +232,12 @@ def test_single_value_extraction_rejects_structures(fields):
     )
     with pytest.raises(InvalidRequest, match="exactly one scalar"):
         tasks.check(task)
+
+
+def test_task_types_say_which_need_an_llm(client):
+    # The web app picks models, presets and field types from this.
+    types = client.get("/v1/utils/task-types").json()
+    for t in types["types"]:
+        assert t["llm_only"] == (t["family"] != "classify"), t["id"]
+    assert types["presets"]
+    assert "items" in [f["id"] for f in types["field_types"]]

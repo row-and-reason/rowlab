@@ -44,8 +44,22 @@ the task asked for one, explains odd answers.
 
 Then [export](/guides/exporting).
 
+## Label by hand
+
+Define the task as usual and choose **Label manually** rather than **Label with an LLM**. The run
+shows its rows one at a time, with the rendered prompt and the answer choices; choosing an answer
+saves it and moves to the next row. For pick any, tick the options and press **Save & next**; for
+text, Enter saves and Shift+Enter adds a line. Come back any
+time to continue. **Finish labeling** locks the dataset, leaving unanswered rows empty.
+
+No model is called, so no key is needed. Every answer type works; an extract answer is JSON with
+the task's fields. Columns are named as for a model run but without the model's name, and there are
+no `_proba` or status columns; they compare, query and export like any other. Agents do the same over
+[MCP](/agents/mcp#manual-labeling), scripts with the [API](/how-it-works/runs#manual-runs).
+
 ## Inspect a dataset’s origin
 
 Open **Origin** to see the source, selected row count, processed and failed model calls, cost, output
-columns, and recorded prompts. The labeling tools remain on the right. **Edit and run again** loads
-settings onto the parent without starting a run; it asks before replacing an existing draft.
+columns, and recorded prompts, with the run's SQL below them. An added file shows where it came from
+and when. The labeling tools remain on the right. **Edit and run again** loads settings onto the
+parent without starting a run; it asks before replacing an existing draft.

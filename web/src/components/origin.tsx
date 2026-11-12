@@ -4,7 +4,6 @@ import { ChevronDownIcon, GitCompareArrowsIcon, RepeatIcon } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { modelSlug } from "@/components/answer-settings";
 import { useCan } from "@/components/me";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -39,6 +38,7 @@ import {
   formatUsd,
 } from "@/lib/format";
 import { isActive } from "@/lib/runs";
+import { modelSlug } from "@/lib/tasks";
 import { useTaskTypes } from "@/lib/catalog";
 import { loadDraft, saveDraft } from "@/lib/draft";
 

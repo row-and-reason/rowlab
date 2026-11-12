@@ -98,7 +98,7 @@ def configure(con: duckdb.DuckDBPyConnection) -> None:
     settings = ", ".join(
         f"{key} {value}"
         if isinstance(value, bool) or key == "PROVIDER"
-        else f"{key} {_quote(value)}"
+        else f"{key} {sql_string(value)}"
         for key, value in options.items()
     )
     con.execute(f"CREATE TEMPORARY SECRET rowlab_storage (TYPE s3, {settings})")
@@ -119,11 +119,11 @@ def write(
         f", ROW_GROUP_SIZE {int(row_group_size)}" if row_group_size else ""
     )
     if config().s3_storage:
-        con.execute(f"COPY ({query}) TO {_quote(target)} ({options})", params or [])
+        con.execute(f"COPY ({query}) TO {sql_string(target)} ({options})", params or [])
         return
     Path(target).parent.mkdir(exist_ok=True)
     temporary = f"{target}.tmp"
-    con.execute(f"COPY ({query}) TO {_quote(temporary)} ({options})", params or [])
+    con.execute(f"COPY ({query}) TO {sql_string(temporary)} ({options})", params or [])
     os.replace(temporary, target)
 
 
@@ -190,12 +190,19 @@ def _region() -> str:
     return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
 
 
-def _quote(value: str) -> str:
-    return "'" + str(value).replace("'", "''") + "'"
-
-
 def check_not_storage(uri: str) -> None:
     """Raise InvalidRequest if an `s3://` source or export is in the bucket rowlab keeps datasets in:
     rowlab's own credentials reach it, and other organisations' datasets are there."""
     if config().s3_storage and _split(uri)[0] == _split(config().storage_url)[0]:
         raise InvalidRequest("That bucket is where rowlab keeps datasets. Use another one.")
+
+
+# Quoting for the SQL every module builds; here because storage is what every module imports.
+def sql_ident(name: str) -> str:
+    """A column name quoted for SQL."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def sql_string(value: object) -> str:
+    """A string literal for SQL."""
+    return "'" + str(value).replace("'", "''") + "'"

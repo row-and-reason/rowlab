@@ -13,8 +13,7 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { type Comparison } from "@/lib/api/client";
-import { type WhereFilter } from "@/lib/sql";
+import type { InspectRows, Pair } from "@/lib/comparison";
 
 const metric = (n: number | null) =>
   n === null
@@ -29,9 +28,9 @@ export function NumericComparison({
   tolerance,
   onFilter,
 }: {
-  pair: Comparison["pairs"][number];
+  pair: Pair;
   tolerance: number | null;
-  onFilter: (filters: WhereFilter[], columns: string[]) => void;
+  onFilter: InspectRows;
 }) {
   const stats = pair.numeric!;
   if (!stats.finite_pairs)

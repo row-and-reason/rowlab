@@ -1,8 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from helpers import call
 
-from rowlab.core import db, manual, runs, storage
+from rowlab.core import datasets, db, manual, runs, storage
 from rowlab.core.providers import openrouter
 
 
@@ -189,19 +190,19 @@ def test_multiple_tasks_and_concurrent_saves(client, source):
 def test_retry_interrupted_batch_between_chunks(client, source, monkeypatch):
     monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
     run = start(client, source)
-    original = runs._write_part
+    original = datasets.write_run_part
 
-    def crash(dataset_id, tasks, name, rows, **kwargs):
+    def crash(dataset_id, columns, name, rows):
         if name == "manual-1":
             raise RuntimeError("lost process")
-        original(dataset_id, tasks, name, rows, **kwargs)
+        original(dataset_id, columns, name, rows)
 
-    monkeypatch.setattr(runs, "_write_part", crash)
+    monkeypatch.setattr(datasets, "write_run_part", crash)
     with pytest.raises(RuntimeError, match="lost process"):
         save(client, run, [(0, True), (1, False)])
     assert [row["label"] for row in query(client, run)["rows"]] == [True, None, None]
     assert runs.get_run(run["id"]).done == 1
-    monkeypatch.setattr(runs, "_write_part", original)
+    monkeypatch.setattr(datasets, "write_run_part", original)
     assert save(client, run, [(0, True), (1, False)]).json()["done"] == 2
     assert [row["label"] for row in query(client, run)["rows"]] == [True, False, None]
 
@@ -220,8 +221,6 @@ def test_access(hosted):
 
 
 def test_mcp_manual_flow(client, source):
-    from test_mcp import call
-
     from rowlab.mcp.server import create_server
 
     mcp = create_server()

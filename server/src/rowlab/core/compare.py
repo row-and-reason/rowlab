@@ -18,8 +18,8 @@ import duckdb
 from pydantic import BaseModel, Field
 
 from rowlab.core import sql
-from rowlab.core.datasets import sql_ident, sql_string
 from rowlab.core.errors import InvalidRequest
+from rowlab.core.storage import sql_ident, sql_string
 
 # Bound display summaries; confusion cells prioritize differing values, then frequency.
 TOP_VALUES = 20

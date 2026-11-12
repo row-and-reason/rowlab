@@ -1,4 +1,10 @@
-.PHONY: dev api web gen-client test test-hosted lint build smoke smoke-compose site
+.DEFAULT_GOAL := dev
+.PHONY: setup dev api web gen-client test test-hosted lint build smoke smoke-compose site brand check
+
+# Install the server's and the web app's dependencies.
+setup:
+	cd server && uv sync
+	cd web && pnpm install
 
 # Run the API (:8000) and the web dev server (:3000) together.
 dev:
@@ -20,10 +26,16 @@ test:
 
 # The same tests on a hosted setup: Postgres (ROWLAB_TEST_DATABASE_URL) and datasets on S3 (moto).
 test-hosted:
+	@test -n "$$ROWLAB_TEST_DATABASE_URL" || { echo "Set ROWLAB_TEST_DATABASE_URL=postgresql://… first."; exit 1; }
 	cd server && ROWLAB_TEST_STORAGE=s3 uv run pytest
 
+# What CI checks, apart from the hosted and smoke tests: run before you finish. (CI also checks that
+# the openapi.json and web client this regenerates are the committed ones.)
+check: lint test build site
+	python3 brand/check.py
+
 lint:
-	cd server && uv run ruff check . ../scripts && uv run ruff format --check . ../scripts
+	cd server && uv run ruff check . ../scripts ../brand && uv run ruff format --check . ../scripts ../brand
 	cd web && pnpm lint && pnpm typecheck
 
 # Build the web UI, bundle it into the Python package, and build the wheel.
@@ -39,11 +51,16 @@ smoke: build
 	scripts/smoke-wheel.sh
 
 smoke-compose:
-	ROWLAB_IMAGE=rowlab:smoke ROWLAB_PORT=8002 docker compose -p rowlab-smoke up -d --build --wait
-	python3 scripts/smoke.py http://127.0.0.1:8002; status=$$?; \
-	  docker compose -p rowlab-smoke down -v; exit $$status
+	trap 'docker compose -p rowlab-smoke down -v' EXIT; \
+	  ROWLAB_IMAGE=rowlab:smoke ROWLAB_PORT=8002 docker compose -p rowlab-smoke up -d --build --wait && \
+	  python3 scripts/smoke.py http://127.0.0.1:8002
 
 # Build the website (rowlab.dev) and the docs (docs.rowlab.dev); see site/README.md.
 site:
-	cd site/www && pnpm install && pnpm build
-	cd site/docs && pnpm install && pnpm build
+	cd site/www && pnpm install --frozen-lockfile && pnpm build
+	cd site/docs && pnpm install --frozen-lockfile && pnpm build
+
+# Regenerate the icons and social cards of all three sites from brand/mark.svg; see brand/README.md.
+brand:
+	pnpm --dir site/docs install --frozen-lockfile
+	node brand/generate.mjs

@@ -26,7 +26,7 @@ columns added, and records which dataset it came from and how. Names say where a
 says what made it: the SQL, the tasks and the models.
 
 A 100-row run makes a 100-row result, with the original `__row_id` values. Existing results
-keep their stored rows. Rename a dataset from its menu or with MCP `dataset_rename`; IDs and
+keep their stored rows. Rename a dataset from its menu, ⌘K or MCP `dataset_rename`; IDs and
 lineage stay unchanged, and descendants keep their own names.
 
 This is deliberately not versioning. rowlab is a workspace between your storage and your storage;

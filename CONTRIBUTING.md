@@ -15,8 +15,8 @@ for the UI, and cleaning up as you go.
 Before opening a pull request:
 
 ```sh
-make lint test    # and `make test-hosted` if you touched the database or storage
-make gen-client   # after any API change: openapi.json and the web client must match it
+make check        # lint, test, build (which regenerates openapi.json and the web client), site
+make test-hosted  # if you touched the database or storage
 make smoke        # if you touched packaging or startup: end to end against the built wheel
 ```
 

@@ -26,8 +26,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rowlab.core.datasets import sql_ident
 from rowlab.core.errors import InvalidRequest
+from rowlab.core.storage import sql_ident
 
 AnswerType = Literal["yes_no", "pick_one", "pick_any", "scale", "extract", "write"]
 GenerationPreset = Literal["summarize", "translate"]
@@ -328,6 +328,22 @@ def result_columns(task: Task) -> list[str]:
         for model in task.models
         for key, column, _ in _column_map(task, model)
         if not key.endswith("_proba") and key != _REASON
+    ]
+
+
+def answer_columns(run_tasks: list[Task], *, manual: bool) -> list[str]:
+    """The answer columns a run writes for its tasks: `result_columns`, or `manual_columns` by name."""
+    if manual:
+        return [name for task in run_tasks for name, _ in manual_columns(task)]
+    return [column for task in run_tasks for column in result_columns(task)]
+
+
+def part_columns(run_tasks: list[Task], *, manual: bool) -> list[tuple[str, str]]:
+    """Every column a run writes for its tasks, with its SQL type."""
+    if manual:
+        return [column for task in run_tasks for column in manual_columns(task)]
+    return [
+        column for task in run_tasks for model in task.models for column in columns(task, model)
     ]
 
 

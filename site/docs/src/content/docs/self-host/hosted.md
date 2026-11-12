@@ -32,7 +32,12 @@ own and get tokens that are for rowlab alone. Scripts use an API key from **Sett
 
 `ROWLAB_SECRET_KEY` encrypts the OpenRouter keys and S3 credentials people save. Set
 `OPENROUTER_API_KEY` on the server to pay for everyone's calls; leave it unset and each organisation
-brings its own key. **Settings → Usage** shows what was spent, by day, model and person.
+brings its own key. **Settings → Usage** shows what was spent, by day, model and person; members see
+their own.
+
+**Settings → Storage** shows how much the organisation's datasets take, from their recorded sizes:
+not the files in S3 connections, and not a count of the disk. There are no storage quotas or billing
+yet; **Plans** is a preview of pricing.
 
 ## Analytics
 

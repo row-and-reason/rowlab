@@ -17,7 +17,7 @@ import { api, type Connection } from "@/lib/api/client";
 const ENVIRONMENT = "environment";
 
 /** Saved connections to S3-compatible storage, fetched again each time a form needs them. */
-export function useConnections(): Connection[] | undefined {
+function useConnections(): Connection[] | undefined {
   const [connections, setConnections] = useState<Connection[]>();
   useEffect(() => {
     api.GET("/v1/settings/connections").then(({ data }) => setConnections(data));

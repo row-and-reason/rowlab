@@ -7,6 +7,8 @@ import type { components, paths } from "./schema";
 export type Dataset = components["schemas"]["Dataset"];
 export type ColumnProfile = components["schemas"]["ColumnProfile"];
 export type QueryResult = components["schemas"]["QueryResult"];
+/** A row as the API returns it, by column name. */
+export type Row = QueryResult["rows"][number];
 export type RenderResult = components["schemas"]["RenderResult"];
 export type Run = components["schemas"]["Run"];
 export type Model = components["schemas"]["Model"];

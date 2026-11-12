@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from rowlab.core import connections, db, network, storage
 from rowlab.core.config import config
 from rowlab.core.errors import InvalidRequest, NotFound
+from rowlab.core.storage import sql_ident, sql_string
 
 ROW_ID = "__row_id"
 # In a run's part files: which answers failed, so they can be asked again. Not part of the dataset.
@@ -355,6 +356,34 @@ def reopen_run_dataset(dataset_id: str) -> None:
     storage.delete(storage.location(dataset_id, "data.parquet"))
 
 
+def write_run_part(
+    dataset_id: str, columns: list[tuple[str, str]], name: str, by_row: dict[int, dict[str, Any]]
+) -> None:
+    """Write a run's answers as one Parquet file: `__row_id`, the answer `columns` (name and SQL
+    type; empty where the model failed), and `__failed`, which models failed which tasks, as
+    `<task id> <model>`. Written to a temporary name first, so a part is complete or absent."""
+    columns = [*columns, (FAILED, "VARCHAR[]")]
+    with storage.connect() as con:
+        con.execute(
+            "CREATE TABLE part ("
+            + ", ".join(
+                [f"{sql_ident(ROW_ID)} BIGINT"] + [f"{sql_ident(n)} {t}" for n, t in columns]
+            )
+            + ")"
+        )
+        if by_row:
+            con.executemany(
+                f"INSERT INTO part VALUES ({', '.join('?' for _ in range(len(columns) + 1))})",
+                [
+                    [row_id, *(values.get(n) for n, _ in columns)]
+                    for row_id, values in by_row.items()
+                ],
+            )
+        storage.write(
+            con, "SELECT * FROM part", storage.location(dataset_id, "parts", f"{name}.parquet")
+        )
+
+
 def read_run_part(dataset_id: str, name: str) -> dict[int, dict[str, Any]]:
     """The answers in one part a run wrote, by `__row_id`."""
     part = sql_string(storage.location(dataset_id, "parts", f"{name}.parquet"))
@@ -552,13 +581,3 @@ def dataset_source(dataset_id: str, *, unfinished: bool = False) -> str:
         f"FROM read_parquet({rows}) AS r "
         f"LEFT JOIN read_parquet({parts}) AS a USING ({ROW_ID}))"
     )
-
-
-def sql_ident(name: str) -> str:
-    """A column name quoted for SQL."""
-    return '"' + name.replace('"', '""') + '"'
-
-
-def sql_string(value: object) -> str:
-    """A string literal for SQL."""
-    return "'" + str(value).replace("'", "''") + "'"
