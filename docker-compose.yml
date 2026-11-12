@@ -12,7 +12,7 @@ x-rowlab: &rowlab
       required: false
   environment:
     ROWLAB_DATABASE_URL: postgresql://rowlab:rowlab@postgres:5432/rowlab
-    ROWLAB_STORAGE_URL: s3://rowlab/datasets
+    ROWLAB_STORAGE_URL: s3://app-rowlab-datasets/datasets
     AWS_ENDPOINT_URL: http://s3:7070
     AWS_ACCESS_KEY_ID: rowlab
     AWS_SECRET_ACCESS_KEY: rowlab-local-secret
@@ -54,7 +54,7 @@ services:
   # S3 storage on a folder (VersityGW); a bucket is a folder in it.
   s3-bucket:
     image: alpine:3.22
-    command: ["mkdir", "-p", "/data/rowlab"]
+    command: ["mkdir", "-p", "/data/app-rowlab-datasets"]
     volumes:
       - s3:/data
 
