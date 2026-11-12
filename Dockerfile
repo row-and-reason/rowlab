@@ -2,7 +2,9 @@
 #   docker build -t rowlab .
 # `rowlab serve` by default; `rowlab runner` for a separate runner. See docker-compose.yml.
 
-FROM node:24-alpine AS web
+# The web UI is static files, the same on every platform, so it builds natively instead of under
+# emulation for arm64, where `pnpm install` can hang.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS web
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 WORKDIR /src/web
