@@ -22,10 +22,18 @@ export function useSameColumns(columns: Column[]): Column[] {
 export function useComparisonUrl(datasetColumns: Column[]) {
   const params = useSearchParams();
   const encoded = params.get("compare");
-  const columns = useMemo(
+  const parsed = useMemo(
     () => parseComparedColumns(encoded, datasetColumns),
     [encoded, datasetColumns],
   );
+  // The address reaches `params` a render after a pick, so the pick is kept here too: a second quick
+  // pick must build on the first, not on the address before it.
+  const [columns, setColumns] = useState(parsed);
+  const [previous, setPrevious] = useState(parsed);
+  if (parsed !== previous) {
+    setPrevious(parsed);
+    if (JSON.stringify(parsed) !== JSON.stringify(columns)) setColumns(parsed);
+  }
   const referenceParam = params.get("reference");
   const reference = comparableColumns(datasetColumns).some((c) => c.name === referenceParam)
     ? referenceParam
@@ -39,7 +47,10 @@ export function useComparisonUrl(datasetColumns: Column[]) {
     trim_whitespace?: boolean;
   }) {
     const query = new URLSearchParams(window.location.search);
-    if (next.columns) query.set("compare", JSON.stringify(next.columns));
+    if (next.columns) {
+      setColumns(next.columns);
+      query.set("compare", JSON.stringify(next.columns));
+    }
     if (next.reference !== undefined) {
       if (next.reference) query.set("reference", next.reference);
       else query.delete("reference");
