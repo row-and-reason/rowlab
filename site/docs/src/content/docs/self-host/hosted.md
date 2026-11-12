@@ -57,6 +57,13 @@ rowlab serve --no-runner   # the API and web app
 rowlab runner              # as many as you like
 ```
 
+Both stop gracefully on `SIGTERM`. The API stops taking connections and finishes the requests under
+way. A runner takes no more runs, lets the model calls in flight finish (a few seconds usually; up
+to about four minutes when OpenRouter keeps timing out and is retried), then puts its run back in the
+queue, where the next runner continues it at once. The chunk under way is redone, without paying again
+for the replies it already got. A runner that is killed instead loses only the calls in flight, and
+its run is taken back after two minutes of silence.
+
 ## In front of it
 
 Put a reverse proxy or a tunnel in front, with TLS. Rate limits per client aren't rowlab's job: set

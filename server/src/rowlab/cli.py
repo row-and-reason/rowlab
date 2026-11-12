@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import signal
 import sys
 
 import uvicorn
@@ -43,6 +44,10 @@ def main() -> None:
         from rowlab.core import runs
 
         logging.basicConfig(level=logging.INFO)
+        # A pod stopping, or Ctrl-C: finish the calls in flight and give the run back. (As PID 1 in
+        # a container, Python would otherwise ignore SIGTERM until it is killed.)
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(signum, lambda *_: runs.shut_down())
         runs.recover_interrupted_runs()
         runs.run_forever()
     elif args.command == "mcp":
