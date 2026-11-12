@@ -48,10 +48,13 @@ const NO_REFERENCE = "none";
 /** Compare the whole dataset. URL-backed setup survives reloads and trips to the underlying rows. */
 export function CompareView({
   dataset,
+  version,
   onFilter,
   actionsRef,
 }: {
   dataset: Dataset;
+  /** Changes when answers do, so the comparison is fetched again. */
+  version: number;
   actionsRef: React.RefObject<ComparisonActions | null>;
   onFilter: InspectRows;
 }) {
@@ -80,7 +83,7 @@ export function CompareView({
       ),
     [columns, reference, tolerance, ignoreCase, trimWhitespace, datasetColumns],
   );
-  const result = useComparison(dataset.id, request, dataset.run?.done);
+  const result = useComparison(dataset.id, request, version);
   useRunDefaultColumns(dataset.run?.id);
 
   return (

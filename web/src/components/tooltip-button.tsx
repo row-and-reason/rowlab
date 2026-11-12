@@ -6,12 +6,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 export function TooltipButton({
   label,
   keys,
+  side,
   ...props
-}: React.ComponentProps<typeof Button> & { label: string; keys?: string[] }) {
+}: React.ComponentProps<typeof Button> & {
+  label: string;
+  keys?: string[];
+  side?: React.ComponentProps<typeof TooltipContent>["side"];
+}) {
   return (
     <Tooltip>
       <TooltipTrigger render={<Button aria-label={label} {...props} />} />
-      <TooltipContent>
+      <TooltipContent side={side}>
         {label}
         {keys && <Keys keys={keys} />}
       </TooltipContent>

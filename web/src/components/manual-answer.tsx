@@ -71,6 +71,8 @@ export function ManualAnswer({
             key={o.name}
             label={o.description || o.name}
             keys={i < 9 ? [String(i + 1)] : undefined}
+            // Beside, not above: above, it would cover the option before it.
+            side="right"
             size="sm"
             variant={current === o.name ? "default" : "outline"}
             disabled={disabled}
