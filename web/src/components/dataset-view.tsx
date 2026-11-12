@@ -110,7 +110,9 @@ export function DatasetPanels({
   const manualOpen = run?.status === "manual";
   const [finishOpen, setFinishOpen] = useState(false);
   const [manualPosition, setManualPosition] = useState(0);
+  // Changes whenever answers do: a run finishing rows, or a hand-labelled answer saved or edited.
   const [saved, setSaved] = useState(0);
+  const version = (run?.done ?? 0) + saved;
   const [manualQuery, setManualQuery] = useState(sql);
   if (manualQuery !== sql) {
     setManualQuery(sql);
@@ -314,7 +316,7 @@ export function DatasetPanels({
               view={draft.view}
               sql={sql}
               onViewChange={updateView}
-              version={(run?.done ?? 0) + saved}
+              version={version}
               onCount={setSelectedCount}
               onPickRow={manualOpen ? setManualPosition : undefined}
               selectedPosition={manualOpen ? manualPosition : undefined}
@@ -326,7 +328,12 @@ export function DatasetPanels({
           </TabsContent>
           {/* Kept mounted, so the columns picked stay picked while looking at their rows. */}
           <TabsContent value="compare" keepMounted className="min-h-0 flex-1 overflow-hidden">
-            <CompareView dataset={dataset} onFilter={showRows} actionsRef={comparisonActionsRef} />
+            <CompareView
+              dataset={dataset}
+              version={version}
+              onFilter={showRows}
+              actionsRef={comparisonActionsRef}
+            />
           </TabsContent>
           <TabsContent value="origin" className="min-h-0 flex-1 overflow-auto">
             <Origin
