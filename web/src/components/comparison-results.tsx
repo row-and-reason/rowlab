@@ -19,12 +19,15 @@ import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
 
 export function ComparisonResults({
   dataset,
+  version,
   comparison,
   onFilter,
   actionsRef,
 }: {
   actionsRef: React.RefObject<ComparisonActions | null>;
   dataset: Dataset;
+  /** Changes when answers do, so a pair's own comparison is fetched again. */
+  version: number;
   comparison: Comparison;
   onFilter: InspectRows;
 }) {
@@ -198,6 +201,7 @@ export function ComparisonResults({
         ) : (
           <PairDetail
             dataset={dataset}
+            version={version}
             comparison={comparison}
             pair={pair}
             reference={ref ? reference : null}
@@ -211,12 +215,14 @@ export function ComparisonResults({
 
 function PairDetail({
   dataset,
+  version,
   comparison,
   pair,
   reference,
   onFilter,
 }: {
   dataset: Dataset;
+  version: number;
   comparison: Comparison;
   pair: Pair;
   reference: string | null;
@@ -242,7 +248,7 @@ function PairDetail({
       comparison.trim_whitespace,
     ],
   );
-  const result = useComparison(dataset.id, request, dataset.run?.done);
+  const result = useComparison(dataset.id, request, version);
   const data = comparison.columns.length === 2 ? comparison : result.data;
   if (result.error)
     return (
