@@ -67,3 +67,11 @@ Guidance for AI agents (and humans) working in this repo. See `README.md` for wh
 - **Leave the repo consistent.** Before you finish, `make check` (lint, test, build, site) passes (plus
   `make test-hosted` if you touched the database or storage), `openapi.json` and the web client are
   committed as `make build` regenerated them, and the README still describes reality.
+
+## Publish, never deploy
+
+- This repository publishes images (`.github/workflows/publish.yml`: `sha-` tags from `main`, versions
+  from `v*` tags). It never deploys. Ekku's homelab decides what runs and when: it pins a published
+  image in its own PR, and merging that PR deploys
+  ([homelab releases](https://github.com/ekkuleivonen/homelab/blob/main/docs/kubernetes.md#releases)).
+  Report *published* separately from *released to production*.
