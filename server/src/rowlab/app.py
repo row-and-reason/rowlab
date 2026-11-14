@@ -31,13 +31,16 @@ class Health(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    metrics.serve()
+    served = metrics.serve()
     # Runs execute in this process, unless runners run on their own (`rowlab serve --no-runner`).
     if not os.environ.get("ROWLAB_NO_RUNNER"):
         runs_core.start_runner()
     # The MCP app, mounted below, needs its lifespan to serve requests.
     async with app.state.mcp.lifespan(app.state.mcp):
         yield
+    if served:
+        served.shutdown()
+        served.server_close()
 
 
 def create_app() -> FastAPI:
@@ -70,14 +73,18 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def time_requests(request: Request, call_next):
         started = time.monotonic()
-        response = await call_next(request)
-        route = getattr(request.scope.get("route"), "path", None)
-        if route is None or not route.startswith("/v1/"):
-            route = "/mcp" if request.url.path.startswith("/mcp") else "other"
-        metrics.HTTP_REQUEST_SECONDS.labels(
-            request.method, route, str(response.status_code)
-        ).observe(time.monotonic() - started)
-        return response
+        status = "500"  # unless it answers: an error nothing handles is re-raised here
+        try:
+            response = await call_next(request)
+            status = str(response.status_code)
+            return response
+        finally:
+            route = getattr(request.scope.get("route"), "path", None)
+            if route is None or not route.startswith("/v1/"):
+                route = "/mcp" if request.url.path.startswith("/mcp") else "other"
+            metrics.HTTP_REQUEST_SECONDS.labels(request.method, route, status).observe(
+                time.monotonic() - started
+            )
 
     @app.get("/v1/health", operation_id="getHealth")
     def health() -> Health:

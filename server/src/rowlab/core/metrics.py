@@ -5,30 +5,29 @@ the address people reach never shows them. Nothing is served unless the port is 
 - `rowlab_model_call_duration_seconds{model, outcome}`: every attempt at a paid model call, so a retry
   counts again. `outcome` is `ok`, `rate_limited` (429), `server_error` (5xx), `unreachable` (no
   answer in time, or none at all) or `refused` (any other 4xx).
-- `rowlab_runner_calls_in_flight`, `rowlab_runner_call_slots`: model calls a runner is making, and
-  how many it makes at most.
+- `rowlab_runner_calls_in_flight`, `rowlab_runner_call_slots`: a runner's call slots in use, a call
+  waiting to be retried included, and how many it has.
 - `rowlab_answers_total{model, result}`: answers given to runs, `answered` (paid for), `cached` (free)
-  or `failed`.
+  or `failed`. As in the usage, replies paid for in a chunk that is redone after a stop count again,
+  as `cached`.
 - `rowlab_model_cost_usd_total{model}`, `rowlab_model_tokens_total{model, kind}` (`input`, `output`):
   what the paid answers cost, as OpenRouter bills it.
 - `rowlab_runs_finished_total{status}`: runs `done` or `failed`.
 - `rowlab_runs{status}` (`queued`, `running`, `stopping`) and `rowlab_run_queue_wait_seconds`, how long
-  the run first in line has waited for its turn: read from the database at every scrape, by runners
-  only. Every runner reports the same figures, so take their `max`.
+  the run first in line has waited for its turn: read from the database at every scrape, so every
+  process reports the same figures, even with no runner up; take their `max`.
 """
 
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from wsgiref.simple_server import WSGIServer
 
 from prometheus_client import REGISTRY, Counter, Gauge, Histogram, start_http_server
 from prometheus_client.core import GaugeMetricFamily
 
 from rowlab.core import db
 from rowlab.core.config import config
-
-if TYPE_CHECKING:
-    from rowlab.core.usage import Spent
+from rowlab.core.usage import Spent
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +43,9 @@ MODEL_CALL_SECONDS = Histogram(
     ["model", "outcome"],
     buckets=(0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 60, float("inf")),
 )
-CALLS_IN_FLIGHT = Gauge("rowlab_runner_calls_in_flight", "Model calls a runner is making.")
+CALLS_IN_FLIGHT = Gauge(
+    "rowlab_runner_calls_in_flight", "Call slots in use, calls waiting to be retried included."
+)
 CALL_SLOTS = Gauge("rowlab_runner_call_slots", "Model calls a runner makes at most at once.")
 ANSWERS = Counter("rowlab_answers", "Answers given to runs.", ["model", "result"])
 COST = Counter("rowlab_model_cost_usd", "USD paid for answers.", ["model"])
@@ -52,10 +53,19 @@ TOKENS = Counter("rowlab_model_tokens", "Tokens billed for answers.", ["model", 
 RUNS_FINISHED = Counter("rowlab_runs_finished", "Runs finished.", ["status"])
 
 
-def serve() -> None:
-    """Serve the metrics on `ROWLAB_METRICS_PORT`, if it is set."""
-    if config().metrics_port:
-        start_http_server(config().metrics_port)
+_queue_registered = False
+
+
+def serve() -> WSGIServer | None:
+    """Serve the metrics on `ROWLAB_METRICS_PORT`, if it is set, with the run queue's."""
+    if not config().metrics_port:
+        return None
+    global _queue_registered
+    if not _queue_registered:
+        REGISTRY.register(_Queue())
+        _queue_registered = True
+    server, _ = start_http_server(config().metrics_port)
+    return server
 
 
 def outcome(status: int | None) -> str:
@@ -69,7 +79,7 @@ def outcome(status: int | None) -> str:
     return "refused" if status >= 400 else "ok"
 
 
-def count_spent(spent: dict[tuple[str, str], "Spent"]) -> None:
+def count_spent(spent: dict[tuple[str, str], Spent]) -> None:
     """Add what runs spent, by task and model, as `usage.add` records it."""
     for (_, model), this in spent.items():
         ANSWERS.labels(model, "answered").inc(this.answers - this.cached)
@@ -95,6 +105,7 @@ class _Queue:
                     " WHERE status IN ('queued', 'running', 'stopping') GROUP BY status"
                 ).fetchall()
         except Exception:
+            # The other metrics are still served. (On Postgres, this waits for a connection first.)
             log.warning("Could not read the run queue for metrics", exc_info=True)
             return
         by_status = {row["status"]: row for row in found}
@@ -108,15 +119,3 @@ class _Queue:
         wait.add_metric([], max(0.0, waited))
         yield runs
         yield wait
-
-
-_queue_registered = False
-
-
-def watch_queue(slots: int) -> None:
-    """Report the run queue and this runner's call slots; for processes that run a runner."""
-    global _queue_registered
-    CALL_SLOTS.set(slots)
-    if not _queue_registered:
-        REGISTRY.register(_Queue())
-        _queue_registered = True

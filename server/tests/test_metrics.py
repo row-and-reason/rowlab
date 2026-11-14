@@ -9,7 +9,7 @@ from helpers import NEGATIVE, run, start
 from prometheus_client import REGISTRY
 
 from rowlab.app import create_app
-from rowlab.core import metrics, runs
+from rowlab.core import datasets, runs
 from rowlab.core.config import config
 
 pytestmark = pytest.mark.usefixtures("fake")
@@ -61,12 +61,25 @@ def test_each_rate_limited_attempt_is_timed(client, job, api_key, fake):
     assert after - before == 2
 
 
-def test_the_queue_is_read_from_the_database(client, job, api_key):
-    metrics.watch_queue(runs.CONCURRENCY)
+@pytest.fixture
+def served(monkeypatch):
+    """An API serving its metrics on a port of their own, as in production: no runner. Returns the
+    client and the metrics' URL."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    monkeypatch.setenv("ROWLAB_METRICS_PORT", str(port))
+    monkeypatch.setenv("ROWLAB_NO_RUNNER", "1")
+    config.cache_clear()
+    with TestClient(create_app()) as client:
+        yield client, f"http://127.0.0.1:{port}/metrics"
+
+
+def test_the_queue_is_read_from_the_database_even_with_no_runner(served, job, api_key):
+    client, _ = served
     start(client, job)
     assert value("rowlab_runs", status="queued") == 1
     assert value("rowlab_run_queue_wait_seconds") >= 0
-    assert value("rowlab_runner_call_slots") == runs.CONCURRENCY
     while runs.process_next():
         pass
     assert value("rowlab_runs", status="queued") == 0
@@ -85,16 +98,29 @@ def test_requests_are_timed_by_route_template(client, job):
     assert after - before == 1
 
 
-def test_metrics_are_served_on_their_own_port_only(monkeypatch):
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    monkeypatch.setenv("ROWLAB_METRICS_PORT", str(port))
-    monkeypatch.setenv("ROWLAB_NO_RUNNER", "1")
-    config.cache_clear()
-    with TestClient(create_app()) as client:
-        served = httpx.get(f"http://127.0.0.1:{port}/metrics")
-        # Never on the port people reach.
-        assert "rowlab_" not in client.get("/metrics").text
-    assert served.status_code == 200
-    assert "rowlab_model_call_duration_seconds" in served.text
+def test_errors_nothing_handles_are_timed_as_500s(job, monkeypatch):
+    route = "/v1/datasets/{dataset_id}"
+    before = value(
+        "rowlab_http_request_duration_seconds_count", method="GET", route=route, status="500"
+    )
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("a bug")
+
+    monkeypatch.setattr(datasets, "check_access", broken)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    assert client.get(f"/v1/datasets/{job['dataset_id']}").status_code == 500
+    after = value(
+        "rowlab_http_request_duration_seconds_count", method="GET", route=route, status="500"
+    )
+    assert after - before == 1
+
+
+def test_metrics_are_served_on_their_own_port_only(served):
+    client, url = served
+    scraped = httpx.get(url)
+    assert scraped.status_code == 200
+    assert "rowlab_model_call_duration_seconds" in scraped.text
+    assert "rowlab_runs{" in scraped.text
+    # Never on the port people reach.
+    assert "rowlab_" not in client.get("/metrics").text

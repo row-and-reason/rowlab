@@ -129,9 +129,7 @@ def config() -> Config:
         posthog_host=(os.environ.get("ROWLAB_POSTHOG_HOST") or "https://eu.i.posthog.com").rstrip(
             "/"
         ),
-        metrics_port=(
-            _number("ROWLAB_METRICS_PORT", 0, int) if os.environ.get("ROWLAB_METRICS_PORT") else 0
-        ),
+        metrics_port=int(os.environ.get("ROWLAB_METRICS_PORT") or 0),
         cors_origins=tuple(o for o in os.environ.get("ROWLAB_CORS_ORIGINS", "").split(",") if o),
         duckdb_memory=_size("ROWLAB_DUCKDB_MEMORY", "1GB")[0],
         duckdb_threads=_number("ROWLAB_DUCKDB_THREADS", 2, int),

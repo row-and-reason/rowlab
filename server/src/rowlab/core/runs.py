@@ -417,7 +417,7 @@ def process_next() -> bool:
 def run_forever() -> None:
     """Process queued runs a chunk at a time, until `shut_down`; `rowlab runner` runs just this.
     While idle, runs whose runner stopped (another process that crashed) are queued again."""
-    metrics.watch_queue(CONCURRENCY)
+    metrics.CALL_SLOTS.set(CONCURRENCY)
     while not _shutdown.is_set():
         try:
             if process_next():
