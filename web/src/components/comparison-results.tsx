@@ -5,14 +5,30 @@ import { useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { ComparisonCrosstab } from "@/components/comparison-crosstab";
 import { ComparisonPairs } from "@/components/comparison-pairs";
-import { Count, Definition } from "@/components/comparison-parts";
+import { Count, Definition, Rate } from "@/components/comparison-parts";
 import { NumericComparison } from "@/components/numeric-comparison";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { type Comparison, type Dataset } from "@/lib/api/client";
-import { metric, missingRows, percent, type InspectRows, type Pair } from "@/lib/comparison";
+import {
+  againstReference,
+  metric,
+  missingRows,
+  percent,
+  type InspectRows,
+  type Pair,
+  type ReferenceMetrics,
+} from "@/lib/comparison";
 import { columnLabel, formatNumber } from "@/lib/format";
 import { ALL_ROWS } from "@/lib/sql";
 import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
@@ -44,9 +60,7 @@ export function ComparisonResults({
   const primary = pairs.filter((p) => !reference || p.columns[1] === reference);
   const secondary = reference ? pairs.filter((p) => p.columns[1] !== reference) : [];
   const pair = pairs.find((p) => JSON.stringify(p.columns) === params.get("pair")) ?? primary[0];
-  const ref = comparison.reference?.find(
-    (r) => r.column === pair.columns[0] && pair.columns[1] === reference,
-  );
+  const ref = againstReference(comparison, pair).metrics;
   const ruleLabel =
     comparison.tolerance !== null
       ? `tolerance ${comparison.tolerance}`
@@ -93,7 +107,29 @@ export function ComparisonResults({
   return (
     <div className="min-h-0 flex-1 overflow-auto text-sm">
       <div className="space-y-4 p-3">
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs tabular-nums">
+          {comparison.columns.length > 2 && (
+            <span>
+              <Definition
+                label="All agree"
+                description="Rows where every answer is the same / those rows plus rows where at least two answers differ. Rows with some answers missing and the rest the same are left out."
+              />{" "}
+              <strong>
+                <Rate rate={comparison.agreement.rate} ci={comparison.agreement.rate_ci} />
+              </strong>
+            </span>
+          )}
+          <span>
+            <Definition
+              label="α"
+              description="Krippendorff's α across all columns: agreement beyond chance; 1 is perfect, 0 is chance."
+            />{" "}
+            <strong>{metric(comparison.agreement.alpha)}</strong>{" "}
+            <span className="text-muted-foreground">{comparison.agreement.alpha_level}</span>
+          </span>
+        </div>
         <ComparisonPairs
+          comparison={comparison}
           pairs={primary}
           selected={pair}
           reference={reference}
@@ -110,6 +146,7 @@ export function ComparisonResults({
             </CollapsibleTrigger>
             <CollapsibleContent>
               <ComparisonPairs
+          comparison={comparison}
                 pairs={secondary}
                 selected={pair}
                 reference={null}
@@ -169,6 +206,18 @@ export function ComparisonResults({
                 </>
               )
             )}
+            {ref?.calibration && (
+              <span>
+                <Definition
+                  label="Calibrated on"
+                  description="Rows with an answer, a reference and a probability between 0 and 1."
+                />{" "}
+                <strong>{formatNumber(ref.calibration.rows)}</strong>{" "}
+                <span className="text-muted-foreground">
+                  {columnLabel(ref.calibration.probability_column)}
+                </span>
+              </span>
+            )}
           </div>
           {missing > 0 && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -196,6 +245,9 @@ export function ComparisonResults({
             </div>
           )}
         </section>
+        {ref?.calibration && ref.calibration.bins.length > 0 && (
+          <Calibration calibration={ref.calibration} columns={pair.columns} onFilter={onFilter} />
+        )}
         {pair.numeric ? (
           <NumericComparison pair={pair} tolerance={comparison.tolerance} onFilter={onFilter} />
         ) : (
@@ -205,6 +257,7 @@ export function ComparisonResults({
             comparison={comparison}
             pair={pair}
             reference={ref ? reference : null}
+            metrics={ref}
             onFilter={onFilter}
           />
         )}
@@ -219,6 +272,7 @@ function PairDetail({
   comparison,
   pair,
   reference,
+  metrics,
   onFilter,
 }: {
   dataset: Dataset;
@@ -226,6 +280,7 @@ function PairDetail({
   comparison: Comparison;
   pair: Pair;
   reference: string | null;
+  metrics: ReferenceMetrics | undefined;
   onFilter: InspectRows;
 }) {
   const request = useMemo(
@@ -272,8 +327,65 @@ function PairDetail({
       pair={pair}
       tolerance={comparison.tolerance}
       reference={reference}
-      metrics={comparison.reference?.find((r) => r.column === pair.columns[0])}
+      metrics={metrics}
       onFilter={onFilter}
     />
+  );
+}
+
+/** The model's probability in ten bins, each with how often it is right; a bin's rows open in Rows. */
+function Calibration({
+  calibration,
+  columns,
+  onFilter,
+}: {
+  calibration: NonNullable<ReferenceMetrics["calibration"]>;
+  columns: string[];
+  onFilter: InspectRows;
+}) {
+  const probability = columnLabel(calibration.probability_column);
+  return (
+    <section className="space-y-2">
+      <h3 className="font-medium">Calibration</h3>
+      <Table aria-label="Calibration bins">
+        <TableHeader>
+          <TableRow>
+            <TableHead>{probability}</TableHead>
+            <TableHead className="text-right">Rows</TableHead>
+            <TableHead className="text-right">
+              <Definition label="Mean probability" description="The bin's average probability." />
+            </TableHead>
+            <TableHead className="text-right">
+              <Definition label="Accuracy" description="The share of the bin's rows that are right." />
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {calibration.bins.map((bin) => {
+            const range = `${bin.lower.toFixed(1)}–${bin.upper.toFixed(1)}`;
+            return (
+              <TableRow key={bin.lower}>
+                <TableCell className="text-xs tabular-nums">{range}</TableCell>
+                <TableCell className="text-right">
+                  <Count
+                    rows={bin.rows}
+                    where={bin.where}
+                    label={`${probability} in ${range}`}
+                    columns={[...columns, calibration.probability_column]}
+                    onFilter={onFilter}
+                  />
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {percent(bin.mean_probability)}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {percent(bin.accuracy)}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </section>
   );
 }

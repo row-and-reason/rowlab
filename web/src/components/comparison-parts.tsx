@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { InspectRows } from "@/lib/comparison";
+import { percent, type InspectRows, type Pair } from "@/lib/comparison";
 import { formatNumber } from "@/lib/format";
 
 /** A label with a tooltip explaining what it counts. */
@@ -14,6 +14,20 @@ export function Definition({ label, description }: { label: string; description:
       </TooltipTrigger>
       <TooltipContent>{description}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** A rate with its 95% interval: `80.0% (49.0–94.3)`. */
+export function Rate({ rate, ci }: { rate: number | null; ci: Pair["rate_ci"] }) {
+  return (
+    <span className="tabular-nums">
+      {percent(rate)}
+      {ci && (
+        <span className="text-muted-foreground">
+          {` (${(ci.low * 100).toFixed(1)}–${(ci.high * 100).toFixed(1)})`}
+        </span>
+      )}
+    </span>
   );
 }
 
