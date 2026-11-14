@@ -60,3 +60,4 @@ done.
 - [Labeling](/guides/labeling), the workflow in full.
 - [Comparing models](/guides/comparing-models), before a run that costs real money.
 - [MCP](/agents/mcp), to let an agent do this for you.
+- [Python SDK](/agents/python), to do it from a script or a notebook.

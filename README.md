@@ -35,6 +35,8 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
   `claude mcp add --transport http rowlab http://localhost:8000/mcp`.
 - [API reference](https://docs.rowlab.dev/api/): the web app uses only the public API, so anything
   it can do, a script can do.
+- [Python SDK](https://docs.rowlab.dev/agents/python) for scripts and notebooks:
+  `pip install 'rowlab-python-sdk[polars]'`.
 
 ## Principles
 
@@ -50,13 +52,13 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
 Requires [uv](https://docs.astral.sh/uv/), [pnpm](https://pnpm.io/) and Node 24.
 
 ```sh
-make setup        # uv sync + pnpm install
+make setup        # uv sync (server, sdk) + pnpm install
 make dev          # API on :8000 (docs at /docs), web on :3000
-make test         # server tests (SQLite, datasets on disk)
+make test         # server and SDK tests (SQLite, datasets on disk)
 make test-hosted  # the same on Postgres (ROWLAB_TEST_DATABASE_URL) with datasets on S3
 make lint         # ruff, eslint, tsc
 make check        # lint, test, build, site and brand check: what to run before you finish
-make gen-client   # after any API change: regenerate openapi.json + web/src/lib/api/schema.ts
+make gen-client   # after any API change: regenerate openapi.json, web/src/lib/api/schema.ts and the SDK models
 make build        # web static export bundled into the Python wheel → server/dist/
 make smoke        # end to end against that wheel (make smoke-compose: against docker-compose.yml)
 make site         # the website and the docs → site/*/dist
@@ -69,6 +71,8 @@ Run the built package as a user would: `uvx --from server/dist/rowlab-*.whl rowl
   server lives in the same package and calls the same `core/` logic as the API.
 - `web/` — Next.js static export, TanStack Table, TipTap, shadcn; API client generated from
   `openapi.json`
+- `sdk/` — the Python SDK, `rowlab-python-sdk`: a hand-written client over models generated from
+  `openapi.json`; released by tagging `rowlab-python-sdk-v<version>`
 - `site/` — the website and the docs (Astro, Starlight); see [site/README.md](site/README.md)
 
 [ROADMAP.md](ROADMAP.md) has what comes next, [AGENTS.md](AGENTS.md) how to work in this repo,

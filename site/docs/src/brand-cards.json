@@ -1,5 +1,6 @@
 {
   "agents-mcp": "docs-agents-mcp",
+  "agents-python": "docs-agents-python",
   "agents-skills": "docs-agents-skills",
   "changelog": "docs-changelog",
   "data": "docs-data",

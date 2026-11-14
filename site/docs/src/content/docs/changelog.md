@@ -17,3 +17,5 @@ rowlab is pre-alpha, on its way to a first release. What is in it today:
 - An MCP server with the same work as tools, and skills for agents. It keeps no sessions, so
   deploys don't disconnect agents, and on a hosted rowlab agents upload and download files with
   short-lived links.
+- A Python SDK, `rowlab-python-sdk`: a typed client to upload, run, export and compare from scripts
+  and notebooks.
