@@ -15,6 +15,9 @@ needs are on. Everything else is configuration:
   default.
 - `ROWLAB_PRIVATE_URLS`: whether web sources and S3 endpoints may be private addresses (localhost, the
   local network, cloud metadata). On in `local` mode, off in `hosted` mode by default.
+- `ROWLAB_PRIVATE_S3_HOSTS`: comma-separated hostnames, e.g. `s3.nas.example.com`, that S3 connections
+  may reach even on a private address. Exact names only: no wildcards, and not their subdomains. Anyone
+  who can add a connection can then aim it at them, with valid keys.
 - `ROWLAB_URL`: where people reach rowlab, e.g. `https://rowlab.example.com`; `hosted` mode only.
 - `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WORKOS_AUTHKIT_DOMAIN` (e.g. `https://x.authkit.app`):
   the WorkOS project people sign in with; `hosted` mode only.
@@ -51,6 +54,7 @@ class Config:
     storage_url: str
     server_files: bool
     private_urls: bool
+    private_s3_hosts: frozenset[str]
     url: str
     workos_client_id: str
     workos_api_key: str
@@ -105,6 +109,14 @@ def config() -> Config:
         ),
         server_files=_flag("ROWLAB_SERVER_FILES", local),
         private_urls=_flag("ROWLAB_PRIVATE_URLS", local),
+        private_s3_hosts=frozenset(
+            host
+            for host in (
+                h.strip().lower().rstrip(".")
+                for h in os.environ.get("ROWLAB_PRIVATE_S3_HOSTS", "").split(",")
+            )
+            if host
+        ),
         url=hosted["ROWLAB_URL"].rstrip("/"),
         workos_client_id=hosted["WORKOS_CLIENT_ID"],
         workos_api_key=hosted["WORKOS_API_KEY"],

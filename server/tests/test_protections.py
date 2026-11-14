@@ -104,6 +104,44 @@ def test_hosted_s3_endpoints_must_be_public(hosted):
     assert "private address" in response.json()["detail"]
 
 
+def test_hosted_s3_endpoints_on_private_s3_hosts_are_allowed(hosted, monkeypatch):
+    configure(monkeypatch, ROWLAB_PRIVATE_S3_HOSTS="NAS.local., other.local")
+    client = hosted("ada@example.com")
+    monkeypatch.setattr(
+        network.socket, "getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("192.168.40.101", 443))]
+    )
+    connection = {"name": "NAS", "access_key_id": "id", "secret_access_key": "secret"}
+
+    def add(endpoint):
+        return client.post("/v1/settings/connections", json={**connection, "endpoint": endpoint})
+
+    created = add("https://nas.local")
+    assert created.status_code == 201
+    # Used, it is checked again, and addressed by path.
+    org_id = client.get("/v1/me").json()["org"]["id"]
+    with duckdb.connect() as con:
+        connections.configure(con, org_id, created.json()["id"])
+        secret = con.execute("SELECT secret_string FROM duckdb_secrets()").fetchone()[0]
+    assert "url_style=path" in secret
+    # Taken off the list, the saved connection no longer reaches it.
+    configure(monkeypatch, ROWLAB_PRIVATE_S3_HOSTS="")
+    with duckdb.connect() as con, pytest.raises(InvalidRequest, match="private address"):
+        connections.configure(con, org_id, created.json()["id"])
+    configure(monkeypatch, ROWLAB_PRIVATE_S3_HOSTS="nas.local")
+    # Exactly the names listed: not subdomains, nor other names for the same address.
+    for endpoint in (
+        "https://s3.nas.local",
+        "https://nas.local.evil.com",
+        "https://192.168.40.101",
+    ):
+        response = add(endpoint)
+        assert response.status_code == 400
+        assert "private address" in response.json()["detail"]
+    # Only for S3: web sources still can't reach them.
+    response = client.post("/v1/datasets", data={"source": "https://nas.local/data.csv"})
+    assert "private address" in response.json()["detail"]
+
+
 def test_hosted_the_servers_own_aws_credentials_go_unused(hosted):
     with duckdb.connect() as con:
         connections.configure(con, "org", None)
