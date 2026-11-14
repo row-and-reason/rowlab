@@ -31,10 +31,12 @@ from rowlab.core.usage import Spent
 
 log = logging.getLogger(__name__)
 
+# Uploads and URL imports take minutes; most requests a few milliseconds.
 HTTP_REQUEST_SECONDS = Histogram(
     "rowlab_http_request_duration_seconds",
     "API requests, by route template.",
     ["method", "route", "status"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, float("inf")),
 )
 # Model calls take from well under a second (decision models) to the 60 s timeout (long LLM replies).
 MODEL_CALL_SECONDS = Histogram(
@@ -51,6 +53,9 @@ ANSWERS = Counter("rowlab_answers", "Answers given to runs.", ["model", "result"
 COST = Counter("rowlab_model_cost_usd", "USD paid for answers.", ["model"])
 TOKENS = Counter("rowlab_model_tokens", "Tokens billed for answers.", ["model", "kind"])
 RUNS_FINISHED = Counter("rowlab_runs_finished", "Runs finished.", ["status"])
+# From 0, so a process's first finished run counts as an increase.
+for _status in ("done", "failed"):
+    RUNS_FINISHED.labels(_status)
 
 
 _queue_registered = False

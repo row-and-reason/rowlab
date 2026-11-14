@@ -454,8 +454,6 @@ def test_runners_claiming_at_once_never_take_the_same_run(client, job, api_key, 
     import threading
     import time
 
-    monkeypatch.setenv("ROWLAB_RUNS_PER_ORG", "10")
-    config.cache_clear()
     created = [
         start(client, update(job, sql=f"SELECT * FROM data LIMIT {n}"))["id"] for n in (1, 2, 3)
     ]
@@ -511,18 +509,15 @@ def test_a_run_waiting_long_goes_first(client, job, api_key, monkeypatch):
     assert taken == [big, small]
 
 
-def test_an_organisation_has_a_few_runs_going_at_once(client, job, api_key, monkeypatch):
-    monkeypatch.setenv("ROWLAB_RUNS_PER_ORG", "1")
-    config.cache_clear()
-    start(client, job)
-    start(client, update(job, sql="SELECT * FROM data LIMIT 1"))
+def test_an_organisation_can_have_any_number_of_runs_going(client, job, api_key, monkeypatch):
+    for n in range(1, 4):
+        start(client, update(job, sql=f"SELECT * FROM data LIMIT {n}"))
     claimed = []
     monkeypatch.setattr(runs, "_process", claimed.append)  # stays running
-    assert runs.process_next()
-    # The other waits while the first has its turn.
-    assert not runs.process_next()
-    runs._set(claimed[0], status="queued")
-    assert runs.process_next()
+    # Models are paid for by the organisation's own key, so nothing makes its runs wait.
+    while runs.process_next():
+        pass
+    assert len(claimed) == 3
 
 
 def _paid_calls(fake):

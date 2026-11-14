@@ -36,7 +36,6 @@ Limits, the same in both modes; raise them for bigger data:
   memory, DuckDB spills to disk, up to `ROWLAB_DUCKDB_TEMP` (`10GB`).
 - `ROWLAB_QUERY_SECONDS` (`30`): per query; adding and exporting a dataset get ten times as long.
 - `ROWLAB_MAX_FILE` (`1GB`): the largest file that can be uploaded, downloaded or read from S3.
-- `ROWLAB_RUNS_PER_ORG` (`2`): runs one organisation has going at once; the rest wait their turn.
 - `ROWLAB_RUN_WAIT_SECONDS` (`300`): a run waiting this long goes next, before shorter ones.
 """
 
@@ -71,7 +70,6 @@ class Config:
     duckdb_temp: str
     query_seconds: float
     max_file_bytes: int
-    runs_per_org: int
     run_wait_seconds: float
 
     @property
@@ -136,7 +134,6 @@ def config() -> Config:
         duckdb_temp=_size("ROWLAB_DUCKDB_TEMP", "10GB")[0],
         query_seconds=_number("ROWLAB_QUERY_SECONDS", 30, float),
         max_file_bytes=_size("ROWLAB_MAX_FILE", "1GB")[1],
-        runs_per_org=_number("ROWLAB_RUNS_PER_ORG", 2, int),
         run_wait_seconds=_number("ROWLAB_RUN_WAIT_SECONDS", 300, float),
     )
 
