@@ -107,9 +107,15 @@ def test_hosted_s3_endpoints_must_be_public(hosted):
 def test_hosted_s3_endpoints_on_private_s3_hosts_are_allowed(hosted, monkeypatch):
     configure(monkeypatch, ROWLAB_PRIVATE_S3_HOSTS="NAS.local., other.local")
     client = hosted("ada@example.com")
-    monkeypatch.setattr(
-        network.socket, "getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("192.168.40.101", 443))]
-    )
+    # Every host in this test resolves to the NAS; everything else (Postgres, MinIO) as before.
+    real = network.socket.getaddrinfo
+
+    def resolve(host, *args, **kwargs):
+        if host.endswith((".local", ".evil.com")):
+            return [(0, 0, 0, "", ("192.168.40.101", 443))]
+        return real(host, *args, **kwargs)
+
+    monkeypatch.setattr(network.socket, "getaddrinfo", resolve)
     connection = {"name": "NAS", "access_key_id": "id", "secret_access_key": "secret"}
 
     def add(endpoint):
