@@ -69,7 +69,8 @@ its run is taken back after two minutes of silence.
 Put a reverse proxy or a tunnel in front, with TLS. Rate limits per client aren't rowlab's job: set
 them there (Cloudflare does this well). Nor, fully, is keeping requests off private addresses:
 rowlab refuses them, but DuckDB follows redirects from S3 endpoints, so block private addresses
-(other than the database and storage) in the network, with a network policy or an egress firewall.
+(other than the database, storage and any [private S3 hosts](/self-host/configuration#private-s3-hosts))
+in the network, with a network policy or an egress firewall.
 
 Uploads need a `Content-Length`; a proxy that strips it gets `411`. An upload well past
 `ROWLAB_MAX_FILE` is refused with `413` before it is read; any file past it, uploaded or from a URL,
