@@ -58,8 +58,10 @@ rowlab runner              # as many as you like
 ```
 
 A run is with one runner at a time, which makes `ROWLAB_RUNNER_CALLS` (16) model calls at once. To
-make one run go faster, raise it, as far as the provider's rate limits allow; to have more runs going
-at once, add runners.
+make one run go faster, raise it; to have more runs going at once, add runners. How far it can go is
+up to each organisation's OpenRouter key and model: calls still rate-limited after four tries become
+failed answers, which resuming the run asks again. Watch `rate_limited` in the
+[metrics](#metrics) after raising it.
 
 Both stop gracefully on `SIGTERM`. The API stops taking connections and finishes the requests under
 way. A runner takes no more runs, lets the model calls in flight finish (a few seconds usually; up
