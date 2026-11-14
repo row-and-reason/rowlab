@@ -1,6 +1,6 @@
 "use client";
 
-import { Count, Definition } from "@/components/comparison-parts";
+import { Count, Definition, Rate } from "@/components/comparison-parts";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -11,11 +11,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { type Comparison } from "@/lib/api/client";
 import { columnLabel } from "@/lib/format";
-import { metric, missingRows, percent, type InspectRows, type Pair } from "@/lib/comparison";
+import {
+  againstReference,
+  metric,
+  missingRows,
+  usd,
+  type InspectRows,
+  type Pair,
+} from "@/lib/comparison";
 
-/** The summary table: one row per pair, arrow keys move the selection. */
+/**
+ * The summary table: one row per pair, arrow keys move the selection. Models against the reference
+ * also get their calibration and cost, when any of them has some.
+ */
 export function ComparisonPairs({
+  comparison,
   pairs,
   selected,
   reference,
@@ -23,6 +35,7 @@ export function ComparisonPairs({
   onSelect,
   onFilter,
 }: {
+  comparison: Comparison;
   pairs: Pair[];
   selected: Pair;
   reference: string | null;
@@ -31,6 +44,9 @@ export function ComparisonPairs({
   onFilter: InspectRows;
 }) {
   const numeric = pairs.every((p) => p.numeric);
+  const rows = pairs.map((p) => ({ p, ...againstReference(comparison, p) }));
+  const calibrated = rows.some((r) => r.metrics?.calibration);
+  const costed = rows.some((r) => r.cost);
   return (
     <Table aria-label={reference ? "Models against reference" : "Column pairs"}>
       <TableHeader>
@@ -58,12 +74,58 @@ export function ComparisonPairs({
               description="Matching answers / paired answers. Missing answers are excluded."
             />
           </TableHead>
+          {!numeric && (
+            <TableHead className="text-right">
+              <Definition
+                label="κ"
+                description="Cohen's κ: agreement beyond chance; 1 is perfect, 0 is chance."
+              />
+            </TableHead>
+          )}
+          {calibrated && (
+            <>
+              <TableHead className="text-right">
+                <Definition
+                  label="Brier"
+                  description="Mean squared gap between the probability and being right; 0 is perfect."
+                />
+              </TableHead>
+              <TableHead className="text-right">
+                <Definition
+                  label="ECE"
+                  description="How far the probability is from the accuracy, over ten bins; 0 is perfect."
+                />
+              </TableHead>
+              <TableHead className="text-right">
+                <Definition
+                  label="AUROC"
+                  description="How well the probability tells right answers from wrong; 1 is perfect, 0.5 is chance."
+                />
+              </TableHead>
+            </>
+          )}
+          {costed && (
+            <>
+              <TableHead className="text-right">
+                <Definition
+                  label="$/1k rows"
+                  description="What the run spent on this model, per 1,000 answered rows. Cached answers are free."
+                />
+              </TableHead>
+              <TableHead className="text-right">
+                <Definition
+                  label="$/correct"
+                  description="Cost per answered row divided by the accuracy."
+                />
+              </TableHead>
+            </>
+          )}
           <TableHead className="text-right">Different</TableHead>
           <TableHead className="text-right">Missing</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {pairs.map((p, i) => (
+        {rows.map(({ p, metrics, cost }, i) => (
           <TableRow
             key={JSON.stringify(p.columns)}
             data-state={p === selected ? "selected" : undefined}
@@ -111,9 +173,35 @@ export function ComparisonPairs({
                     aria-label={`${p.columns.join(" / ")} match rate`}
                   />
                 )}
-                {percent(p.rate)}
+                <Rate rate={p.rate} ci={p.rate_ci} />
               </div>
             </TableCell>
+            {!numeric && (
+              <TableCell className="text-right text-xs tabular-nums">{metric(p.kappa)}</TableCell>
+            )}
+            {calibrated && (
+              <>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {metric(metrics?.calibration?.brier ?? null)}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {metric(metrics?.calibration?.ece ?? null)}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {metric(metrics?.calibration?.auroc ?? null)}
+                </TableCell>
+              </>
+            )}
+            {costed && (
+              <>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {usd(cost?.usd_per_1k_rows ?? null)}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {usd(metrics?.usd_per_correct ?? null)}
+                </TableCell>
+              </>
+            )}
             <TableCell className="text-right">
               <Count
                 rows={p.compared - p.agree}

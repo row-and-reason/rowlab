@@ -35,7 +35,7 @@ export function errorMessage(error: unknown): string {
 /** US dollars; tiny per-row costs keep two significant digits instead of rounding to $0.00. */
 export function formatUsd(amount: number): string {
   if (amount === 0) return "$0";
-  if (amount < 0.01) return `$${amount.toPrecision(2)}`;
+  if (amount < 0.01) return `$${amount.toLocaleString("en-US", { maximumSignificantDigits: 2 })}`;
   return `$${amount.toFixed(2)}`;
 }
 

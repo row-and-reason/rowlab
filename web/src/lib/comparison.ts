@@ -1,4 +1,5 @@
 import type { Comparison, Dataset } from "@/lib/api/client";
+import { formatUsd } from "@/lib/format";
 import { ALL_ROWS, type WhereFilter } from "@/lib/sql";
 import type { CompareRequest } from "@/lib/use-comparison";
 
@@ -12,6 +13,18 @@ export function percent(rate: number | null): string {
 
 export const metric = (n: number | null) =>
   n === null ? "—" : n.toLocaleString("en-US", { maximumSignificantDigits: 4 });
+
+export const usd = (amount: number | null) => (amount === null ? "—" : formatUsd(amount));
+
+/** A model's accuracy and cost, when the pair is that model against the comparison's reference. */
+export function againstReference(comparison: Comparison, pair: Pair) {
+  const [column, other] = pair.columns;
+  const against = comparison.reference !== null && other === comparison.columns.at(-1);
+  return {
+    metrics: against ? comparison.reference?.find((r) => r.column === column) : undefined,
+    cost: against ? comparison.costs.find((c) => c.column === column) : undefined,
+  };
+}
 
 /** Rows where either answer, or both, is missing. */
 export function missingRows(pair: Pair): number {
