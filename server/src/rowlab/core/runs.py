@@ -26,7 +26,18 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from rowlab.core import answers, datasets, db, prompts, settings, sql, storage, tasks, usage
+from rowlab.core import (
+    answers,
+    datasets,
+    db,
+    metrics,
+    prompts,
+    settings,
+    sql,
+    storage,
+    tasks,
+    usage,
+)
 from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest, NotFound
@@ -406,6 +417,7 @@ def process_next() -> bool:
 def run_forever() -> None:
     """Process queued runs a chunk at a time, until `shut_down`; `rowlab runner` runs just this.
     While idle, runs whose runner stopped (another process that crashed) are queued again."""
+    metrics.CALL_SLOTS.set(CONCURRENCY)
     while not _shutdown.is_set():
         try:
             if process_next():
@@ -463,6 +475,7 @@ def _process(run_id: str) -> None:
             datasets.finish_run_dataset(run.dataset_id)
             answers.finish(run.dataset_id)
             _set(run_id, status="done", retry_chunk=None)
+            metrics.RUNS_FINISHED.labels("done").inc()
             return
         # Back in the queue, unless it was stopped meanwhile.
         now = datetime.now(UTC).isoformat()
@@ -474,6 +487,7 @@ def _process(run_id: str) -> None:
             )
     except Exception as e:
         _set(run_id, status="failed", error=str(e))
+        metrics.RUNS_FINISHED.labels("failed").inc()
         raise
 
 
@@ -575,6 +589,7 @@ def _process_chunk(
                     paid_by=settings.paid_by(),
                     spent=taken,
                 )
+            metrics.count_spent(taken)
 
     try:
         with ThreadPoolExecutor(CONCURRENCY) as pool:
@@ -683,7 +698,8 @@ def _ask(
         answer, data = _Answer(cached=True), saved
     else:
         try:
-            response = openrouter.post(request, api_key)
+            with metrics.CALLS_IN_FLIGHT.track_inprogress():
+                response = openrouter.post(request, api_key)
         except openrouter.OpenRouterError as e:
             if e.status in _KEY_PROBLEMS:
                 raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e

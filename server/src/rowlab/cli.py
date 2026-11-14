@@ -41,9 +41,10 @@ def main() -> None:
             os.environ["ROWLAB_NO_RUNNER"] = "1"
         uvicorn.run("rowlab.app:app", host=args.host, port=args.port, reload=args.reload)
     elif args.command == "runner":
-        from rowlab.core import runs
+        from rowlab.core import metrics, runs
 
         logging.basicConfig(level=logging.INFO)
+        metrics.serve()
         # A pod stopping, or Ctrl-C: finish the calls in flight and give the run back. (As PID 1 in
         # a container, Python would otherwise ignore SIGTERM until it is killed.)
         for signum in (signal.SIGTERM, signal.SIGINT):
