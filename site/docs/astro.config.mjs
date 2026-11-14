@@ -48,6 +48,7 @@ export default defineConfig({
           label: "Agents",
           items: [
             { label: "MCP", slug: "agents/mcp" },
+            { label: "Python SDK", slug: "agents/python" },
             { label: "Skill", slug: "agents/skills" },
           ],
         },

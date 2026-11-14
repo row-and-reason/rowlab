@@ -1,10 +1,11 @@
 .DEFAULT_GOAL := dev
 .PHONY: setup dev api web gen-client test test-hosted lint build smoke smoke-compose site brand check
 
-# Install the server's and the web app's dependencies.
+# Install the server's, the web app's and the Python SDK's dependencies.
 setup:
 	cd server && uv sync
 	cd web && pnpm install
+	cd sdk && uv sync
 
 # Run the API (:8000) and the web dev server (:3000) together.
 dev:
@@ -16,13 +17,18 @@ api:
 web:
 	cd web && NEXT_PUBLIC_API_URL=http://localhost:8000 pnpm dev
 
-# Regenerate openapi.json and the typed web client. Run after any API change.
+# Regenerate openapi.json, the typed web client and the Python SDK's models. Run after any API change.
 gen-client:
 	cd server && uv run rowlab openapi > ../openapi.json
 	cd web && pnpm gen-client
+	cd sdk && uv run datamodel-codegen --input ../openapi.json --input-file-type openapi \
+	  --output src/rowlab_sdk/_models.py --output-model-type pydantic_v2.BaseModel \
+	  --use-annotated --use-standard-collections --use-union-operator --target-python-version 3.11 \
+	  --enum-field-as-literal all --formatters builtin --disable-timestamp
 
 test:
 	cd server && uv run pytest
+	cd sdk && uv run pytest
 
 # The same tests on a hosted setup: Postgres (ROWLAB_TEST_DATABASE_URL) and datasets on S3 (moto).
 test-hosted:
@@ -36,6 +42,7 @@ check: lint test build site
 
 lint:
 	cd server && uv run ruff check . ../scripts ../brand && uv run ruff format --check . ../scripts ../brand
+	cd sdk && uv run ruff check . && uv run ruff format --check .
 	cd web && pnpm lint && pnpm typecheck
 
 # Build the web UI, bundle it into the Python package, and build the wheel.

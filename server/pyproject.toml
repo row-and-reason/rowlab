@@ -43,9 +43,14 @@ dev = [
     "moto[server]>=5.2.5",
     # So the tests can run on Postgres and S3 too (see tests/conftest.py).
     "rowlab[hosted]",
+    # For tests/test_sdk.py, which drives the SDK in ../sdk against the API.
+    "rowlab-python-sdk[polars]",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
+
+[tool.uv.sources]
+rowlab-python-sdk = { path = "../sdk", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

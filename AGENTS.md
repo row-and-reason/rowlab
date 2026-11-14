@@ -10,6 +10,7 @@ Guidance for AI agents (and humans) working in this repo. See `README.md` for wh
   "in case we need it later" layers. When the second use case shows up, refactor then.
 - Match the code around you: naming, structure, error handling and comment density.
 - Keep logic in `server/src/rowlab/core/`. `api/` and `mcp/` stay thin adapters that call into `core/`.
+  `sdk/` is a client of the API and holds no server logic; its models are generated (`make gen-client`).
   In `web/`, logic that doesn't render lives in `src/lib/`; components render.
 - If you are unsure whether something is over-engineered, it probably is. Pick the smaller version.
 
@@ -34,7 +35,7 @@ Guidance for AI agents (and humans) working in this repo. See `README.md` for wh
 ## Docs have one home
 
 - Feature documentation goes in `site/docs/` (see `site/README.md`). `README.md` is the quickstart,
-  principles and development setup only; `server/README.md` is the PyPI page.
+  principles and development setup only; `server/README.md` and `sdk/README.md` are the PyPI pages.
 - When behaviour changes, rewrite the existing text, whether docstring, doc page or comment, so it
   reads as one description. Don't add a new paragraph next to the old one.
 

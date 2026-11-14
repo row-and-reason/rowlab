@@ -1,0 +1,57 @@
+# Publish the Python SDK (sdk/) to PyPI as rowlab-python-sdk, on a tag `rowlab-python-sdk-v0.1.0` that
+# matches the version in sdk/pyproject.toml. PyPI trusts this workflow in the `pypi` environment; no
+# token is stored.
+name: SDK release
+
+on:
+  push:
+    tags: ["rowlab-python-sdk-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-release-${{ github.ref }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.13"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: cd sdk && uv sync --locked && uv run pytest
+
+  pypi:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: The tag matches the package version
+        run: test "$GITHUB_REF_NAME" = "rowlab-python-sdk-v$(cd sdk && uv version --short)"
+      - run: cd sdk && uv build --out-dir dist
+      - name: The wheel holds rowlab_sdk and its license, and not the server
+        run: |
+          python3 - <<'EOF'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          [wheel] = Path("sdk/dist").glob("*.whl")
+          names = ZipFile(wheel).namelist()
+          roots = {name.partition("/")[0] for name in names}
+          assert "rowlab_sdk" in roots, roots
+          assert "rowlab" not in roots, roots
+          assert any(name.endswith("/LICENSE") for name in names), names
+          EOF
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: sdk/dist/

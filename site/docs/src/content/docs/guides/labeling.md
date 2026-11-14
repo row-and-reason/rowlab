@@ -55,7 +55,8 @@ time to continue. **Finish labeling** locks the dataset, leaving unanswered rows
 No model is called, so no key is needed. Every answer type works; an extract answer is JSON with
 the task's fields. Columns are named as for a model run but without the model's name, and there are
 no `_proba` or status columns; they compare, query and export like any other. Agents do the same over
-[MCP](/agents/mcp#manual-labeling), scripts with the [API](/how-it-works/runs#manual-runs).
+[MCP](/agents/mcp#manual-labeling), scripts with the [API](/how-it-works/runs#manual-runs) or the
+[Python SDK](/agents/python#manual-labels).
 
 ## Inspect a dataset’s origin
 

@@ -1,6 +1,7 @@
 # Lint, test and build on every push and pull request. The tests run twice: on the local setup (SQLite,
 # datasets on disk) and on the hosted one (Postgres, datasets on S3). S3 is a local server (moto) that
-# the tests start themselves.
+# the tests start themselves. The Python SDK's own tests also run on the oldest and newest Python it
+# supports, and its wheel must import in a clean environment.
 name: CI
 
 on:
@@ -34,13 +35,32 @@ jobs:
             site/www/pnpm-lock.yaml
       - run: cd web && pnpm install --frozen-lockfile
       - run: cd server && uv sync --locked
+      - run: cd sdk && uv sync --locked
       # Lint, tests, the wheel, both sites and their branding.
       - run: make check
-      # The API and the generated client must match: `make build` regenerates them.
-      - run: git diff --exit-code -- openapi.json web/src/lib/api/schema.ts
+      # The API and the generated clients must match: `make build` regenerates them.
+      - run: git diff --exit-code -- openapi.json web/src/lib/api/schema.ts sdk/src/rowlab_sdk/_models.py
       # End to end against the wheel just built. CI has no OPENROUTER_API_KEY, so the smoke test skips
       # asking a model; that part runs only locally.
       - run: scripts/smoke-wheel.sh
       - run: make test-hosted
         env:
           ROWLAB_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+  sdk:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.13"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: cd sdk && uv sync --locked && uv run pytest
+      - run: cd sdk && uv build --out-dir dist
+      - name: The wheel imports in a clean environment
+        run: |
+          uv venv "$RUNNER_TEMP/sdk"
+          uv pip install -p "$RUNNER_TEMP/sdk" sdk/dist/*.whl
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/sdk/bin/python" -c "import rowlab_sdk; rowlab_sdk.Client"
