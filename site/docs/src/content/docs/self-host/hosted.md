@@ -86,7 +86,8 @@ The last two are read from the database at every scrape, so every process report
 even when no runner is up; take their `max`. Runner capacity is the sum of
 `rowlab_runner_call_slots`: when the slots in use stay near it and the queue wait grows, add a runner.
 As in Settings → Usage, the replies paid for in a chunk that is redone after a stop or a restart count
-again, as `cached`.
+again, as `cached`. A series labelled by model starts when a process first sees that model, so
+`increase()` misses that first step: for exact spend, use Settings → Usage.
 
 ## In front of it
 
