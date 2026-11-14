@@ -47,9 +47,6 @@ from rowlab.core.tasks import Task
 # Rows per chunk: the most work a stop or crash can lose (and redo for free).
 CHUNK_ROWS = 500
 
-# Model calls made at once.
-CONCURRENCY = 16
-
 # How often a run's progress is saved, and how often the runner checks for a stop.
 PROGRESS_INTERVAL_SECONDS = 0.5
 
@@ -413,7 +410,7 @@ def process_next() -> bool:
 def run_forever() -> None:
     """Process queued runs a chunk at a time, until `shut_down`; `rowlab runner` runs just this.
     While idle, runs whose runner stopped (another process that crashed) are queued again."""
-    metrics.CALL_SLOTS.set(CONCURRENCY)
+    metrics.CALL_SLOTS.set(config().runner_calls)
     while not _shutdown.is_set():
         try:
             if process_next():
@@ -588,7 +585,7 @@ def _process_chunk(
             metrics.count_spent(taken)
 
     try:
-        with ThreadPoolExecutor(CONCURRENCY) as pool:
+        with ThreadPoolExecutor(config().runner_calls) as pool:
             futures = [pool.submit(ask, i) for i in range(len(units))]
             while not all(f.done() for f in futures):
                 time.sleep(PROGRESS_INTERVAL_SECONDS)
