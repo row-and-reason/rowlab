@@ -39,7 +39,7 @@ in while the run goes, and you can query it (`WHERE <column> IS NOT NULL`) to re
 answers and stop the run if they are wrong.
 
 On a shared server, runs take turns a chunk at a time, so one person's million rows don't block
-another's twenty. Each organisation has `ROWLAB_RUNS_PER_ORG` runs going at once; the rest queue.
+another's twenty. An organisation can have any number of runs going.
 
 ## Stop, fail, resume
 

@@ -11,8 +11,7 @@ file.
 
 Runners take turns: a runner does one chunk of a run, then puts it back in the queue (`process_next`).
 The next turn goes to a run that has waited long (`ROWLAB_RUN_WAIT_SECONDS`), or else to the one with
-the least left to do, so a try on a few rows is done at once, even next to a big run. An organisation
-has at most `ROWLAB_RUNS_PER_ORG` runs going at once.
+the least left to do, so a try on a few rows is done at once, even next to a big run.
 """
 
 import json
@@ -399,14 +398,11 @@ def process_next() -> bool:
     with db.connect() as conn:
         row = conn.execute(
             "UPDATE runs SET status = 'running', updated_at = ? WHERE id = ("
-            " SELECT r.id FROM runs r JOIN datasets d ON d.id = r.dataset_id"
-            " WHERE r.status = 'queued' AND ("
-            "  SELECT count(*) FROM runs o JOIN datasets od ON od.id = o.dataset_id"
-            "  WHERE od.org_id = d.org_id AND o.status IN ('running', 'stopping')) < ?"
+            " SELECT r.id FROM runs r WHERE r.status = 'queued'"
             " ORDER BY CASE WHEN r.queued_at <= ? THEN 0 ELSE 1 END,"
             f" CASE WHEN r.queued_at <= ? THEN 0 ELSE {left} END, r.queued_at"
             f" LIMIT 1{db.skip_locked('r')}) RETURNING id",
-            (now.isoformat(), config().runs_per_org, long_ago, long_ago),
+            (now.isoformat(), long_ago, long_ago),
         ).fetchone()
     if row is None:
         return False
