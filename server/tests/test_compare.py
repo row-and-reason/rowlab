@@ -1,6 +1,7 @@
 """Comparing columns: agreement across any number of columns, pairs, values, and a reference."""
 
 import pytest
+from helpers import NEGATIVE, run
 
 # Three "models" and a known answer for six rows. Row 5 has an empty answer.
 CSV = """city,a,b,c,truth,price_a,price_b
@@ -327,3 +328,182 @@ def test_nonfinite_json_tolerance_returns_validation_error(client, dataset, lite
     assert error["loc"] == ["body", "tolerance"]
     assert error["type"] == "finite_number"
     assert "input" not in error
+
+
+def values_sql(columns, rows):
+    """A SELECT of literal rows, e.g. `values_sql("a, b", ["(1, 2)", "(3, NULL)"])`."""
+    return f"SELECT * FROM (VALUES {', '.join(rows)}) t({columns})"
+
+
+def test_kappa_corrects_a_pairs_agreement_for_chance(client, dataset):
+    # Both yes 20, yes/no 5, no/yes 10, both no 15: agreement 0.7, by chance 0.5.
+    cells = [("yes", "yes", 20), ("yes", "no", 5), ("no", "yes", 10), ("no", "no", 15)]
+    query = " UNION ALL ".join(f"SELECT '{a}' a, '{b}' b FROM range({n})" for a, b, n in cells)
+    pair = compare(client, dataset, columns=["a", "b"], sql=query)["pairs"][0]
+    assert pair["rate"] == pytest.approx(0.7)
+    assert pair["kappa"] == pytest.approx(0.4, abs=1e-3)
+
+
+# Krippendorff's worked example: four coders, twelve units, values missing.
+KRIPPENDORFF_ROWS = [
+    "(1, 1, NULL, 1)",
+    "(2, 2, 3, 2)",
+    "(3, 3, 3, 3)",
+    "(3, 3, 3, 3)",
+    "(2, 2, 2, 2)",
+    "(1, 2, 3, 4)",
+    "(4, 4, 4, 4)",
+    "(1, 1, 2, 1)",
+    "(2, 2, 2, 2)",
+    "(NULL, 5, 5, 5)",
+    "(NULL, NULL, 1, 1)",
+    "(NULL, 3, NULL, NULL)",
+]
+KRIPPENDORFF = values_sql("a, b, c, d", KRIPPENDORFF_ROWS)
+
+
+def test_alpha_is_krippendorffs_across_all_columns(client, dataset):
+    columns = ["a", "b", "c", "d"]
+    as_text = KRIPPENDORFF.replace(
+        "SELECT *", "SELECT a::VARCHAR a, b::VARCHAR b, c::VARCHAR c, d::VARCHAR d"
+    )
+    nominal = compare(client, dataset, columns=columns, sql=as_text)["agreement"]
+    assert nominal["alpha_level"] == "nominal"
+    assert nominal["alpha"] == pytest.approx(0.743, abs=1e-3)
+    interval = compare(client, dataset, columns=columns, sql=KRIPPENDORFF)["agreement"]
+    assert interval["alpha_level"] == "interval"
+    assert interval["alpha"] == pytest.approx(0.849, abs=1e-3)
+
+
+def test_alpha_is_ordinal_for_a_scale_tasks_levels(client, tmp_path, api_key):
+    # Krippendorff's example again, with coder d a model asked a scale task: it answers the level
+    # in its prompt. Unit 12, with one value, isn't asked.
+    path = tmp_path / "coders.csv"
+    lines = ["a,b,c,d"]
+    for row in KRIPPENDORFF_ROWS:
+        lines.append(row.strip("()").replace("NULL", "").replace(" ", ""))
+    path.write_text("\n".join(lines) + "\n")
+    source = client.post("/v1/datasets", data={"source": str(path)}).json()
+    scale = {
+        "template": "{{d}}",
+        "type": "scale",
+        "column": "level",
+        "options": [{"name": str(i)} for i in range(1, 6)],
+        "models": ["x/llm"],
+    }
+    job = {
+        "dataset_id": source["id"],
+        "sql": "SELECT * FROM data WHERE d IS NOT NULL",
+        "tasks": [scale],
+    }
+    made = run(client, job)
+    result = compare(client, {"id": made["dataset_id"]}, columns=["a", "b", "c", "level__llm"])
+    assert result["agreement"]["alpha_level"] == "ordinal"
+    assert result["agreement"]["alpha"] == pytest.approx(0.815, abs=1e-3)
+
+
+def test_interval_alpha_holds_for_large_values(client, dataset):
+    rows = ["(0, 0)", "(60, 60)", "(120, 130)", "(180, 170)", "(240, 260)"]
+    small = compare(client, dataset, columns=["a", "b"], sql=values_sql("a, b", rows))
+    for offset in (1_700_000_000, 1e12):
+        query = f"SELECT a::DOUBLE + {offset} a, b::DOUBLE + {offset} b FROM ({values_sql('a, b', rows)})"
+        large = compare(client, dataset, columns=["a", "b"], sql=query)
+        assert large["agreement"]["alpha"] == pytest.approx(small["agreement"]["alpha"], abs=1e-3)
+
+
+def test_dates_and_numbers_together_are_nominal(client, dataset):
+    query = "SELECT DATE '2026-01-01' + i::INT a, i b, i::VARCHAR c FROM range(3) t(i)"
+    result = compare(client, dataset, columns=["a", "b"], sql=query)
+    assert result["agreement"]["alpha_level"] == "nominal"
+    # A number paired with text has a κ: the values are labels.
+    assert compare(client, dataset, columns=["b", "c"], sql=query)["pairs"][0]["kappa"] == 1
+
+
+def test_rates_come_with_wilson_intervals(client, dataset):
+    query = "SELECT 'x' a, CASE WHEN i < 8 THEN 'x' ELSE 'y' END b FROM range(10) t(i)"
+    result = compare(client, dataset, columns=["a"], reference="b", sql=query)
+    for interval in (
+        result["agreement"]["rate_ci"],
+        result["pairs"][0]["rate_ci"],
+        result["reference"][0]["accuracy_ci"],
+    ):
+        assert interval["low"] == pytest.approx(0.490, abs=1e-3)
+        assert interval["high"] == pytest.approx(0.943, abs=1e-3)
+
+
+def test_calibration_checks_the_probability_against_the_reference(client, dataset):
+    # Right answers are sure (0.9), wrong ones unsure (0.3): ranked perfectly. Of the 0.9s 3 of 4
+    # are right, of the 0.3s none: ECE = (4·|0.9 − 0.75| + 2·|0.3 − 0|) / 6.
+    query = values_sql(
+        "city, answer, answer_proba, truth",
+        [
+            "('a', 'x', 0.9, 'x')",
+            "('b', 'x', 0.9, 'x')",
+            "('c', 'x', 0.9, 'x')",
+            "('d', 'y', 0.9, 'x')",
+            "('e', 'y', 0.3, 'x')",
+            "('f', 'y', 0.3, 'x')",
+        ],
+    )
+    calibration = compare(client, dataset, columns=["answer"], reference="truth", sql=query)[
+        "reference"
+    ][0]["calibration"]
+    assert calibration["rows"] == 6
+    assert calibration["ece"] == pytest.approx((4 * 0.15 + 2 * 0.3) / 6, abs=1e-3)
+    assert calibration["brier"] == pytest.approx((3 * 0.01 + 0.81 + 2 * 0.09) / 6, abs=1e-3)
+    # 9 right-wrong pairs: 6 ranked right, 3 tied at 0.9 counting half.
+    assert calibration["auroc"] == pytest.approx(7.5 / 9, abs=1e-3)
+    separated = query.replace("('d', 'y', 0.9, 'x')", "('d', 'y', 0.2, 'x')")
+    result = compare(client, dataset, columns=["answer"], reference="truth", sql=separated)
+    calibration = result["reference"][0]["calibration"]
+    assert calibration["auroc"] == pytest.approx(1)
+    for bucket in calibration["bins"]:
+        q = f"SELECT count(*) n FROM ({separated}) WHERE {bucket['where']}"
+        found = client.post(f"/v1/datasets/{dataset['id']}/query", json={"sql": q}).json()
+        assert found["rows"][0]["n"] == bucket["rows"]
+
+
+def test_a_runs_columns_come_with_their_cost(client, tmp_path, api_key):
+    path = tmp_path / "reviews.csv"
+    path.write_text("review,truth\nTerrible product,true\nLove it,true\nBroke after a day,true\n")
+    source = client.post("/v1/datasets", data={"source": str(path)}).json()
+    job = {"dataset_id": source["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
+    made = run(client, job)
+    result = compare(client, {"id": made["dataset_id"]}, columns=made["columns"], reference="truth")
+    assert [(c["column"], c["run_id"]) for c in result["costs"]] == [
+        ("negative__jev-1.14", made["id"])
+    ]
+    cost = result["costs"][0]
+    assert cost["usd"] == pytest.approx(made["cost"])
+    assert cost["usd_per_1k_rows"] == pytest.approx(made["cost"] * 1000 / 3)
+    accuracy = result["reference"][0]
+    assert accuracy["correct"] == 2
+    assert accuracy["usd_per_correct"] == pytest.approx(made["cost"] / 2)
+    assert accuracy["calibration"]["rows"] == 3
+
+    # A column the lab uploaded, and a column labelled by hand in a run made from this one, cost nothing.
+    manual = client.post(
+        f"/v1/datasets/{made['dataset_id']}/runs",
+        json={"method": "manual", "tasks": [{"template": "{{review}}", "column": "label"}]},
+    ).json()
+    result = compare(
+        client,
+        {"id": manual["dataset_id"]},
+        columns=["label", "negative__jev-1.14"],
+        reference="truth",
+    )
+    assert [c["column"] for c in result["costs"]] == ["negative__jev-1.14"]
+    assert result["reference"][0]["usd_per_correct"] is None
+
+
+def test_compare_works_after_the_source_dataset_is_deleted(client, tmp_path, api_key):
+    path = tmp_path / "reviews.csv"
+    path.write_text("review,truth\nTerrible product,true\nLove it,false\n")
+    source = client.post("/v1/datasets", data={"source": str(path)}).json()
+    made = run(
+        client, {"dataset_id": source["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
+    )
+    assert client.delete(f"/v1/datasets/{source['id']}").status_code == 204
+    result = compare(client, {"id": made["dataset_id"]}, columns=made["columns"], reference="truth")
+    assert result["reference"][0]["accuracy"] == 1
+    assert [c["column"] for c in result["costs"]] == made["columns"]

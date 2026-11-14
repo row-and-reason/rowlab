@@ -95,11 +95,13 @@ class FakeOpenRouter:
 
 
 def _llm_reply(schema, prompt):
-    """A reply with the shape the schema asks for. Yes/no answers say whether the prompt is bad."""
+    """A reply with the shape the schema asks for. Yes/no answers say whether the prompt is bad;
+    answers from options are the prompt, when it is one."""
     reply = {}
     for name, prop in schema["properties"].items():
         if name == "answer":
-            reply[name] = _bad(prompt)
+            # A prompt that is one of the options is the answer, e.g. a scale's level.
+            reply[name] = prompt if prompt in prop.get("enum", []) else _bad(prompt)
         elif name == "proba":
             reply[name] = 0.8
         elif name == "reason":

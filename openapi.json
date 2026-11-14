@@ -1921,6 +1921,39 @@
             ],
             "title": "Rate",
             "description": "Of the rows that agree or disagree, the share that agree."
+          },
+          "rate_ci": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wilson 95% interval of the rate."
+          },
+          "alpha": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alpha",
+            "description": "Krippendorff's \u03b1 across all the columns: 1 is full agreement, 0 what chance would give. Rows with fewer than two values are left out. Empty when every value is the same."
+          },
+          "alpha_level": {
+            "type": "string",
+            "enum": [
+              "nominal",
+              "ordinal",
+              "interval"
+            ],
+            "title": "Alpha Level",
+            "description": "How \u03b1 weighs a difference: interval for numbers and dates (in days, ignoring the tolerance), ordinal when a column was written by a scale task (by its levels' order), nominal otherwise."
           }
         },
         "type": "object",
@@ -1929,7 +1962,10 @@
           "disagree",
           "partly_answered",
           "not_answered",
-          "rate"
+          "rate",
+          "rate_ci",
+          "alpha",
+          "alpha_level"
         ],
         "title": "Agreement"
       },
@@ -2199,6 +2235,121 @@
         ],
         "title": "ByPerson"
       },
+      "Calibration": {
+        "properties": {
+          "probability_column": {
+            "type": "string",
+            "title": "Probability Column"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows",
+            "description": "Rows with an answer, a reference and a probability between 0 and 1."
+          },
+          "brier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brier",
+            "description": "Mean squared difference between the probability and being right (1) or wrong (0): 0 is perfect."
+          },
+          "ece": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ece",
+            "description": "Expected calibration error: how far the probability is from the accuracy, averaged over the bins by their rows."
+          },
+          "auroc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auroc",
+            "description": "How well the probability tells right answers from wrong ones: 1 always ranks right ones higher, 0.5 is chance. Empty when every answer is right, or every one wrong."
+          },
+          "bins": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationBin"
+            },
+            "type": "array",
+            "title": "Bins",
+            "description": "Ten equal-width bins of the probability; empty bins are left out."
+          }
+        },
+        "type": "object",
+        "required": [
+          "probability_column",
+          "rows",
+          "brier",
+          "ece",
+          "auroc",
+          "bins"
+        ],
+        "title": "Calibration"
+      },
+      "CalibrationBin": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Where",
+            "description": "SQL picking these rows, for a query's WHERE clause."
+          },
+          "lower": {
+            "type": "number",
+            "title": "Lower"
+          },
+          "upper": {
+            "type": "number",
+            "title": "Upper",
+            "description": "Exclusive, except for the last bin, which ends at 1."
+          },
+          "mean_probability": {
+            "type": "number",
+            "title": "Mean Probability"
+          },
+          "accuracy": {
+            "type": "number",
+            "title": "Accuracy",
+            "description": "The share of the bin's rows the column has right."
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "where",
+          "lower",
+          "upper",
+          "mean_probability",
+          "accuracy"
+        ],
+        "title": "CalibrationBin"
+      },
       "Cell": {
         "properties": {
           "values": {
@@ -2243,6 +2394,59 @@
           "type"
         ],
         "title": "Column"
+      },
+      "ColumnCost": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "usd": {
+            "type": "number",
+            "title": "Usd",
+            "description": "What the run spent on this task and model, for all its rows; cached answers are free. Columns of one task and model share it."
+          },
+          "answered": {
+            "type": "integer",
+            "title": "Answered",
+            "description": "The run's rows with an answer from the model."
+          },
+          "usd_per_1k_rows": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd Per 1K Rows",
+            "description": "USD per 1,000 answered rows. Answered rows include cached ones, which cost nothing, so this can look cheaper than a fresh run would be."
+          }
+        },
+        "type": "object",
+        "required": [
+          "column",
+          "run_id",
+          "task_id",
+          "model",
+          "usd",
+          "answered",
+          "usd_per_1k_rows"
+        ],
+        "title": "ColumnCost"
       },
       "ColumnProfile": {
         "properties": {
@@ -2477,6 +2681,14 @@
             ],
             "title": "Reference",
             "description": "With a reference: how often each other column matches it."
+          },
+          "costs": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnCost"
+            },
+            "type": "array",
+            "title": "Costs",
+            "description": "For each column a model wrote in a run, what it cost. Uploaded and manual columns have none."
           }
         },
         "type": "object",
@@ -2492,7 +2704,8 @@
           "pairs",
           "values",
           "crosstab",
-          "reference"
+          "reference",
+          "costs"
         ],
         "title": "Comparison"
       },
@@ -3128,6 +3341,24 @@
         ],
         "title": "HistogramBin"
       },
+      "Interval": {
+        "properties": {
+          "low": {
+            "type": "number",
+            "title": "Low"
+          },
+          "high": {
+            "type": "number",
+            "title": "High"
+          }
+        },
+        "type": "object",
+        "required": [
+          "low",
+          "high"
+        ],
+        "title": "Interval"
+      },
       "Invite": {
         "properties": {
           "id": {
@@ -3469,6 +3700,29 @@
             ],
             "title": "Rate"
           },
+          "rate_ci": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wilson 95% interval of the rate."
+          },
+          "kappa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kappa",
+            "description": "Cohen's \u03ba: agreement beyond what chance would give, 1 for full agreement and 0 for chance. Empty for numbers and dates, and when every value is the same."
+          },
           "disagree": {
             "type": "string",
             "title": "Disagree",
@@ -3494,6 +3748,8 @@
           "compared",
           "agree",
           "rate",
+          "rate_ci",
+          "kappa",
           "disagree",
           "coverage"
         ],
@@ -3641,6 +3897,40 @@
             ],
             "title": "Accuracy"
           },
+          "accuracy_ci": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wilson 95% interval of the accuracy."
+          },
+          "calibration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Calibration"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With a `{column}_proba` column: how well the model's probability that its answer is right matches how often it is."
+          },
+          "usd_per_correct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd Per Correct",
+            "description": "For a column a run wrote: its USD per answered row, divided by the accuracy."
+          },
           "wrong": {
             "type": "string",
             "title": "Wrong",
@@ -3664,6 +3954,9 @@
           "compared",
           "correct",
           "accuracy",
+          "accuracy_ci",
+          "calibration",
+          "usd_per_correct",
           "wrong",
           "values"
         ],

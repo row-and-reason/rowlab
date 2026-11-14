@@ -657,6 +657,19 @@ export interface components {
              * @description Of the rows that agree or disagree, the share that agree.
              */
             rate: number | null;
+            /** @description Wilson 95% interval of the rate. */
+            rate_ci: components["schemas"]["Interval"] | null;
+            /**
+             * Alpha
+             * @description Krippendorff's α across all the columns: 1 is full agreement, 0 what chance would give. Rows with fewer than two values are left out. Empty when every value is the same.
+             */
+            alpha: number | null;
+            /**
+             * Alpha Level
+             * @description How α weighs a difference: interval for numbers and dates (in days, ignoring the tolerance), ordinal when a column was written by a scale task (by its levels' order), nominal otherwise.
+             * @enum {string}
+             */
+            alpha_level: "nominal" | "ordinal" | "interval";
         };
         /**
          * Analytics
@@ -780,6 +793,60 @@ export interface components {
             /** @description Empty for runs started where nobody signs in. */
             user: components["schemas"]["User"] | null;
         };
+        /** Calibration */
+        Calibration: {
+            /** Probability Column */
+            probability_column: string;
+            /**
+             * Rows
+             * @description Rows with an answer, a reference and a probability between 0 and 1.
+             */
+            rows: number;
+            /**
+             * Brier
+             * @description Mean squared difference between the probability and being right (1) or wrong (0): 0 is perfect.
+             */
+            brier: number | null;
+            /**
+             * Ece
+             * @description Expected calibration error: how far the probability is from the accuracy, averaged over the bins by their rows.
+             */
+            ece: number | null;
+            /**
+             * Auroc
+             * @description How well the probability tells right answers from wrong ones: 1 always ranks right ones higher, 0.5 is chance. Empty when every answer is right, or every one wrong.
+             */
+            auroc: number | null;
+            /**
+             * Bins
+             * @description Ten equal-width bins of the probability; empty bins are left out.
+             */
+            bins: components["schemas"]["CalibrationBin"][];
+        };
+        /** CalibrationBin */
+        CalibrationBin: {
+            /** Rows */
+            rows: number;
+            /**
+             * Where
+             * @description SQL picking these rows, for a query's WHERE clause.
+             */
+            where: string | null;
+            /** Lower */
+            lower: number;
+            /**
+             * Upper
+             * @description Exclusive, except for the last bin, which ends at 1.
+             */
+            upper: number;
+            /** Mean Probability */
+            mean_probability: number;
+            /**
+             * Accuracy
+             * @description The share of the bin's rows the column has right.
+             */
+            accuracy: number;
+        };
         /** Cell */
         Cell: {
             /**
@@ -798,6 +865,32 @@ export interface components {
             name: string;
             /** Type */
             type: string;
+        };
+        /** ColumnCost */
+        ColumnCost: {
+            /** Column */
+            column: string;
+            /** Run Id */
+            run_id: string;
+            /** Task Id */
+            task_id: string;
+            /** Model */
+            model: string;
+            /**
+             * Usd
+             * @description What the run spent on this task and model, for all its rows; cached answers are free. Columns of one task and model share it.
+             */
+            usd: number;
+            /**
+             * Answered
+             * @description The run's rows with an answer from the model.
+             */
+            answered: number;
+            /**
+             * Usd Per 1K Rows
+             * @description USD per 1,000 answered rows. Answered rows include cached ones, which cost nothing, so this can look cheaper than a fresh run would be.
+             */
+            usd_per_1k_rows: number | null;
         };
         /** ColumnProfile */
         ColumnProfile: {
@@ -893,6 +986,11 @@ export interface components {
              * @description With a reference: how often each other column matches it.
              */
             reference: components["schemas"]["ReferenceAccuracy"][] | null;
+            /**
+             * Costs
+             * @description For each column a model wrote in a run, what it cost. Uploaded and manual columns have none.
+             */
+            costs: components["schemas"]["ColumnCost"][];
         };
         /** Completeness */
         Completeness: {
@@ -1201,6 +1299,13 @@ export interface components {
             /** Upper Inclusive */
             upper_inclusive: boolean;
         };
+        /** Interval */
+        Interval: {
+            /** Low */
+            low: number;
+            /** High */
+            high: number;
+        };
         /** Invite */
         Invite: {
             /** Id */
@@ -1339,6 +1444,13 @@ export interface components {
             agree: number;
             /** Rate */
             rate: number | null;
+            /** @description Wilson 95% interval of the rate. */
+            rate_ci: components["schemas"]["Interval"] | null;
+            /**
+             * Kappa
+             * @description Cohen's κ: agreement beyond what chance would give, 1 for full agreement and 0 for chance. Empty for numbers and dates, and when every value is the same.
+             */
+            kappa: number | null;
             /**
              * Disagree
              * @description SQL picking the rows where the two differ.
@@ -1419,6 +1531,15 @@ export interface components {
             correct: number;
             /** Accuracy */
             accuracy: number | null;
+            /** @description Wilson 95% interval of the accuracy. */
+            accuracy_ci: components["schemas"]["Interval"] | null;
+            /** @description With a `{column}_proba` column: how well the model's probability that its answer is right matches how often it is. */
+            calibration: components["schemas"]["Calibration"] | null;
+            /**
+             * Usd Per Correct
+             * @description For a column a run wrote: its USD per answered row, divided by the accuracy.
+             */
+            usd_per_correct: number | null;
             /**
              * Wrong
              * @description SQL picking the rows where the column differs from the reference.
