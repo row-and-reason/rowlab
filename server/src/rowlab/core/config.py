@@ -37,6 +37,7 @@ Limits, the same in both modes; raise them for bigger data:
 - `ROWLAB_QUERY_SECONDS` (`30`): per query; adding and exporting a dataset get ten times as long.
 - `ROWLAB_MAX_FILE` (`1GB`): the largest file that can be uploaded, downloaded or read from S3.
 - `ROWLAB_RUN_WAIT_SECONDS` (`300`): a run waiting this long goes next, before shorter ones.
+- `ROWLAB_RUNNER_CALLS` (`16`): model calls each runner makes at once, so how fast one run goes.
 """
 
 import functools
@@ -71,6 +72,7 @@ class Config:
     query_seconds: float
     max_file_bytes: int
     run_wait_seconds: float
+    runner_calls: int
 
     @property
     def postgres(self) -> bool:
@@ -135,6 +137,7 @@ def config() -> Config:
         query_seconds=_number("ROWLAB_QUERY_SECONDS", 30, float),
         max_file_bytes=_size("ROWLAB_MAX_FILE", "1GB")[1],
         run_wait_seconds=_number("ROWLAB_RUN_WAIT_SECONDS", 300, float),
+        runner_calls=_number("ROWLAB_RUNNER_CALLS", 16, int),
     )
 
 

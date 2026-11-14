@@ -57,6 +57,12 @@ rowlab serve --no-runner   # the API and web app
 rowlab runner              # as many as you like
 ```
 
+A run is with one runner at a time, which makes `ROWLAB_RUNNER_CALLS` (16) model calls at once. To
+make one run go faster, raise it; to have more runs going at once, add runners. How far it can go is
+up to each organisation's OpenRouter key and model: calls still rate-limited after four tries become
+failed answers, which resuming the run asks again. Watch `rate_limited` in the
+[metrics](#metrics) after raising it.
+
 Both stop gracefully on `SIGTERM`. The API stops taking connections and finishes the requests under
 way. A runner takes no more runs, lets the model calls in flight finish (a few seconds usually; up
 to about four minutes when OpenRouter keeps timing out and is retried), then puts its run back in the
@@ -74,7 +80,7 @@ shows them: let only your Prometheus reach it.
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `rowlab_http_request_duration_seconds{method,route,status}` | API requests, by route template (`/v1/datasets/{dataset_id}`); MCP as `/mcp`, the web app as `other`                                  |
 | `rowlab_model_call_duration_seconds{model,outcome}`         | every attempt at a model call, retries too; `outcome` is `ok`, `rate_limited`, `server_error`, `unreachable` (timed out) or `refused` |
-| `rowlab_runner_calls_in_flight`, `rowlab_runner_call_slots` | a runner's call slots in use (a call waiting to be retried too) and how many it has (16)                                              |
+| `rowlab_runner_calls_in_flight`, `rowlab_runner_call_slots` | a runner's call slots in use (a call waiting to be retried too) and how many it has (`ROWLAB_RUNNER_CALLS`)                           |
 | `rowlab_answers_total{model,result}`                        | answers given to runs: `answered` (paid for), `cached` (free) or `failed`                                                             |
 | `rowlab_model_cost_usd_total{model}`                        | USD paid for answers                                                                                                                  |
 | `rowlab_model_tokens_total{model,kind}`                     | tokens billed, `input` and `output`                                                                                                   |
@@ -85,6 +91,7 @@ shows them: let only your Prometheus reach it.
 The last two are read from the database at every scrape, so every process reports the same figures,
 even when no runner is up; take their `max`. Runner capacity is the sum of
 `rowlab_runner_call_slots`: when the slots in use stay near it and the queue wait grows, add a runner.
+Slots full with nothing waiting is one run going as fast as `ROWLAB_RUNNER_CALLS` lets it.
 As in Settings → Usage, the replies paid for in a chunk that is redone after a stop or a restart count
 again, as `cached`. A series labelled by model starts when a process first sees that model, so
 `increase()` misses that first step: for exact spend, use Settings → Usage.

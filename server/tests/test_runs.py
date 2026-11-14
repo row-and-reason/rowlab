@@ -654,7 +654,8 @@ def test_a_runner_shutting_down_gives_its_run_back_without_paying_twice(
     client, job, api_key, fake, monkeypatch
 ):
     monkeypatch.setattr(runs, "_shutdown", threading.Event())
-    monkeypatch.setattr(runs, "CONCURRENCY", 1)
+    monkeypatch.setenv("ROWLAB_RUNNER_CALLS", "1")
+    config.cache_clear()
 
     def shut_down_mid_call(method, path, *, api_key, body=None):
         # SIGTERM arrives while the first model call is under way.

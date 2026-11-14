@@ -26,6 +26,16 @@ CATALOG_TTL_SECONDS = 3600
 TIMEOUT_SECONDS = 60
 ATTEMPTS = 4
 RETRY_BASE_SECONDS = 1.0
+# The longest wait before a retry, however long OpenRouter asks for: a runner stopping must finish
+# its calls in a few minutes.
+RETRY_MAX_SECONDS = 30.0
+
+# One client for every call, so a runner's calls reuse connections instead of each making its own
+# (DNS, TLS). Thread-safe; the runner's own pool caps how many calls are made at once.
+_client = httpx.Client(
+    timeout=TIMEOUT_SECONDS,
+    limits=httpx.Limits(max_connections=None, max_keepalive_connections=None),
+)
 
 
 class Model(BaseModel):
@@ -193,7 +203,7 @@ def _post_with_retries(path: str, body: dict[str, Any], api_key: str) -> dict[st
             if not e.retryable or attempt == ATTEMPTS - 1:
                 raise
             wait = e.retry_after or RETRY_BASE_SECONDS * 2**attempt * random.uniform(1, 1.5)
-            time.sleep(wait)
+            time.sleep(min(wait, RETRY_MAX_SECONDS))
     raise AssertionError("unreachable")
 
 
@@ -220,9 +230,7 @@ def _request(method: str, path: str, *, api_key: str | None, body: Any = None) -
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     try:
-        response = httpx.request(
-            method, BASE_URL + path, headers=headers, json=body, timeout=TIMEOUT_SECONDS
-        )
+        response = _client.request(method, BASE_URL + path, headers=headers, json=body)
     except httpx.HTTPError as e:
         raise OpenRouterError(f"Could not reach OpenRouter: {e}") from e
     if response.is_error:
