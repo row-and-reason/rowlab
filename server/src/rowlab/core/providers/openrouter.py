@@ -16,6 +16,7 @@ import httpx
 from pydantic import BaseModel
 
 from rowlab import __version__
+from rowlab.core import metrics
 from rowlab.core.errors import InvalidRequest
 
 BASE_URL = "https://openrouter.ai/api"
@@ -182,14 +183,24 @@ def _post_with_retries(path: str, body: dict[str, Any], api_key: str) -> dict[st
     """POST, retrying failures that may pass, waiting longer each time (or as long as OpenRouter
     asks), with some randomness so parallel calls don't retry in step."""
     for attempt in range(ATTEMPTS):
+        started = time.monotonic()
         try:
-            return _request("POST", path, api_key=api_key, body=body)
+            response = _request("POST", path, api_key=api_key, body=body)
+            _timed(body, started, 200)
+            return response
         except OpenRouterError as e:
+            _timed(body, started, e.status)
             if not e.retryable or attempt == ATTEMPTS - 1:
                 raise
             wait = e.retry_after or RETRY_BASE_SECONDS * 2**attempt * random.uniform(1, 1.5)
             time.sleep(wait)
     raise AssertionError("unreachable")
+
+
+def _timed(body: dict[str, Any], started: float, status: int | None) -> None:
+    metrics.MODEL_CALL_SECONDS.labels(body["model"], metrics.outcome(status)).observe(
+        time.monotonic() - started
+    )
 
 
 def _model(data: dict[str, Any], kind: Literal["decision", "llm"]) -> Model:

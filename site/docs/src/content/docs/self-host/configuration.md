@@ -17,6 +17,7 @@ rowlab is configured from environment variables, read once at start.
 | `ROWLAB_PRIVATE_URLS`     | on when `local`, off when `hosted` | whether web sources and S3 endpoints can be private addresses (localhost, the local network, cloud metadata)                          |
 | `ROWLAB_PRIVATE_S3_HOSTS` |                                    | comma-separated hostnames S3 connections may reach even on a private address, e.g. your own MinIO; see [below](#private-s3-hosts)     |
 | `OPENROUTER_API_KEY`      |                                    | or save it in Settings; on a shared server, a key here pays for everyone                                                              |
+| `ROWLAB_METRICS_PORT`     |                                    | serves [Prometheus metrics](/self-host/hosted#metrics) on this port, apart from the API's                                             |
 
 ### Private S3 hosts
 

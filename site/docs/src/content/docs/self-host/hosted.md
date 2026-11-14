@@ -64,6 +64,28 @@ queue, where the next runner continues it at once. The chunk under way is redone
 for the replies it already got. A runner that is killed instead loses only the calls in flight, and
 its run is taken back after two minutes of silence.
 
+## Metrics
+
+With `ROWLAB_METRICS_PORT` set, the API and every runner serve [Prometheus](https://prometheus.io)
+metrics at `/metrics` on that port. It is a port of its own so that the address people reach never
+shows them: let only your Prometheus reach it.
+
+| Metric                                                      |                                                                                                                                       |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `rowlab_http_request_duration_seconds{method,route,status}` | API requests, by route template (`/v1/datasets/{dataset_id}`); MCP as `/mcp`, the web app as `other`                                  |
+| `rowlab_model_call_duration_seconds{model,outcome}`         | every attempt at a model call, retries too; `outcome` is `ok`, `rate_limited`, `server_error`, `unreachable` (timed out) or `refused` |
+| `rowlab_runner_calls_in_flight`, `rowlab_runner_call_slots` | model calls a runner is making, and the most it makes at once (16)                                                                    |
+| `rowlab_answers_total{model,result}`                        | answers given to runs: `answered` (paid for), `cached` (free) or `failed`                                                             |
+| `rowlab_model_cost_usd_total{model}`                        | USD paid for answers                                                                                                                  |
+| `rowlab_model_tokens_total{model,kind}`                     | tokens billed, `input` and `output`                                                                                                   |
+| `rowlab_runs_finished_total{status}`                        | runs `done` or `failed`                                                                                                               |
+| `rowlab_runs{status}`                                       | runs `queued`, `running` or `stopping`, from the database                                                                             |
+| `rowlab_run_queue_wait_seconds`                             | how long the run first in line has waited for its turn                                                                                |
+
+The last two are read from the database at every scrape, by runners only. Every runner reports the
+same figures, so take their `max`. Runner capacity is the sum of `rowlab_runner_call_slots`: when
+calls in flight stay near it and the queue wait grows, add a runner.
+
 ## In front of it
 
 Put a reverse proxy or a tunnel in front, with TLS. Rate limits per client aren't rowlab's job: set
