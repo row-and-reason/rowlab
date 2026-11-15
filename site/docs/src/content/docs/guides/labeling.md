@@ -64,8 +64,13 @@ other:
 - **A judgement of a model's answer**, e.g. a yes/no task "Is `delivery__jev-1.14` right for this
   review?", over the rows the model answered.
 
-Set them with `PUT /v1/datasets/{id}/labels/{column}`, up to 1,000 at a time; the first labels in a
-column bring the task they answer:
+In the app, switch the right column from **Ask models** to **Label by hand** (or ⌘K → Label by hand),
+pick a label column or name a new one with the task it answers, and label the rows of the current view
+one at a time from the keyboard. Each label is saved as you go, and stays editable; there is no finish
+step. Filter the view first to label a sample, or the rows a model answered.
+
+Through the API, set them with `PUT /v1/datasets/{id}/labels/{column}`, up to 1,000 at a time; the
+first labels in a column bring the task they answer:
 
 ```json
 { "task": { "template": "Is this review about delivery? {{review}}", "type": "yes_no" },
