@@ -23,3 +23,16 @@ rowlab is pre-alpha, on its way to a first release. What is in it today:
   short-lived links.
 - A Python SDK, `rowlab-python-sdk`: a typed client to upload, run, export and compare from scripts
   and notebooks.
+
+## rowlab-python-sdk 0.2.0
+
+For the server's answers as columns of the dataset you uploaded; 0.1.0 doesn't work against it.
+
+- A run adds its answers to the dataset as columns, `run.columns`, instead of making a new dataset:
+  export and compare `ds.id`. Running the same task again asks only for the answers still missing,
+  so `runs.resume` is gone.
+- Labels go in columns of their own with `datasets.set_labels`, on any rows, instead of manual runs:
+  `runs.create(method=...)`, `runs.save_answers` and `runs.finish` are gone.
+- New: `datasets.list` (`DatasetSummary`), `datasets.delete_answers`, `runs.list`,
+  `compare(rows="pairwise")`, `models.list(all=True)` for OpenRouter's whole catalog, `Model.listed`,
+  and `Dataset.answers`, each an `AnswerColumn`. `Dataset.parent_id` and `branch` are gone.

@@ -1,4 +1,4 @@
-# Publish the Python SDK (sdk/) to PyPI as rowlab-python-sdk, on a tag `rowlab-python-sdk-v0.1.0` that
+# Publish the Python SDK (sdk/) to PyPI as rowlab-python-sdk, on a tag `rowlab-python-sdk-v<version>` that
 # matches the version in sdk/pyproject.toml. PyPI trusts this workflow in the `pypi` environment; no
 # token is stored.
 name: SDK release
