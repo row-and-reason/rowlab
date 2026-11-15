@@ -1767,6 +1767,14 @@ export interface components {
             /** @description The query and tasks it was started with. */
             config: components["schemas"]["RunRequest-Output"];
             /**
+             * Models
+             * @description The models it asks, by id, with their kinds and prices as when it started.
+             * @default {}
+             */
+            models: {
+                [key: string]: components["schemas"]["Model"];
+            };
+            /**
              * Columns
              * @description The output columns; manual runs use the task's column name without a model suffix.
              */

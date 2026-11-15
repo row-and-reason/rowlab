@@ -4473,6 +4473,15 @@
             "$ref": "#/components/schemas/RunRequest-Output",
             "description": "The query and tasks it was started with."
           },
+          "models": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Model"
+            },
+            "type": "object",
+            "title": "Models",
+            "description": "The models it asks, by id, with their kinds and prices as when it started.",
+            "default": {}
+          },
           "columns": {
             "items": {
               "type": "string"

@@ -14,8 +14,9 @@ export function useModels(): Model[] {
   const [loaded, setLoaded] = useState<Model[]>([]);
   useEffect(() => {
     models ??= api.GET("/v1/utils/models", { params: { query: { all: true } } }).then(({ data }) => {
-      // rowlab may be unreachable: ask again next time rather than keep an empty list.
-      if (!data) models = undefined;
+      // rowlab, or OpenRouter's catalog behind it, may be unreachable: ask again next time rather
+      // than keep an empty or listed-only answer.
+      if (!data?.some((m) => !m.listed)) models = undefined;
       return data ?? [];
     });
     models.then(setLoaded);

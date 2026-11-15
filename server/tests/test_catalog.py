@@ -2,9 +2,9 @@
 
 import pytest
 from fastmcp.exceptions import ToolError
-from helpers import NEGATIVE, call, run
+from helpers import NEGATIVE, call, run, start
 
-from rowlab.core import catalog
+from rowlab.core import catalog, runs
 from rowlab.core.providers import model_api, openrouter
 from rowlab.core.providers.model_api import ProviderError
 from rowlab.mcp import server
@@ -59,7 +59,7 @@ def test_all_lists_the_rest_of_openrouters_catalog_that_rowlab_can_ask(client):
         "anthropic/claude-haiku-5.5",
         "x/llm",
         "x/unpriced",
-        # Not without structured outputs, nor priced per call.
+        # Not those without structured outputs, batch only, routers, aliases or priced per call.
         "b/decider",
         "y/other",
     ]
@@ -72,12 +72,49 @@ def test_any_model_openrouter_has_can_run_not_only_the_listed(client, dataset, a
     finished = run(client, {**job, "tasks": [{**NEGATIVE, "models": ["y/other", "b/decider"]}]})
     assert finished["status"] == "done"
     assert all(c["failed"] == 0 for c in finished["costs"])
-    for model in ("z/plain", "r/auto", "nobody/nothing"):
+    for model in ("z/plain", "y/other:batch", "openrouter/free", "~y/other-latest", "p/per-call"):
         refused = run(client, {**job, "tasks": [{**NEGATIVE, "models": [model]}]})
         assert refused["detail"].startswith(f"Task negative: Unknown model: {model}.")
     # An unlisted decision model is still one.
     write = {"template": "{{review}}", "type": "write", "column": "short", "models": ["b/decider"]}
     assert "decision model" in run(client, {**job, "tasks": [write]})["detail"]
+
+
+def test_a_run_keeps_its_models_kinds_and_prices_whatever_happens_to_the_catalog(
+    client, dataset, api_key, fake, monkeypatch
+):
+    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data"}
+    pick = {**NEGATIVE, "models": ["y/other", "b/decider"]}
+    first = start(client, {**job, "tasks": [pick]})
+    second = start(client, {**job, "tasks": [{**pick, "column": "bad"}]})
+    # Gone from OpenRouter's catalog before the first run is processed.
+    fake.unlisted_llms.clear()
+    fake.unlisted_decisions.clear()
+    monkeypatch.setattr(catalog, "_openrouter", None)
+    fake.reports_cost = False
+    runs.process_next()
+    finished = client.get(f"/v1/runs/{first['id']}").json()
+    assert finished["status"] == "done"
+    # The LLM's replies say no cost: worked out from the prices it started with, for 2 rows of
+    # 1000 tokens in at $3/M and 100 out at $1/M; the decision model's say $0.001 each.
+    assert finished["cost"] == pytest.approx(2 * (1000 * 3e-06 + 100 * 1e-06) + 2 * 0.001)
+
+    # Nor does a runner that starts while OpenRouter is down need it.
+    def down():
+        raise ProviderError("Could not reach openrouter.ai")
+
+    monkeypatch.setattr(openrouter, "models", down)
+    monkeypatch.setattr(catalog, "_openrouter", None)
+    runs.process_next()
+    assert client.get(f"/v1/runs/{second['id']}").json()["status"] == "done"
+
+
+def test_on_the_servers_key_only_listed_models_run(client, dataset, api_key, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
+    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data"}
+    refused = run(client, {**job, "tasks": [{**NEGATIVE, "models": ["y/other"]}]})
+    assert "isn't on rowlab's list" in refused["detail"]
+    assert run(client, {**job, "tasks": [{**NEGATIVE, "models": ["x/llm"]}]})["status"] == "done"
 
 
 def test_an_unlisted_model_cant_be_checked_while_openrouter_is_down(

@@ -8,7 +8,10 @@ and writes the answers as columns of a new dataset.
 
 ## Tasks
 
-A task is a prompt, an answer type, and the models that answer it. The prompt is the question or
+A task is a prompt, an answer type, and the models that answer it: any from rowlab's list, or any other
+decision model, or LLM with structured outputs, in OpenRouter's catalog (on a server whose own key
+pays, only listed ones). A run keeps its models as they were when it started, so it finishes even if
+a model leaves the list or the catalog meanwhile. The prompt is the question or
 instruction with the row's columns in it, as `{{column}}`; the preview renders it for the first rows
 so you can read exactly what the model will see. A run can have several tasks over the same rows,
 and several models per task; each model writes its own columns.

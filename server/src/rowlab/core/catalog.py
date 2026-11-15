@@ -74,15 +74,6 @@ def get(model_id: str) -> Model:
     )
 
 
-def kind(model_id: str) -> Literal["decision", "llm"]:
-    """Whether a model is a decision model or an LLM. Runs call this per row: the list, else
-    OpenRouter's catalog as last fetched (asked for at most hourly)."""
-    for model in _load():
-        if model.id == model_id:
-            return model.kind
-    return get(model_id).kind
-
-
 class ModelPage(BaseModel):
     models: list[Model]
     total: int
@@ -141,7 +132,7 @@ def _catalog() -> dict[str, Model]:
             _openrouter = (time.monotonic() + CATALOG_TTL_SECONDS, fetched)
         # Unreachable, or answering in a shape it didn't before: what it said last will do.
         except (ProviderError, KeyError, TypeError, ValueError) as e:
-            log.warning("Using the model list's own prices: %s", e)
+            log.warning("OpenRouter's catalog couldn't be fetched; using what it said last: %s", e)
             last = _openrouter[1] if _openrouter else {}
             _openrouter = (time.monotonic() + CATALOG_RETRY_SECONDS, last)
     return _openrouter[1]

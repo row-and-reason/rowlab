@@ -401,6 +401,10 @@ export function ModelPicker({
           if (details.reason !== "escape-key") onChange(picked.map((m) => m.id));
         }}
         onInputValueChange={setQuery}
+        // By name or by id, e.g. `deepseek/deepseek-v4.1-flash-1017`.
+        filter={(model: Model, search: string) =>
+          `${model.name} ${model.id}`.toLowerCase().includes(search.trim().toLowerCase())
+        }
         itemToStringLabel={(model: Model) => model.name}
         isItemEqualToValue={(a: Model, b: Model) => a.id === b.id}
       >
@@ -426,6 +430,9 @@ export function ModelPicker({
                   {(model: Model) => (
                     <ComboboxItem key={model.id} value={model}>
                       <span className="truncate">{model.name}</span>
+                      {!model.listed && (
+                        <span className="truncate text-xs text-muted-foreground">{model.id}</span>
+                      )}
                       <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                         {price(model)}
                       </span>

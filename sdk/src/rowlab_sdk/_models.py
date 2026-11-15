@@ -1161,6 +1161,14 @@ class Run(BaseModel):
     config: Annotated[
         RunRequestOutput, Field(description='The query and tasks it was started with.')
     ]
+    models: Annotated[
+        dict[str, Model] | None,
+        Field(
+            description='The models it asks, by id, with their kinds and prices as when it started.',
+            title='Models',
+            validate_default=True,
+        ),
+    ] = {}
     columns: Annotated[
         list[str],
         Field(
