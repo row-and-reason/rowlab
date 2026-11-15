@@ -48,29 +48,32 @@ organisation.
 
 ## Tools
 
-| Tool                                              | What it does                                                                |
-| ------------------------------------------------- | --------------------------------------------------------------------------- |
-| `datasets_list`, `dataset_get`                    | the datasets, and one dataset with its columns, lineage and profile         |
-| `dataset_add`, `dataset_rename`, `dataset_delete` | add a file from a URL or S3 (locally, also a path); rename; delete          |
-| `dataset_upload`, `dataset_download`              | links to upload a file from the agent's machine, or download one, with curl |
-| `sql_query`                                       | rows from one DuckDB `SELECT` over `data`                                   |
-| `columns_compare`                                 | agreement between answer columns, and accuracy against a reference          |
-| `run_preview`                                     | the estimate and the rendered prompts for a run, before it costs anything   |
-| `run_start`, `run_get`, `run_resume`, `run_stop`  | runs, with `run_get` and `run_resume` waiting up to 30 seconds for progress |
-| `run_answers`, `run_finish`                       | save manual labels and finish the manual run                                |
-| `dataset_export`                                  | a dataset as CSV, JSONL or Parquet, to S3 (locally, also a path)            |
-| `task_types_get`, `models_list`                   | the answer types and their fields; models by name, kind or tag             |
+| Tool                                              | What it does                                                                     |
+| ------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `datasets_list`, `dataset_get`                    | the datasets, and one dataset with its columns, answer columns and profile       |
+| `dataset_add`, `dataset_rename`, `dataset_delete` | add a file from a URL or S3 (locally, also a path); rename; delete               |
+| `dataset_upload`, `dataset_download`              | links to upload a file from the agent's machine, or download one, with curl      |
+| `sql_query`                                       | rows from one DuckDB `SELECT` over `data`                                        |
+| `columns_compare`                                 | coverage, agreement between answer columns, and accuracy against a reference     |
+| `run_preview`                                     | the estimate and the rendered prompts for a run, before it costs anything        |
+| `run_start`, `run_get`, `run_stop`, `runs_list`   | runs, with `run_start` and `run_get` waiting up to 30 seconds for progress       |
+| `labels_set`                                      | set or clear labels people give, in a column of their own                        |
+| `answers_delete`                                  | delete a model's answers to a task, or a column of labels                        |
+| `dataset_export`                                  | a dataset as CSV, JSONL or Parquet, to S3 (locally, also a path)                 |
+| `task_types_get`, `models_list`                   | the answer types and their fields; models by name, kind or tag                   |
 
 Each tool's description says why it exists and when to use it, and the server's instructions give the
-order of work: read the dataset, run on a few rows, read the answers, then run on all. The
+order of work: read the dataset, run on a sample in a stable order
+(`ORDER BY md5('s1' || __row_id) LIMIT 50`), read and compare the answers, then run the same tasks on
+all rows, asking only for the answers still missing. A stopped or failed run is started again with
+`run_start`. The
 [Rowlab skill](/agents/skills) goes further.
 
 `models_list` returns `{models, total, next_offset}`: 20 models by default, at most 100 per page,
 recommended ones first. Use `search`, `kind` and `tag` (`recommended`, `budget`, `accurate`) to narrow
 results and `offset` to continue. `columns_compare` keeps per-class
 precision and recall, κ, α, intervals, calibration and cost in its default summary; `detail="full"`
-includes distributions and all row filters. New run datasets contain only the selected source rows,
-keeping their original row IDs.
+includes distributions and all row filters, and it reports each column's coverage first.
 
 Each call stands alone (the server keeps no MCP sessions), so a restart or deploy doesn't disconnect
 agents.
@@ -83,25 +86,18 @@ each with the curl command to run:
 
 ```sh
 curl -fsS -F 'file=@reviews.csv' 'https://app.rowlab.dev/v1/links/…'    # prints the new dataset
-curl -fsS -o 'reviews__1.csv' 'https://app.rowlab.dev/v1/links/…'
+curl -fsS -o 'reviews.csv' 'https://app.rowlab.dev/v1/links/…'
 ```
 
 A link needs no sign-in: it acts for the organisation of whoever asked for it, so treat it like a
 password. It works for 15 minutes.
 
-## Manual labeling
+## Labels
 
-Tasks can be completed manually as well as with models. Call `run_start` with `method="manual"`
-to create a run, then `run_answers(run_id, task_id, answers=[{"row_id": 0, "value": true}])`
-to enter labels. No model is called or provider key required. Only submit labels the user
-provides or explicitly asks you to produce.
-
-The values follow the task: boolean for yes/no, option name for pick one or scale, a list of
-option names for pick any, text for write, or an object keyed by field name for extract.
-Null clears a label. Batches contain up to 1,000 answers. Read the saved task with `run_get`
-and select or inspect rows using `sql_query` on its output dataset.
-
-`run_finish` locks the output dataset, leaving unanswered cells null. Labels occupy the
-named task columns without model suffixes or extra status columns. Existing comparison
-and export tools work unchanged. Before finishing, last saved value wins; retry an
-interrupted batch with the same values. There is no separate review or judgment lifecycle.
+`labels_set(dataset_id, column, labels=[{"row_id": 0, "value": true}], task=…)` sets labels people
+give, in a column of their own, on any rows, before or after models run; the first labels in a column
+bring the task they answer, which can be the models' task or a yes/no judgement of a model's answer.
+No model is called or provider key required. Only submit labels the user provides or explicitly asks
+you to produce. The values follow the [answer type](/how-it-works/answer-types), null clears a
+label, and a batch holds up to 1,000. Read them with `sql_query`, and compare models against them with
+`columns_compare(…, reference="gold")`.

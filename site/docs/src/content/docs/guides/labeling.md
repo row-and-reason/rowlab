@@ -17,50 +17,67 @@ Read the dataset first, its profile included, and write the prompt from the row'
 Say what the model is looking at ("a customer review of a kitchen product") and what each option
 means when the words alone could be read two ways. Put a long or variable text last.
 
-## Try on a few rows
+## Try on a sample
 
 Preview the run: read each rendered prompt, and the warnings (a column that is empty for the first
-rows, a placeholder that matches no column). Run on about twenty rows (`LIMIT 20`) and read the
-answers next to the rows they came from, not the counts alone. Look for rows the prompt didn't
-anticipate: empty cells, another language, a row that is really two, text that contradicts itself.
-Fix the prompt or the options and run again from the source dataset. Twenty rows cost little either
-way.
+rows, a placeholder that matches no column). Run on a sample in a stable order:
 
-When the answer is a judgement rather than a fact, run a second model on the same rows and
-[compare](/guides/comparing-models); the disagreements are where the prompt is unclear.
+```sql
+SELECT * FROM data ORDER BY md5('s1' || __row_id) LIMIT 50
+```
+
+The same seed (`'s1'`) gives the same rows every time, and a bigger sample (`LIMIT 200`) keeps the
+smaller one, so its answers are already there and not paid for again. Read the answers next to the
+rows they came from, not the counts alone. Look for rows the prompt didn't anticipate: empty cells,
+another language, a row that is really two, text that contradicts itself.
+
+To fix the prompt or the options, give the new version its own column name (`delivery_v2`) and run it
+on the same sample, next to the first: answers to a different question never go in the same column.
+Several variants can be tasks of one run. When the answer is a judgement rather than a fact, run a
+second model on the same rows and [compare](/guides/comparing-models); the disagreements are where
+the prompt is unclear. A try you no longer want is deleted from the column's menu (MCP
+`answers_delete`).
 
 ## Run on all rows
 
-Preview again for the full query, from the source dataset, and note the rows, calls and cost. Start
-the run. If the first answers look wrong, stop it and start a new run with the fixed prompt. Resume is
-for runs that stopped or failed with the prompt right, and for a done run's failed rows.
+Preview the same tasks without the `LIMIT`, and note the rows, the answers already there, the calls
+and the cost: only the answers still missing are asked and paid for. Start the run. If the first
+answers look wrong, stop it. A run that stopped or failed with the prompt right, or a done run with
+failed answers, is started again the same way: it asks only for what is missing.
 
 ## Check the result
 
-Query the finished dataset: the share of each answer, the rows with no answer, and a handful of rows
-per option read against their text. Compare the distribution with what you expect of the data: all one
+Query the dataset: the share of each answer, the rows with no answer, and a handful of rows per
+option read against their text. Compare the distribution with what you expect of the data: all one
 value, or nearly uniform, is a reason to read more examples, not a verdict. A `_reason` column, when
 the task asked for one, explains odd answers.
 
 Then [export](/guides/exporting).
 
-## Label by hand
+## Labels people set
 
-Define the task as usual and choose **Label manually** rather than **Label with an LLM**. The run
-shows its rows one at a time, with the rendered prompt and the answer choices; choosing an answer
-saves it and moves to the next row. For pick any, tick the options and press **Save & next**; for
-text, Enter saves and Shift+Enter adds a line. Come back any
-time to continue. **Finish labeling** locks the dataset, leaving unanswered rows empty.
+People's labels are a column of the dataset too, named for them (`gold`), set on any rows, before or
+after models run. No model is called, so no key is needed. A column of labels answers a task like any
+other:
 
-No model is called, so no key is needed. Every answer type works; an extract answer is JSON with
-the task's fields. Columns are named as for a model run but without the model's name, and there are
-no `_proba` or status columns; they compare, query and export like any other. Agents do the same over
-[MCP](/agents/mcp#manual-labeling), scripts with the [API](/how-it-works/runs#manual-runs) or the
-[Python SDK](/agents/python#manual-labels).
+- **The same task the models do**, as a reference to measure them against.
+- **A judgement of a model's answer**, e.g. a yes/no task "Is `delivery__jev-1.14` right for this
+  review?", over the rows the model answered.
 
-## Inspect a dataset’s origin
+Set them with `PUT /v1/datasets/{id}/labels/{column}`, up to 1,000 at a time; the first labels in a
+column bring the task they answer:
 
-Open **Origin** to see the source, selected row count, processed and failed model calls, cost, output
-columns, and recorded prompts, with the run's SQL below them. An added file shows where it came from
-and when. The labeling tools remain on the right. **Edit and run again** loads settings onto the
-parent without starting a run; it asks before replacing an existing draft.
+```json
+{ "task": { "template": "Is this review about delivery? {{review}}", "type": "yes_no" },
+  "labels": [{ "row_id": 0, "value": true }] }
+```
+
+The value follows the [answer type](/how-it-works/answer-types): a boolean for yes/no, an option's
+name for pick one and scale, a list of names for pick any, text for write, an object keyed by field
+for extract. Null clears a label, and the last saved value wins. A batch is saved whole or not at
+all. Who set each label is recorded. Labels have no `_proba` column; they query,
+[compare](/guides/comparing-models) and export like any other column. Agents do the same over
+[MCP](/agents/mcp) with `labels_set`.
+
+Labels that come with the file, an earlier annotation or an observed outcome, are a column of it
+already, and serve as a reference just as well.

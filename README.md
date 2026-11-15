@@ -2,8 +2,8 @@
 
 Ask a question of every row. rowlab labels, extracts and rewrites tabular data with AI: add a CSV,
 JSON, JSONL or Parquet file, write the question from the row's own columns, try it on twenty rows,
-then run it on a million. Every run makes a new dataset of the selected rows with the answers added;
-your data is never changed in place.
+then run it on a million. Runs and people add answer columns to one dataset per file; the file
+itself is never changed.
 
 Open source (Apache-2.0). Runs on your laptop, on your own servers, or hosted at
 [app.rowlab.dev](https://app.rowlab.dev). Docs at [docs.rowlab.dev](https://docs.rowlab.dev).
@@ -24,7 +24,7 @@ Or with Docker: `docker compose up` in this repository runs it with Postgres and
 a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
 
 - [Get started](https://docs.rowlab.dev/get-started), then the guides:
-  [labeling](https://docs.rowlab.dev/guides/labeling), by model or by hand, and
+  [labeling](https://docs.rowlab.dev/guides/labeling), by models or by people, and
   [comparing models](https://docs.rowlab.dev/guides/comparing-models).
 - [Configuration](https://docs.rowlab.dev/self-host/configuration) and
   [a shared server](https://docs.rowlab.dev/self-host/hosted): Postgres, S3, sign-in with WorkOS,
@@ -43,9 +43,10 @@ a shared server does ([more](https://docs.rowlab.dev/self-host#with-docker)).
 - **Data in → process → data out.** Your storage stays the source of truth; rowlab is a workspace.
 - **API first.** The web UI uses only the public API — anything the UI can do, an agent can do.
 - **Easy to run.** One process, one SQLite file, one data folder: `uvx rowlab`.
-- **Paid calls are never repeated.** Per-row results are stored as they complete, and model replies are
-  kept with the datasets they made, by `hash(model + params + questions + rendered prompt)`: a run
-  reuses those of the done runs in its dataset tree. The database holds only the replies of chunks under way.
+- **Paid calls are never repeated.** A run asks only for the answers its dataset is missing, and stores
+  them as they complete. Model replies are kept with the dataset, by
+  `hash(model + params + questions + rendered prompt)`, also for stopped and failed runs, so asking
+  the same again is free.
 
 ## Development
 
@@ -80,7 +81,7 @@ and [CONTRIBUTING.md](CONTRIBUTING.md) how to send a change.
 
 ## Non-goals
 
-- Dataset versioning or branching — use git, DVC or your data lake. A dataset made by a run only
-  records which dataset it came from and how, shown as a tree in the dataset list.
+- Dataset versioning or branching — use git, DVC or your data lake. A dataset is the rows of one
+  file with answer columns added, and each answer column records the question it answers.
 - Being a system of record or long-term storage
 - A general-purpose BI or spreadsheet tool

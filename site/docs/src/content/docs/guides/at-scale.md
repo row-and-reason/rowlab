@@ -25,10 +25,12 @@ a first pass that misses rows loses them for good.
 Several facts from the same rows go in one Extract task with several fields: one call answers them
 all. Separate tasks are each a call per row and model.
 
-The same prompt and model on the same row is never paid for twice in the datasets made from one
-file, so iterate on a sample of it before the full run, and resume a stopped or failed run rather than starting a new one. When the data grows, add
-the new rows as a new dataset (a file of just them, with a stable id), run on it, and join the
-results to the earlier ones where you keep your data.
+The same prompt and model on the same row is never paid for twice in a dataset: a run asks only for
+the answers it is missing, and model replies are kept. So iterate on a sample before the full run, a
+stable one (`ORDER BY md5('s1' || __row_id) LIMIT 200`) whose answers the full run then reuses, and
+start a stopped or failed run again rather than changing it. When the data grows, add the new rows as
+a new dataset (a file of just them, with a stable id), run on it, and join the results to the earlier
+ones where you keep your data.
 
 ## Estimate and agree
 
@@ -41,4 +43,4 @@ A run on a million rows takes hours, and its dataset fills in a chunk of 500 row
 the answers early (`WHERE <column> IS NOT NULL`) and stop the run if they are wrong, before the
 budget is spent.
 Some answers fail at scale (rate limits, provider errors, unusable replies); when the run is done,
-resume it once to ask them again, then see what is still missing.
+start it again once to ask them again, then see what is still missing.

@@ -35,10 +35,11 @@ share of empty cells.
 
 ## Ask a question
 
-Pick the rows with SQL over the table `data`, for the first try a few of them:
+Pick the rows with SQL over the table `data`, for the first try a sample of them, in an order that
+stays the same:
 
 ```sql
-SELECT * FROM data WHERE stars <= 2 LIMIT 20
+SELECT * FROM data ORDER BY md5('s1' || __row_id) LIMIT 20
 ```
 
 Write the question with the row's columns in it, pick an answer type and a model:
@@ -53,13 +54,13 @@ prompt rendered for the first rows, the number of calls, and the estimated cost.
 
 ## Read the answers
 
-The run makes a new dataset, `reviews__1`, with a column `delivery__jev-1.14` and its probability.
-Read the answers next to the rows they came from. If the question was unclear for some rows, fix the
-prompt and run again from the original dataset: the cost of twenty rows is nothing, and the same
-prompt on the same row is never paid for twice in the datasets made from one file.
+The run adds a column `delivery__jev-1.14` to the dataset, with its probability beside it, filled in
+for the twenty rows. Read the answers next to the rows they came from. If the question was unclear for
+some rows, fix the prompt and run it under a new column name, `delivery_v2`, on the same rows: the
+cost of twenty rows is nothing.
 
-Then take the `LIMIT` off and run on all rows. Export the result as CSV, JSONL or Parquet when it is
-done.
+Then take the `LIMIT` off and run the same task on all rows: the twenty answers already there are not
+asked or paid for again. Export the dataset as CSV, JSONL or Parquet when it is done.
 
 ## Next
 

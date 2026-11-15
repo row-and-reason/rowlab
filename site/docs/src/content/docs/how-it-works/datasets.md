@@ -1,6 +1,6 @@
 ---
 title: Datasets
-description: Where data comes from, how it is kept, and how datasets form a tree.
+description: Where data comes from, how it is kept, and how answers are added to it as columns.
 ---
 
 A dataset is a table rowlab has read in and keeps as Parquet. Your source, a file on disk, a URL or an
@@ -18,16 +18,26 @@ content, so the file name doesn't matter. Sources:
 - **S3**, through a connection (**Settings → Storage**) that holds the bucket's credentials. Members
   use connections without seeing their secrets.
 
-## The tree
+## Answer columns
 
-A run never changes a dataset. It makes a new one, with the selected rows of the original and the answer
-columns added, and records which dataset it came from and how. Names say where a dataset sits:
-`reviews` → `reviews__1` → `reviews__1.2`. The datasets list shows the tree, and each dataset's page
-says what made it: the SQL, the tasks and the models.
+A dataset is the rows of one file, each with a stable `__row_id`. Its own columns never change; runs
+and people add answer columns to it, and the table `data` that SQL reads is the file's columns with
+every answer column joined by row:
 
-A 100-row run makes a 100-row result, with the original `__row_id` values. Existing results
-keep their stored rows. Rename a dataset from its menu, ⌘K or MCP `dataset_rename`; IDs and
-lineage stay unchanged, and descendants keep their own names.
+- **A model's answers** go in `<column>__<model>`, e.g. `delivery__jev-1.14`, with its
+  [extra columns](/how-it-works/runs#tasks) beside it.
+- **Labels people set** go in a column named for them, e.g. `gold`
+  ([Labeling](/guides/labeling#labels-people-set)).
+
+An answer column is often sparse: empty means not asked yet, or asked and failed. A column name keeps
+its question: a task with a changed prompt, options or answer type needs a new name, so answers to two
+different questions never share a column. The dataset's page, and `GET /v1/datasets/{id}`, list each
+answer column with its task, its model or labels, how many rows have an answer and what it cost.
+
+Delete an answer column (a model's answers to a task, or a column of labels) from its menu,
+`DELETE /v1/datasets/{id}/answers?column=&model=` or MCP `answers_delete`, e.g. a try you no longer
+want. The model replies stay kept, so asking the same again is free. Rename a dataset from its menu,
+⌘K or MCP `dataset_rename`; its id and data stay the same.
 
 This is deliberately not versioning. rowlab is a workspace between your storage and your storage;
 keep the source and the exports where you keep data, and delete datasets here when you are done.
