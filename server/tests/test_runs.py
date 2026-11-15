@@ -410,8 +410,8 @@ def test_run_explains_what_is_missing(client, job):
     assert detail(tasks=[{**NEGATIVE, "template": " "}]) == "Task negative: Write the prompt."
     pick = {**NEGATIVE, "type": "pick_one", "column": "team"}
     assert detail(tasks=[pick]) == "Task team: Add at least two options."
-    assert detail(tasks=[{**NEGATIVE, "models": ["nope/nope"]}]) == (
-        "Task negative: Unknown model: nope/nope"
+    assert detail(tasks=[{**NEGATIVE, "models": ["nope/nope"]}]).startswith(
+        "Task negative: Unknown model: nope/nope."
     )
     assert detail(tasks=[NEGATIVE, NEGATIVE]) == (
         "Two tasks write the same column: negative__jev-1.14."

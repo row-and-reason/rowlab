@@ -66,8 +66,9 @@ order of work: read the dataset, run on a few rows, read the answers, then run o
 [Rowlab skill](/agents/skills) goes further.
 
 `models_list` returns `{models, total, next_offset}`: 20 models by default, at most 100 per page,
-recommended ones first. Use `search`, `kind` and `tag` (`recommended`, `budget`, `accurate`) to narrow
-results and `offset` to continue. `columns_compare` keeps per-class
+rowlab's list first, recommended ones at the top. Use `search`, `kind` and `tag` (`recommended`,
+`budget`, `accurate`) to narrow results, `all` to search the rest of OpenRouter's catalog too, and
+`offset` to continue. A run can use any model `all` finds. `columns_compare` keeps per-class
 precision and recall, κ, α, intervals, calibration and cost in its default summary; `detail="full"`
 includes distributions and all row filters. New run datasets contain only the selected source rows,
 keeping their original row IDs.

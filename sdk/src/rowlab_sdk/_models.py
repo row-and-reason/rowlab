@@ -389,6 +389,13 @@ class Model(BaseModel):
             title='Tags',
         ),
     ]
+    listed: Annotated[
+        bool,
+        Field(
+            description="On rowlab's own list, offered first. The rest of OpenRouter's catalog can be asked too.",
+            title='Listed',
+        ),
+    ]
     prompt_price: Annotated[float, Field(description='USD per input token.', title='Prompt Price')]
     completion_price: Annotated[
         float, Field(description='USD per output token.', title='Completion Price')
@@ -1154,6 +1161,14 @@ class Run(BaseModel):
     config: Annotated[
         RunRequestOutput, Field(description='The query and tasks it was started with.')
     ]
+    models: Annotated[
+        dict[str, Model] | None,
+        Field(
+            description='The models it asks, by id, with their kinds and prices as when it started.',
+            title='Models',
+            validate_default=True,
+        ),
+    ] = {}
     columns: Annotated[
         list[str],
         Field(

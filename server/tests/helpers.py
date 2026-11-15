@@ -27,8 +27,8 @@ def stored_datasets():
     return {o["Key"].removeprefix(prefix).split("/")[0] for o in found}
 
 
-# The models the tests may use, in place of rowlab's own list. OpenRouter (the fake) prices all but
-# `x/unpriced`; `old/retired` is deprecated.
+# rowlab's own list, for the tests. OpenRouter (the fake) prices all but `x/unpriced`, and has more
+# models besides.
 CATALOG = """
 [[models]]
 id = "typesafe/jev-1.14"
@@ -60,17 +60,26 @@ name = "Unpriced"
 kind = "llm"
 price_in = 3
 price_out = 4
-
-[[models]]
-id = "old/retired"
-name = "Retired"
-kind = "llm"
-deprecated = true
 """
 
 
-def chat_model(id_, price):
-    return {"id": id_, "name": id_.title(), "pricing": {"prompt": price, "completion": "0.000001"}}
+def chat_model(id_, price, *, structured=True, endpoint="/api/v1/chat/completions"):
+    return {
+        "id": id_,
+        "name": id_.title(),
+        "pricing": {"prompt": price, "completion": "0.000001"},
+        "supported_parameters": ["structured_outputs"] if structured else ["tools"],
+        "endpoints": [endpoint],
+    }
+
+
+def decision_model(id_, price, **pricing):
+    return {
+        "id": id_,
+        "name": id_.title(),
+        "pricing": {"prompt": price, **pricing},
+        "endpoints": ["/api/alpha/decisions"],
+    }
 
 
 class FakeOpenRouter:
@@ -87,6 +96,9 @@ class FakeOpenRouter:
         self.crash_on = None
         self.flaky = set()
         self.reports_cost = True
+        # Models in OpenRouter's catalog that aren't on rowlab's list; a test may take them out.
+        self.unlisted_decisions = [decision_model("b/decider", "0.00000002")]
+        self.unlisted_llms = [chat_model("y/other", "0.000003")]
 
     def __call__(self, method, url, *, api_key, body=None):
         # Paths as OpenRouter's under its `/api`, and as any other provider's under its host.
@@ -102,8 +114,11 @@ class FakeOpenRouter:
         if path == "/v1/models?output_modalities=decisions":
             return {
                 "data": [
-                    {"id": "typesafe/jev-1.14", "name": "Jev", "pricing": {"prompt": "0.00000004"}},
-                    {"id": "a/cheap", "name": "Cheap", "pricing": {"prompt": "0.00000001"}},
+                    decision_model("typesafe/jev-1.14", "0.00000004"),
+                    decision_model("a/cheap", "0.00000001"),
+                    # Not on rowlab's list: one rowlab can ask, and one priced per request.
+                    *self.unlisted_decisions,
+                    decision_model("p/per-call", "0", request="0.001"),
                 ]
             }
         if path == "/v1/models":
@@ -111,7 +126,13 @@ class FakeOpenRouter:
                 "data": [
                     chat_model("x/llm", "0.000002"),
                     chat_model("anthropic/claude-haiku-5.5", "0.0000001"),
-                    chat_model("old/retired", "0.000001"),
+                    # Not on rowlab's list: one rowlab can ask, and ones it can't: without
+                    # structured outputs, batch only, a router, and an alias.
+                    *self.unlisted_llms,
+                    chat_model("z/plain", "0.000001", structured=False),
+                    chat_model("y/other:batch", "0.000001", endpoint="/api/v1/batches"),
+                    chat_model("openrouter/free", "0"),
+                    chat_model("~y/other-latest", "0.000003"),
                 ]
             }
         if path == "/v1/chat/completions":

@@ -195,11 +195,17 @@ def for_run(org_id: str, provider_id: str | None) -> Use:
 
 
 def request(
-    provider_type: ProviderType, model_prefix: str, task: Task, model: str, prompt: str
+    provider_type: ProviderType,
+    model_prefix: str,
+    task: Task,
+    model: str,
+    prompt: str,
+    *,
+    kind: Literal["decision", "llm"],
 ) -> Request:
     """The call asking one task of one model, about one row's prompt, as the provider takes it."""
     name = model_prefix + model
-    if catalog.kind(model) == "decision":
+    if kind == "decision":
         questions = tasks.decision_questions(task)
         if provider_type == "litellm":
             return litellm.decision_request(model, name, prompt, questions)
@@ -218,7 +224,7 @@ class Reply(BaseModel):
     output_tokens: int = 0
 
 
-def ask(use: Use, request: Request) -> Reply:
+def ask(use: Use, request: Request, model: catalog.Model) -> Reply:
     """Make a call, paid for. `data` is None when the reply can't be read. When the provider doesn't
     say what it cost, it is worked out from the model's prices and the tokens used."""
     reply = model_api.post(use.base_url, request, use.api_key)
@@ -233,7 +239,6 @@ def ask(use: Use, request: Request) -> Reply:
         data = None  # Paid for, but not in a shape rowlab reads: that answer fails.
     cost, input_tokens, output_tokens = model_api.usage(reply)
     if cost is None:
-        model = catalog.get(request.model)
         cost = input_tokens * model.prompt_price + output_tokens * model.completion_price
     return Reply(data=data, cost=cost, input_tokens=input_tokens, output_tokens=output_tokens)
 

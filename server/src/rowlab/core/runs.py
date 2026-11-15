@@ -90,6 +90,9 @@ class Run(BaseModel):
     dataset_id: str = Field(description="The dataset it makes.")
     status: Status
     config: RunRequest = Field(description="The query and tasks it was started with.")
+    models: dict[str, catalog.Model] = Field(
+        {}, description="The models it asks, by id, with their kinds and prices as when it started."
+    )
     columns: list[str] = Field(
         description="The output columns; manual runs use the task's column name without a model suffix."
     )
@@ -141,6 +144,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
     manual = request.method == "manual"
     check(dataset_id, request)
     provider_id = None if manual else model_providers.for_new_run(datasets.org_of(dataset_id))
+    models = {model: catalog.get(model) for task in request.tasks for model in task.models}
     with sql.connect(dataset_id) as con:
         query = sql.row_ids(con, request.sql)
         asked = [r[0] for r in sql.execute(con, f"{query} ORDER BY {ROW_ID}").fetchall()]
@@ -157,14 +161,15 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
         run_id = uuid.uuid4().hex
         with db.connect() as conn:
             conn.execute(
-                "INSERT INTO runs (id, dataset_id, status, config, columns, costs,"
+                "INSERT INTO runs (id, dataset_id, status, config, models, columns, costs,"
                 " row_count, total, created_at, queued_at, created_by, provider_id)"
-                " VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)",
+                " VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     made_id,
                     "manual" if manual else "queued",
                     request.model_dump_json(),
+                    json.dumps({k: m.model_dump() for k, m in models.items()}),
                     json.dumps(tasks.answer_columns(request.tasks, manual=manual)),
                     len(asked),
                     len(asked) * sum(1 if manual else len(task.models) for task in request.tasks),
@@ -207,11 +212,19 @@ def check(dataset_id: str, request: RunRequest) -> None:
     if parent.run and parent.run.status == "manual":
         raise InvalidRequest("Finish this dataset before starting another run on it.")
     manual = request.method == "manual"
+    on_server_key = model_providers.status(datasets.org_of(dataset_id)) == "server"
     for task in request.tasks:
         try:
             tasks.check(task, manual=manual)
             for model in task.models:
-                kind = catalog.get(model, offered=True).kind
+                found = catalog.get(model)
+                # The server pays: only for the models it lists, not any OpenRouter has.
+                if on_server_key and not found.listed:
+                    raise InvalidRequest(
+                        f"{model} isn't on rowlab's list, and this server's own key pays for runs. "
+                        "Pick a listed model."
+                    )
+                kind = found.kind
                 if kind == "decision" and task.type in tasks.LLM_ONLY:
                     raise InvalidRequest(
                         f"{task.type.title()} needs an LLM: {tasks.model_slug(model)} is a "
@@ -288,7 +301,9 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
             prompt_tokens = sum(
                 prompts.count_tokens(
                     json.dumps(
-                        model_providers.request("openrouter", "", task, model, p).body,
+                        model_providers.request(
+                            "openrouter", "", task, model, p, kind=prices[model].kind
+                        ).body,
                         ensure_ascii=False,
                     )
                 )
@@ -531,9 +546,15 @@ def _process_chunk(
     ]
     if not units:
         return True
+    models = _models(run)
     requests = [
         model_providers.request(
-            use.type, use.model_prefix, task, model, prompts.render(task.template, row, keys)
+            use.type,
+            use.model_prefix,
+            task,
+            model,
+            prompts.render(task.template, row, keys),
+            kind=models[model].kind,
         )
         for row, task, model in units
     ]
@@ -562,7 +583,7 @@ def _process_chunk(
         row, task, model = units[i]
         saved = found.get(request_keys[i])
         try:
-            answer, data = _ask(task, model, requests[i], use, saved)
+            answer, data = _ask(task, models[model], requests[i], use, saved)
         except KeyProblem:
             stopping.set()
             raise
@@ -686,8 +707,17 @@ _KEY_PROBLEMS = {
 }
 
 
+def _models(run: Run) -> dict[str, catalog.Model]:
+    """The run's models as when it started; looked up for runs from before they were kept."""
+    return {
+        model: run.models.get(model) or catalog.get(model)
+        for task in run.config.tasks
+        for model in task.models
+    }
+
+
 def _ask(
-    task: Task, model: str, request: Request, use: model_providers.Use, saved: Any = None
+    task: Task, model: catalog.Model, request: Request, use: model_providers.Use, saved: Any = None
 ) -> tuple[_Answer, Any]:
     """One task for one row from one model, as base columns, with the reply's data (None if there
     was no reply). `saved` is a reply already paid for, used instead of asking."""
@@ -696,7 +726,7 @@ def _ask(
     else:
         try:
             with metrics.CALLS_IN_FLIGHT.track_inprogress():
-                response = model_providers.ask(use, request)
+                response = model_providers.ask(use, request, model)
         except ProviderError as e:
             if e.status in _KEY_PROBLEMS:
                 raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
@@ -712,7 +742,7 @@ def _ask(
             answer.error = "The model's reply couldn't be read."
             return answer, None
     try:
-        if catalog.kind(model) == "decision":
+        if model.kind == "decision":
             answer.values = tasks.read_decision(task, data)
         else:
             answer.values = tasks.read_llm(task, data)
@@ -742,6 +772,7 @@ def _from_row(row) -> Run:
         dataset_id=row["dataset_id"],
         status=row["status"],
         config=json.loads(row["config"]),
+        models=json.loads(row["models"]),
         columns=json.loads(row["columns"]),
         costs=json.loads(row["costs"]),
         row_count=row["row_count"],
