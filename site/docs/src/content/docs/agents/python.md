@@ -50,8 +50,10 @@ with Client() as rl:
     run = rl.runs.wait(rl.runs.create(ds.id, task).id)
     assert run.status == "done", run.error
 
+    rl.datasets.set_labels(ds.id, "gold", {0: True, 1: False}, task=task)  # labels you trust
     out = rl.datasets.export(ds.id)                     # a polars DataFrame
     cmp = rl.datasets.compare(ds.id, run.columns, reference="gold")
+    [(c.column, c.answered, c.left_out) for c in cmp.coverage]
     cmp.agreement.alpha, cmp.agreement.alpha_level
     acc = cmp.reference[0]
     acc.accuracy, acc.accuracy_ci, acc.calibration.ece, acc.usd_per_correct
@@ -68,9 +70,13 @@ with Client() as rl:
   whatever a stopped run didn't get to. With `timeout=`, it raises `TimeoutError` when that passes;
   the run carries on.
 - The `reference` is a column you uploaded with the data, or [labels people
-  set](/guides/labeling#labels-people-set) (`PUT /v1/datasets/{id}/labels/{column}`).
-  [Comparing models](/guides/comparing-models) says what each number means, and `cmp.coverage` on
-  how many rows.
+  set](/guides/labeling#labels-people-set) with `set_labels`: a row id to label mapping, `None`
+  clearing one, with the task they answer the first time. Compare measures every column on the rows
+  they all have a value in; `cmp.coverage` says how many that left out, and `rows="pairwise"`
+  measures each on its own. [Comparing models](/guides/comparing-models) says what each number
+  means.
+- `rl.runs.list(ds.id)` lists the dataset's runs; `rl.datasets.delete_answers(ds.id, "transport",
+  model="typesafe/jev-1.14")` drops a try (its replies are kept, so asking again is free).
   `calibration` is `None` for a column without a `_proba` column next to it, and `cmp.costs` lists
   only the columns a run wrote.
 - `export(..., format="csv", path="out.csv")` writes a file instead; `sql=` exports only some rows.
