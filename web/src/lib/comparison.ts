@@ -1,4 +1,4 @@
-import type { Comparison, Dataset } from "@/lib/api/client";
+import type { AnswerColumn, Comparison, Dataset } from "@/lib/api/client";
 import { formatUsd } from "@/lib/format";
 import { ALL_ROWS, type WhereFilter } from "@/lib/sql";
 import type { CompareRequest } from "@/lib/use-comparison";
@@ -104,6 +104,7 @@ export type ComparisonChoice = {
   tolerance: string;
   ignoreCase: boolean;
   trimWhitespace: boolean;
+  rows: CompareRequest["rows"];
 };
 
 /**
@@ -111,7 +112,7 @@ export type ComparisonChoice = {
  * compared if it can't, and the compare request once there is something valid to compare.
  */
 export function comparisonSetup(choice: ComparisonChoice, datasetColumns: Dataset["columns"]) {
-  const { columns, reference, tolerance, ignoreCase, trimWhitespace } = choice;
+  const { columns, reference, tolerance, ignoreCase, trimWhitespace, rows } = choice;
   const compared = reference ? [...columns, reference] : columns;
   const types = compared.map((name) => datasetColumns.find((c) => c.name === name)!.type);
   const numeric =
@@ -139,17 +140,18 @@ export function comparisonSetup(choice: ComparisonChoice, datasetColumns: Datase
           ignore_case: text && ignoreCase,
           trim_whitespace: text && trimWhitespace,
           tolerance: numeric && tolerance !== "" ? Number(tolerance) : null,
+          rows,
         }
       : undefined;
   return { numeric, text, dates, mixed, problem, request };
 }
 
-/** The first task answered by several models, excluding probability/reason output columns. */
-export function modelGroup(runColumns: string[]): string[] {
+/** The answer columns of the newest task several models answered, to compare them by default. */
+export function modelGroup(answers: AnswerColumn[]): string[] {
   const groups = new Map<string, string[]>();
-  for (const column of runColumns.filter((c) => !c.endsWith("_proba") && !c.endsWith("_reason"))) {
-    const base = column.split("__")[0];
-    groups.set(base, [...(groups.get(base) ?? []), column]);
+  for (const answer of answers) {
+    if (answer.model === null) continue;
+    groups.set(answer.name, [...(groups.get(answer.name) ?? []), answer.columns[0]]);
   }
   return [...groups.values()].find((g) => g.length > 1) ?? [];
 }

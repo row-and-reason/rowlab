@@ -5,6 +5,8 @@ import { resetAnalytics } from "@/lib/analytics";
 import type { components, paths } from "./schema";
 
 export type Dataset = components["schemas"]["Dataset"];
+export type DatasetSummary = components["schemas"]["DatasetSummary"];
+export type AnswerColumn = components["schemas"]["AnswerColumn"];
 export type ColumnProfile = components["schemas"]["ColumnProfile"];
 export type QueryResult = components["schemas"]["QueryResult"];
 /** A row as the API returns it, by column name. */

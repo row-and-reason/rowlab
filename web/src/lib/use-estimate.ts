@@ -11,12 +11,11 @@ export function useEstimate(
   sql: string,
   tasks: Task[],
   enabled: boolean,
-  method: "llm" | "manual",
 ): { estimate?: Estimate; problem?: string } {
   // What the API says the run would cost, and why it can't start, if it can't: its own answer, or
   // the request's error (e.g. rowlab can't be reached).
   const [estimate, setEstimate] = useState<{ estimate?: Estimate; problem?: string }>();
-  const key = JSON.stringify([sql, tasks, method]);
+  const key = JSON.stringify([sql, tasks]);
   useEffect(() => {
     if (!enabled) return;
     let current = true;
@@ -24,7 +23,7 @@ export function useEstimate(
       api
         .POST("/v1/datasets/{dataset_id}/estimate", {
           params: { path: { dataset_id: datasetId } },
-          body: { sql, tasks, method },
+          body: { sql, tasks },
         })
         .then(({ data, error }) => {
           if (!current) return;

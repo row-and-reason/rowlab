@@ -39,9 +39,9 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import type { Dataset } from "@/lib/api/client";
 import { comparableColumns, comparisonSetup, type InspectRows } from "@/lib/comparison";
-import { columnLabel, formatNumber } from "@/lib/format";
+import { columnLabel } from "@/lib/format";
 import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
-import { useComparisonUrl, useRunDefaultColumns, useSameColumns } from "@/lib/use-comparison-url";
+import { useComparisonUrl, useDefaultColumns, useSameColumns } from "@/lib/use-comparison-url";
 
 const NO_REFERENCE = "none";
 
@@ -73,18 +73,18 @@ export function CompareView({
   const anchor = useComboboxAnchor();
   const datasetColumns = useSameColumns(dataset.columns);
   const choices = comparableColumns(datasetColumns);
-  const { columns, reference, tolerance, ignoreCase, trimWhitespace, change, urlChanged } =
+  const { columns, reference, tolerance, ignoreCase, trimWhitespace, rows, change, urlChanged } =
     useComparisonUrl(datasetColumns);
   const { numeric, text, dates, mixed, problem, request } = useMemo(
     () =>
       comparisonSetup(
-        { columns, reference, tolerance, ignoreCase, trimWhitespace },
+        { columns, reference, tolerance, ignoreCase, trimWhitespace, rows },
         datasetColumns,
       ),
-    [columns, reference, tolerance, ignoreCase, trimWhitespace, datasetColumns],
+    [columns, reference, tolerance, ignoreCase, trimWhitespace, rows, datasetColumns],
   );
   const result = useComparison(dataset.id, request, version);
-  useRunDefaultColumns(dataset.run?.id);
+  useDefaultColumns(dataset.answers);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -170,8 +170,20 @@ export function CompareView({
                     .filter(Boolean)
                     .join(" · ")
                 : "Exact match"}
+            {rows === "pairwise" && " · Pairwise rows"}
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72 space-y-4">
+            <Label className="flex items-center gap-2">
+              <Checkbox
+                checked={rows === "common"}
+                onCheckedChange={(v) => change({ rows: v ? "common" : "pairwise" })}
+              />
+              Only rows every column has
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              So each column is measured on the same rows. Off, each pair uses the rows both of its
+              columns have.
+            </p>
             <span className="text-sm font-medium">Match rules</span>
             {text ? (
               <>
@@ -226,9 +238,7 @@ export function CompareView({
             )}
           </PopoverContent>
         </Popover>
-        <span className="ml-auto text-xs text-muted-foreground">
-          All {formatNumber(dataset.row_count)} rows
-        </span>
+
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {problem ? (
@@ -272,6 +282,7 @@ export function CompareView({
               dataset={dataset}
               version={version}
               comparison={result.data}
+              rows={rows}
               onFilter={(filters, selectedColumns) => {
                 // A shortcut can arrive in the same event turn as a rule or selection change.
                 if (urlChanged()) return;

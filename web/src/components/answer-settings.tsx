@@ -43,13 +43,13 @@ import { EMPTY_FIELD, modelSlug } from "@/lib/tasks";
 
 /** A task's options, fields, reason and result column, as its answer type needs. */
 export function AnswerSettings({
-  manual = false,
+  labels = false,
   task,
   types,
   models,
   onChange,
 }: {
-  manual?: boolean;
+  labels?: boolean;
   task: Task;
   types: TaskTypes;
   models: Model[];
@@ -116,8 +116,8 @@ export function AnswerSettings({
               <InfoIcon />
             </PopoverTrigger>
             <PopoverContent align="end" className="w-72 text-sm">
-              {manual
-                ? "Manual labels use this name, without a model suffix. Pick any and structured extraction add an option or field name when needed."
+              {labels
+                ? "Labels use this name, without a model suffix. Pick any and structured extraction add an option or field name when needed."
                 : columnsDescription(task)}
             </PopoverContent>
           </Popover>
@@ -128,7 +128,7 @@ export function AnswerSettings({
           onChange={(e) => onChange({ ...task, column: e.target.value })}
         />
       </Field>
-      {!manual && family !== "write" && (
+      {!labels && family !== "write" && (
         <Field orientation="horizontal">
           <Checkbox
             id={`reason-${task.id}`}
