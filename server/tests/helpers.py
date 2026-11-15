@@ -27,8 +27,8 @@ def stored_datasets():
     return {o["Key"].removeprefix(prefix).split("/")[0] for o in found}
 
 
-# The models the tests may use, in place of rowlab's own list. OpenRouter (the fake) prices all but
-# `x/unpriced`; `old/retired` is deprecated.
+# rowlab's own list, for the tests. OpenRouter (the fake) prices all but `x/unpriced`, and has more
+# models besides.
 CATALOG = """
 [[models]]
 id = "typesafe/jev-1.14"
@@ -60,17 +60,16 @@ name = "Unpriced"
 kind = "llm"
 price_in = 3
 price_out = 4
-
-[[models]]
-id = "old/retired"
-name = "Retired"
-kind = "llm"
-deprecated = true
 """
 
 
-def chat_model(id_, price):
-    return {"id": id_, "name": id_.title(), "pricing": {"prompt": price, "completion": "0.000001"}}
+def chat_model(id_, price, *, structured=True):
+    return {
+        "id": id_,
+        "name": id_.title(),
+        "pricing": {"prompt": price, "completion": "0.000001"},
+        "supported_parameters": ["structured_outputs"] if structured else ["tools"],
+    }
 
 
 class FakeOpenRouter:
@@ -104,6 +103,8 @@ class FakeOpenRouter:
                 "data": [
                     {"id": "typesafe/jev-1.14", "name": "Jev", "pricing": {"prompt": "0.00000004"}},
                     {"id": "a/cheap", "name": "Cheap", "pricing": {"prompt": "0.00000001"}},
+                    # Not on rowlab's list.
+                    {"id": "b/decider", "name": "Decider", "pricing": {"prompt": "0.00000002"}},
                 ]
             }
         if path == "/v1/models":
@@ -111,7 +112,11 @@ class FakeOpenRouter:
                 "data": [
                     chat_model("x/llm", "0.000002"),
                     chat_model("anthropic/claude-haiku-5.5", "0.0000001"),
-                    chat_model("old/retired", "0.000001"),
+                    # Not on rowlab's list: one rowlab can ask, one without structured outputs,
+                    # and a router priced per call.
+                    chat_model("y/other", "0.000003"),
+                    chat_model("z/plain", "0.000001", structured=False),
+                    {**chat_model("r/auto", "-1"), "pricing": {"prompt": "-1", "completion": "-1"}},
                 ]
             }
         if path == "/v1/chat/completions":

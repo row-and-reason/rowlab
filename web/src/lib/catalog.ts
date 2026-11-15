@@ -8,11 +8,12 @@ import { api, type Model, type TaskTypes } from "@/lib/api/client";
 let models: Promise<Model[]> | undefined;
 let taskTypes: Promise<TaskTypes | undefined> | undefined;
 
-/** The models rowlab offers, decision models and LLMs, in the order we'd pick them. */
+/** The models a task can use, decision models and LLMs: rowlab's list (`listed`), in the order we'd
+ * pick them, then the rest of OpenRouter's catalog. */
 export function useModels(): Model[] {
   const [loaded, setLoaded] = useState<Model[]>([]);
   useEffect(() => {
-    models ??= api.GET("/v1/utils/models").then(({ data }) => {
+    models ??= api.GET("/v1/utils/models", { params: { query: { all: true } } }).then(({ data }) => {
       // rowlab may be unreachable: ask again next time rather than keep an empty list.
       if (!data) models = undefined;
       return data ?? [];

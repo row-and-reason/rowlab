@@ -446,14 +446,21 @@ def create_server() -> FastMCP:
             str | None,
             Field(description="Only models with this tag: `recommended`, `budget` or `accurate`."),
         ] = None,
+        all: Annotated[
+            bool,
+            Field(
+                description="Also the rest of OpenRouter's catalog, after rowlab's list. Any of them "
+                "can be asked, by id."
+            ),
+        ] = False,
         offset: Annotated[int, Field(ge=0)] = 0,
         limit: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> catalog.ModelPage:
-        """A page of the models rowlab offers, with per-token prices, in the order we'd pick them.
-        Search by name, kind or tag; follow next_offset for more. Defaults from task_types_get are
-        fine to start with."""
+        """A page of models, with per-token prices: rowlab's list, in the order we'd pick them, and with
+        `all` the rest of OpenRouter's catalog. Search by name, kind or tag; follow next_offset for
+        more. Defaults from task_types_get are fine to start with."""
         _me()
-        return catalog.list_models(search, kind, tag, offset, limit)
+        return catalog.list_models(search, kind, tag, all, offset, limit)
 
     return mcp
 

@@ -645,8 +645,8 @@ export interface paths {
         };
         /**
          * List Models
-         * @description The models a task can use, decision models and LLMs, in the order we'd pick them, with
-         *     current prices.
+         * @description The models a task can use, decision models and LLMs, with current prices: rowlab's list, in
+         *     the order we'd pick them; with `all`, every model in OpenRouter's catalog rowlab can ask.
          */
         get: operations["listModels"];
         put?: never;
@@ -1418,6 +1418,11 @@ export interface components {
              * @description `recommended` for the ones to try first; others (`budget`, `accurate`) to filter by.
              */
             tags: string[];
+            /**
+             * Listed
+             * @description On rowlab's own list, offered first. The rest of OpenRouter's catalog can be asked too.
+             */
+            listed: boolean;
             /**
              * Prompt Price
              * @description USD per input token.
@@ -3486,7 +3491,10 @@ export interface operations {
     };
     listModels: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Also the rest of OpenRouter's catalog, after rowlab's list, by id. */
+                all?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3500,6 +3508,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Model"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

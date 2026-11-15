@@ -211,7 +211,7 @@ def check(dataset_id: str, request: RunRequest) -> None:
         try:
             tasks.check(task, manual=manual)
             for model in task.models:
-                kind = catalog.get(model, offered=True).kind
+                kind = catalog.get(model).kind
                 if kind == "decision" and task.type in tasks.LLM_ONLY:
                     raise InvalidRequest(
                         f"{task.type.title()} needs an LLM: {tasks.model_slug(model)} is a "

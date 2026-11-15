@@ -8,8 +8,9 @@ description: What changed in each release.
 rowlab is pre-alpha, on its way to a first release. What is in it today:
 
 - Datasets from CSV, JSON, JSONL and Parquet; from upload, URL, disk or S3.
-- Runs with Classify, Extract and Write tasks, a picked set of decision models and LLMs through your
-  model provider (recommended ones first, at OpenRouter's current prices), replies
+- Runs with Classify, Extract and Write tasks, on decision models and LLMs through your model
+  provider: rowlab's picked list first (recommended ones at the top), or any other in OpenRouter's
+  catalog, at OpenRouter's current prices; replies
   kept with the datasets they made so no call in a dataset's tree is paid for twice, and estimates
   before a run.
 - Comparing answer columns, against a reference.

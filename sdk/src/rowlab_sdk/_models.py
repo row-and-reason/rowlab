@@ -389,6 +389,13 @@ class Model(BaseModel):
             title='Tags',
         ),
     ]
+    listed: Annotated[
+        bool,
+        Field(
+            description="On rowlab's own list, offered first. The rest of OpenRouter's catalog can be asked too.",
+            title='Listed',
+        ),
+    ]
     prompt_price: Annotated[float, Field(description='USD per input token.', title='Prompt Price')]
     completion_price: Annotated[
         float, Field(description='USD per output token.', title='Completion Price')

@@ -1,6 +1,7 @@
 "use client";
 
 import { InfoIcon, PlusIcon, XIcon } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -358,15 +359,19 @@ export function ModelPicker({
 }) {
   const models = useModels();
   const anchor = useComboboxAnchor();
+  const [query, setQuery] = useState("");
 
-  // Recommended first, then the rest by kind, each in the order the server lists them.
-  const offered = models.filter((m) => !llmOnly || m.kind === "llm");
+  // rowlab's list: recommended first, then the rest by kind, each in the order the server lists
+  // them. The rest of OpenRouter's catalog shows only when searching.
+  const usable = models.filter((m) => !llmOnly || m.kind === "llm");
+  const listed = usable.filter((m) => m.listed);
   const groups = [
-    { value: "Recommended", items: offered.filter((m) => m.tags.includes(RECOMMENDED)) },
+    { value: "Recommended", items: listed.filter((m) => m.tags.includes(RECOMMENDED)) },
     ...KINDS.map((k) => ({
       value: k.label,
-      items: offered.filter((m) => m.kind === k.kind && !m.tags.includes(RECOMMENDED)),
+      items: listed.filter((m) => m.kind === k.kind && !m.tags.includes(RECOMMENDED)),
     })),
+    { value: "More on OpenRouter", items: query ? usable.filter((m) => !m.listed) : [] },
   ].filter((g) => g.items.length);
   // Models the catalog doesn't (or doesn't yet) know are still shown, by id.
   const selected = value.map(
@@ -377,6 +382,7 @@ export function ModelPicker({
         name: id,
         kind: "decision",
         tags: [],
+        listed: false,
         prompt_price: 0,
         completion_price: 0,
         context_length: 0,
@@ -394,6 +400,7 @@ export function ModelPicker({
           // Escape on a closed picker would otherwise remove every model.
           if (details.reason !== "escape-key") onChange(picked.map((m) => m.id));
         }}
+        onInputValueChange={setQuery}
         itemToStringLabel={(model: Model) => model.name}
         isItemEqualToValue={(a: Model, b: Model) => a.id === b.id}
       >
@@ -431,7 +438,7 @@ export function ModelPicker({
         </ComboboxContent>
       </Combobox>
       <FieldDescription>
-        Pick several to compare them.
+        Pick several to compare them. Search to find any other model on OpenRouter.
         {!llmOnly &&
           " Decision models are fast and cheap; language models cost more and are slower, but can reason through harder questions."}
       </FieldDescription>
