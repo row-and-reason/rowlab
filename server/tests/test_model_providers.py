@@ -87,12 +87,49 @@ def test_without_a_cost_in_the_reply_it_is_worked_out_from_prices(client, datase
     assert finished["cost"] == pytest.approx(2 * (1000 * 2e-06 + 100 * 1e-06))
 
 
-def test_decision_models_need_an_openrouter_provider(client, dataset):
+def test_decision_models_answer_through_litellm_like_through_openrouter(client, dataset, fake):
     add(client, **LITELLM)
-    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
-    assert run(client, job)["detail"] == (
-        "Task negative: jev-1.14 is a decision model, which only OpenRouter providers run."
-    )
+    review = "{{review}}"
+    jev = ["typesafe/jev-1.14"]
+    tasks = [
+        {**NEGATIVE, "models": jev},
+        {
+            "template": review,
+            "type": "pick_one",
+            "column": "team",
+            "models": jev,
+            "options": [{"name": "ops"}, {"name": "sales", "description": "Selling things"}],
+        },
+        {
+            "template": review,
+            "type": "scale",
+            "column": "stars",
+            "models": jev,
+            "options": [{"name": "1"}, {"name": "3"}, {"name": "5"}],
+        },
+        {
+            "template": review,
+            "type": "pick_any",
+            "column": "topic",
+            "models": jev,
+            "options": [{"name": "price"}, {"name": "delivery"}],
+        },
+    ]
+    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": tasks}
+    finished = run(client, job)
+    assert finished["status"] == "done"
+    assert all(c["failed"] == 0 for c in finished["costs"])
+    posts = [(u, c[3]) for u, c in zip(fake.urls, fake.calls, strict=True) if c[0] == "POST"]
+    assert {u for u, _ in posts} == {"https://litellm.example.com/v1/decisions"}
+    assert {body["model"] for _, body in posts} == {"openrouter/typesafe/jev-1.14"}
+    response = client.post(f"/v1/datasets/{finished['dataset_id']}/query", json={})
+    broke = next(r for r in response.json()["rows"] if r["review"] == "Broke on day one")
+    assert (broke["negative__jev-1.14"], broke["negative__jev-1.14_proba"]) == (True, 0.9)
+    assert (broke["team__jev-1.14"], broke["team__jev-1.14_proba"]) == ("sales", 0.8)
+    assert (broke["stars__jev-1.14"], broke["stars__jev-1.14_proba"]) == ("5", 1.0)
+    assert broke["topic_delivery__jev-1.14"] is True
+    # No cost in LiteLLM's decision replies: 100 tokens in at Jev's $0.04/M, for each of 2 rows × 4.
+    assert finished["cost"] == pytest.approx(8 * 100 * 4e-08)
 
 
 def test_a_run_whose_provider_was_deleted_fails_saying_so(client, dataset):

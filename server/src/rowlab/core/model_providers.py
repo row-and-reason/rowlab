@@ -150,22 +150,14 @@ def status(org_id: str) -> Literal["server", "organisation"] | None:
     return "organisation" if _active_id(org_id) else None
 
 
-def for_new_run(org_id: str) -> tuple[str | None, ProviderType]:
-    """The provider a new run keeps (none on the server's key), and its type."""
+def for_new_run(org_id: str) -> str | None:
+    """The provider a new run keeps: the active one, or none on the server's key."""
     if server_key():
-        return None, "openrouter"
+        return None
     active = _active_id(org_id)
     if active is None:
         raise InvalidRequest(NO_PROVIDER)
-    return active, _row(org_id, active)["type"]
-
-
-def active_type(org_id: str) -> ProviderType:
-    """The type of provider a new run would use: OpenRouter's, until one is set."""
-    try:
-        return for_new_run(org_id)[1]
-    except InvalidRequest:
-        return "openrouter"
+    return active
 
 
 def for_run(org_id: str, provider_id: str | None) -> Use:
@@ -193,23 +185,18 @@ def for_run(org_id: str, provider_id: str | None) -> Use:
     )
 
 
-def check_model(provider_type: ProviderType, model: str) -> None:
-    """Raise InvalidRequest if the provider can't run the model."""
-    if provider_type == "litellm" and catalog.kind(model) == "decision":
-        raise InvalidRequest(
-            f"{tasks.model_slug(model)} is a decision model, which only OpenRouter providers run."
-        )
-
-
-def request(model_prefix: str, task: Task, model: str, prompt: str) -> Request:
-    """The call asking one task of one model, about one row's prompt."""
+def request(
+    provider_type: ProviderType, model_prefix: str, task: Task, model: str, prompt: str
+) -> Request:
+    """The call asking one task of one model, about one row's prompt, as the provider takes it."""
+    name = model_prefix + model
     if catalog.kind(model) == "decision":
-        return openrouter.decision_request(model, prompt, tasks.decision_questions(task))
+        questions = tasks.decision_questions(task)
+        if provider_type == "litellm":
+            return litellm.decision_request(model, name, prompt, questions)
+        return openrouter.decision_request(model, prompt, questions)
     return model_api.completion_request(
-        model,
-        tasks.llm_messages(task, prompt),
-        tasks.llm_schema(task),
-        name=model_prefix + model if model_prefix else None,
+        model, tasks.llm_messages(task, prompt), tasks.llm_schema(task), name=name
     )
 
 
@@ -226,11 +213,12 @@ def ask(use: Use, request: Request) -> Reply:
     """Make a call, paid for. When the provider doesn't say what it cost, it is worked out from the
     model's prices and the tokens used."""
     reply = model_api.post(use.base_url, request, use.api_key)
-    data = (
-        openrouter.answers(reply)
-        if request.path == openrouter.DECISIONS
-        else model_api.message(reply)
-    )
+    if request.path == openrouter.DECISIONS:
+        data = openrouter.answers(reply)
+    elif request.path == litellm.DECISIONS:
+        data = litellm.answers(reply)
+    else:
+        data = model_api.message(reply)
     cost, input_tokens, output_tokens = model_api.usage(reply)
     if cost is None:
         model = catalog.get(request.model)
@@ -254,7 +242,9 @@ def _checked(data: ProviderInput, api_key: str) -> tuple[str, str, str, str, str
     except ProviderError as e:
         raise InvalidRequest(f"{_LABELS[data.type]} did not accept the key: {e}") from e
     name = data.name.strip() or _LABELS[data.type]
-    return name, data.type, base_url, data.model_prefix.strip(), crypto.encrypt(api_key)
+    # OpenRouter names models as rowlab does; only a gateway routes them under a prefix.
+    prefix = data.model_prefix.strip() if data.type == "litellm" else ""
+    return name, data.type, base_url, prefix, crypto.encrypt(api_key)
 
 
 def _check_url(base_url: str) -> None:

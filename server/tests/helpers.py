@@ -122,23 +122,55 @@ class FakeOpenRouter:
             if self.reports_cost:
                 usage["cost"] = 0.01
             return {"choices": [{"message": {"content": content}}], "usage": usage}
+        state = body.get("state", body.get("input"))
         if self.busy:
             self.busy -= 1
             raise ProviderError("HTTP 429: Rate limited", status=429)
-        if body["state"] == self.crash_on:
+        if state == self.crash_on:
             self.crash_on = None
             raise KeyboardInterrupt
-        if body["state"] in self.flaky:
-            self.flaky.remove(body["state"])
+        if state in self.flaky:
+            self.flaky.remove(state)
             raise ProviderError("HTTP 400: Provider error", status=400)
-        if body["state"] == "fail":
+        if state == "fail":
             raise ProviderError("HTTP 400: Provider error", status=400)
-        if body["state"] == "no credits":
+        if state == "no credits":
             raise ProviderError("HTTP 402: Insufficient credits", status=402)
+        yes = 0.9 if _bad(state) else 0.1
+        if path == "/v1/decisions":
+            # LiteLLM's (OpenAI's) format: a list of answers, by the questions' names, without cost.
+            return {
+                "answers": [_litellm_answer(q, yes) for q in body["questions"]],
+                "usage": {"input_tokens": 100, "output_tokens": 1},
+            }
         return {
-            "answers": {"answer": {"type": "noul", "noul": 0.9 if _bad(body["state"]) else 0.1}},
+            "answers": {"answer": {"type": "noul", "noul": yes}},
             "usage": {"input_tokens": 100, "output_tokens": 1, "cost": 0.001},
         }
+
+
+def _litellm_answer(question, yes):
+    """Yes for a bad experience; the last choice; the top level, for certain."""
+    name = question["name"]
+    if question["type"] == "predicate":
+        return {"type": "predicate", "name": name, "probability": yes}
+    if question["type"] == "choice":
+        values = [c["value"] for c in question["choices"]]
+        probabilities = [
+            {"value": v, "probability": 0.8 if v == values[-1] else 0.2} for v in values
+        ]
+        return {
+            "type": "choice",
+            "name": name,
+            "choice": values[-1],
+            "probabilities": probabilities,
+        }
+    levels = question["levels"]
+    probabilities = [
+        {"value": i, "label": level["label"], "probability": 1.0 if i == len(levels) - 1 else 0.0}
+        for i, level in enumerate(levels)
+    ]
+    return {"type": "score", "name": name, "score": len(levels) - 1, "probabilities": probabilities}
 
 
 def _llm_reply(schema, prompt):

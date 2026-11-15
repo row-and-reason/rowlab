@@ -14,8 +14,8 @@ rowlab is pre-alpha, on its way to a first release. What is in it today:
   before a run.
 - Comparing answer columns, against a reference.
 - Exports as CSV, JSONL or Parquet, to a download, a folder or S3.
-- Model providers on your own key: OpenRouter, or a LiteLLM gateway (language models only), several per
-  organisation with one active.
+- Model providers on your own key: OpenRouter, or a LiteLLM gateway, several per organisation with
+  one active.
 - Organisations, sign-in with WorkOS, roles, API keys and a usage ledger for shared servers.
 - An MCP server with the same work as tools, and skills for agents. It keeps no sessions, so
   deploys don't disconnect agents, and on a hosted rowlab agents upload and download files with
