@@ -6,7 +6,7 @@ from helpers import NEGATIVE, run, start, stored, stored_datasets
 
 from rowlab.core import db, runs
 from rowlab.core.config import config
-from rowlab.core.providers import openrouter
+from rowlab.core.providers import model_api
 
 CSV = "review,stars\nTerrible product,1\nLove it,5\nBroke after a day,1\n"
 
@@ -175,7 +175,7 @@ def test_a_key_out_of_credits_fails_the_run_until_resumed(client, job, api_key):
         runs.process_next()
     failed = client.get(f"/v1/runs/{created['id']}").json()
     assert failed["status"] == "failed"
-    assert failed["error"].startswith("The OpenRouter key is out of credits.")
+    assert failed["error"].startswith("The model provider's key is out of credits.")
     assert "HTTP 402: Insufficient credits" in failed["error"]
     made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
     assert made["run"]["error"] == failed["error"]
@@ -405,7 +405,7 @@ def test_run_explains_what_is_missing(client, job):
     def detail(**config):
         return run(client, update(job, **config))["detail"]
 
-    assert detail() == "Set your OpenRouter API key first."
+    assert detail() == "Add a model provider in Settings → Providers first."
     assert detail(tasks=[]) == "Add a task."
     assert detail(tasks=[{**NEGATIVE, "template": " "}]) == "Task negative: Write the prompt."
     pick = {**NEGATIVE, "type": "pick_one", "column": "team"}
@@ -470,7 +470,7 @@ def test_runners_claiming_at_once_never_take_the_same_run(client, job, api_key, 
 def test_an_estimate_gives_the_cost_before_a_key_is_set(client, dataset):
     body = {"sql": "SELECT * FROM data LIMIT 2", "tasks": [NEGATIVE]}
     estimate = client.post(f"/v1/datasets/{dataset['id']}/estimate", json=body).json()
-    assert estimate["problem"] == "Set your OpenRouter API key first."
+    assert estimate["problem"] == "Add a model provider in Settings → Providers first."
     assert (estimate["rows"], estimate["calls"]) == (2, 2)
     assert estimate["cost"] > 0
 
@@ -623,7 +623,7 @@ def test_replies_stay_to_be_journaled_when_journaling_fails_once(
         return fake(method, path, api_key=api_key, body=body)
 
     monkeypatch.setattr(answers, "journal", flaky_journal)
-    monkeypatch.setattr(openrouter, "_request", slow)
+    monkeypatch.setattr(model_api, "_request", slow)
     created = start(client, job)
     with pytest.raises(RuntimeError):
         runs.process_next()
@@ -663,7 +663,7 @@ def test_a_runner_shutting_down_gives_its_run_back_without_paying_twice(
             runs.shut_down()
         return fake(method, path, api_key=api_key, body=body)
 
-    monkeypatch.setattr(openrouter, "_request", shut_down_mid_call)
+    monkeypatch.setattr(model_api, "_request", shut_down_mid_call)
     created = start(client, job)
     runs.run_forever()  # Returns once the call in flight is done.
     given_back = client.get(f"/v1/runs/{created['id']}").json()
@@ -672,7 +672,7 @@ def test_a_runner_shutting_down_gives_its_run_back_without_paying_twice(
 
     # The next runner takes it straight away, and pays only for the rest.
     monkeypatch.setattr(runs, "_shutdown", threading.Event())
-    monkeypatch.setattr(openrouter, "_request", fake)
+    monkeypatch.setattr(model_api, "_request", fake)
     while runs.process_next():
         pass
     assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "done"

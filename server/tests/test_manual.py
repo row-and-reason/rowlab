@@ -4,7 +4,7 @@ import pytest
 from helpers import call
 
 from rowlab.core import datasets, db, manual, runs, storage
-from rowlab.core.providers import openrouter
+from rowlab.core.providers import model_api
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def source(client, tmp_path, monkeypatch):
     def no_provider(*args, **kwargs):
         raise AssertionError("Manual runs must not call a model or its catalog")
 
-    monkeypatch.setattr(openrouter, "_request", no_provider)
+    monkeypatch.setattr(model_api, "_request", no_provider)
     path = tmp_path / "rows.csv"
     path.write_text("text,gold\nfirst,true\nsecond,false\nthird,true\n")
     return client.post("/v1/datasets", data={"source": str(path)}).json()

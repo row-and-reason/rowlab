@@ -32,7 +32,7 @@ from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
 from rowlab.core.exports import ExportFormat, ExportRequest, ExportResult
 from rowlab.core.links import Link
 from rowlab.core.prompts import RenderRequest, RenderResult
-from rowlab.core.providers import openrouter
+from rowlab.core.providers.model_api import ProviderError
 from rowlab.core.runs import Estimate, Run, RunRequest
 from rowlab.core.sql import ALL_ROWS, QueryRequest, QueryResult
 from rowlab.core.tasks import Task, TaskTypes
@@ -87,7 +87,7 @@ class RunPreview(BaseModel):
 
 
 # Replaces the API's status codes: a tool call either works or says what went wrong.
-_ERRORS = (InvalidRequest, NotFound, Forbidden, Unauthorized, openrouter.OpenRouterError)
+_ERRORS = (InvalidRequest, NotFound, Forbidden, Unauthorized, ProviderError)
 
 
 def _me(role: Role = "verifier") -> Me:

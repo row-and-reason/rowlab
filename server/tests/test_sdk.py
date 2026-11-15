@@ -111,7 +111,7 @@ def test_wait_returns_runs_that_stopped_and_times_out_on_the_rest(rl, api_key):
         runs.process_next()
     failed = rl.runs.wait(broke.id)
     assert failed.status == "failed"
-    assert failed.error.startswith("The OpenRouter key is out of credits.")
+    assert failed.error.startswith("The model provider's key is out of credits.")
 
 
 def test_wait_polls_until_its_timeout_and_no_longer(rl, api_key, monkeypatch):

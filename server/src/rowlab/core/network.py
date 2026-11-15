@@ -1,7 +1,8 @@
-"""Requests the server makes on someone's behalf: web sources and S3 endpoints. Unless private URLs are
-allowed (`ROWLAB_PRIVATE_URLS`, on locally), they can only reach public addresses, so nobody can make
-the server fetch from its own network or the cloud's metadata service (SSRF). The one exception is
-S3 endpoints on hosts the operator names (`ROWLAB_PRIVATE_S3_HOSTS`), which may be private.
+"""Requests the server makes on someone's behalf: web sources, S3 endpoints and model providers.
+Unless private URLs are allowed (`ROWLAB_PRIVATE_URLS`, on locally), they can only reach public
+addresses, so nobody can make the server fetch from its own network or the cloud's metadata service
+(SSRF). The one exception is S3 endpoints and model providers on hosts the operator names
+(`ROWLAB_PRIVATE_HOSTS`), which may be private.
 
 The address is checked when the request is made, and again on every redirect. Two ways past it are
 left to the network a hosted rowlab runs in, which must block private addresses too: a DNS server that

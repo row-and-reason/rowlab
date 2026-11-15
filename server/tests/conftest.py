@@ -24,7 +24,7 @@ from rowlab.api.auth import SESSION_COOKIE
 from rowlab.app import create_app
 from rowlab.core import auth, catalog, db, runs
 from rowlab.core.config import config
-from rowlab.core.providers import openrouter
+from rowlab.core.providers import model_api
 from rowlab.core.providers.workos import SignedIn
 
 
@@ -118,12 +118,12 @@ def fake(monkeypatch, tmp_path):
     """OpenRouter replaced by a `FakeOpenRouter`, with no waiting between retries, and the tests' own
     model list (`helpers.CATALOG`)."""
     fake = FakeOpenRouter()
-    monkeypatch.setattr(openrouter, "_request", fake)
+    monkeypatch.setattr(model_api, "_request", fake)
     (tmp_path / "models.toml").write_text(CATALOG)
     monkeypatch.setattr(catalog, "FILE", tmp_path / "models.toml")
     monkeypatch.setattr(catalog, "_entries", None)
     monkeypatch.setattr(catalog, "_prices", None)
-    monkeypatch.setattr(openrouter, "RETRY_BASE_SECONDS", 0)
+    monkeypatch.setattr(model_api, "RETRY_BASE_SECONDS", 0)
     monkeypatch.setattr(runs, "PROGRESS_INTERVAL_SECONDS", 0.01)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     return fake
@@ -131,4 +131,5 @@ def fake(monkeypatch, tmp_path):
 
 @pytest.fixture
 def api_key(client, fake):
-    assert client.put("/v1/settings/openrouter-key", json={"key": "sk-good"}).status_code == 200
+    provider = {"type": "openrouter", "api_key": "sk-good"}
+    assert client.post("/v1/settings/providers", json=provider).status_code == 201

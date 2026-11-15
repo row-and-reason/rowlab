@@ -46,7 +46,7 @@ another's twenty. An organisation can have any number of runs going.
 A stopped run keeps the chunks it finished; the chunk under way is dropped, though the replies paid
 for in it are kept until it is redone, and cost nothing then. The same goes when a runner stops or
 restarts under a run: the run goes back in the queue and continues from that chunk. A run fails, with the reason shown above its rows,
-when OpenRouter refuses the key or the key is out of credits, since every call would fail alike; the
+when the provider refuses the key or the key is out of credits, or the provider was deleted, since every call would fail alike; the
 rows answered so far stay. Other calls fail on their own (rate limits, a provider error, a reply that
 doesn't fit the answer type): the run finishes with those rows marked failed. _Resume_ asks the
 failed rows again, and continues a stopped or failed run; it never re-asks what was answered.

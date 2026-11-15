@@ -111,7 +111,7 @@ def main() -> None:
     result = dataset
     key = os.environ.get("OPENROUTER_API_KEY")
     if key:
-        call("PUT", "/v1/settings/openrouter-key", {"key": key})
+        call("POST", "/v1/settings/providers", {"type": "openrouter", "api_key": key})
         run = call(
             "POST",
             f"/v1/datasets/{dataset['id']}/runs",

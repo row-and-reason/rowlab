@@ -38,7 +38,8 @@ text.
 
 ## Models
 
-Models come from OpenRouter, and are picked by name per task. Two kinds:
+Models come from rowlab's own list, through your [provider](/get-started), and are picked by name
+per task. Two kinds:
 
 - **Decision models** (such as `typesafe/jev-1.14`, the default) answer Classify questions fast and
   cheaply, and are often as good as an LLM on clear-cut questions.

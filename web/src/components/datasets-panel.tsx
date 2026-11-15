@@ -210,10 +210,10 @@ export function DatasetsPanel({
                 <DropdownMenuSeparator />
               </>
             )}
-            {canAdmin && settings && !settings.openrouter_key && (
+            {canAdmin && settings && !settings.provider && (
               <DropdownMenuItem onClick={() => onSettings("providers")}>
                 <KeyRoundIcon />
-                Set your OpenRouter key…
+                Add a model provider…
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={() => onSettings("providers")}>

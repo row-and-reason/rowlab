@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from rowlab.core.errors import InvalidRequest
 from rowlab.core.providers import openrouter
+from rowlab.core.providers.model_api import ProviderError
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ def _priced() -> list[_Entry]:
     if _prices is None or time.monotonic() > _prices[0]:
         try:
             _prices = (time.monotonic() + PRICES_TTL_SECONDS, openrouter.prices())
-        except openrouter.OpenRouterError as e:
+        except ProviderError as e:
             log.warning("Using the model list's own prices: %s", e)
             _prices = (time.monotonic() + PRICES_RETRY_SECONDS, _prices[1] if _prices else {})
     live = _prices[1]

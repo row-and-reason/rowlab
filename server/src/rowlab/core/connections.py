@@ -155,7 +155,7 @@ def _check(data: ConnectionInput) -> None:
 
 def _check_endpoint(endpoint: str) -> None:
     network.check_url(
-        endpoint if "://" in endpoint else f"https://{endpoint}", config().private_s3_hosts
+        endpoint if "://" in endpoint else f"https://{endpoint}", config().private_hosts
     )
 
 

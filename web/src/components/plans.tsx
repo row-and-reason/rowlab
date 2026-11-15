@@ -15,7 +15,7 @@ export function Plans() {
       <div className="space-y-1">
         <h3 className="text-sm font-medium">Free during pre-alpha</h3>
         <p className="text-xs text-muted-foreground">
-          Use your own OpenRouter key. Model charges go to your provider.
+          Use your own model provider key. Model charges go to your provider.
         </p>
       </div>
       <section className="space-y-2 border-t pt-4">

@@ -110,7 +110,8 @@ def test_invited_people_join_with_their_role(hosted):
     assert bob.get(f"/v1/datasets/{dataset['id']}").status_code == 200
     assert bob.post("/v1/datasets", files={"file": ("people.csv", CSV)}).status_code == 403
     assert bob.get(f"/v1/datasets/{dataset['id']}/export?format=csv").status_code == 403
-    assert bob.put("/v1/settings/openrouter-key", json={"key": "x"}).status_code == 403
+    provider = {"type": "openrouter", "api_key": "x"}
+    assert bob.post("/v1/settings/providers", json=provider).status_code == 403
 
 
 def test_people_in_an_organisation_cant_be_invited_elsewhere(hosted):

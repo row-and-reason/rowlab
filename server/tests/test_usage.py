@@ -50,7 +50,8 @@ def test_admins_see_everyones_usage_and_others_their_own(hosted, fake, tmp_path)
     ada = hosted("ada@example.com")
     ada.post("/v1/settings/invites", json={"email": "bob@example.com"})
     bob = hosted("bob@example.com")
-    assert ada.put("/v1/settings/openrouter-key", json={"key": "sk-good"}).status_code == 200
+    provider = {"type": "openrouter", "api_key": "sk-good"}
+    assert ada.post("/v1/settings/providers", json=provider).status_code == 201
     dataset = ada.post(
         "/v1/datasets", files={"file": ("reviews.csv", b"review\nTerrible product\nLove it\n")}
     ).json()

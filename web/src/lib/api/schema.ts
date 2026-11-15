@@ -337,6 +337,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Providers
+         * @description The organisation's model providers, by name, and which one new runs use. Keys are never
+         *     returned.
+         */
+        get: operations["listProviders"];
+        put?: never;
+        /**
+         * Create Provider
+         * @description Save a provider once it accepts the key. The organisation's first becomes active.
+         */
+        post: operations["createProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/providers/{provider_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Provider
+         * @description Change a provider; leave out `api_key` to keep the saved one.
+         */
+        put: operations["updateProvider"];
+        post?: never;
+        /** Delete Provider */
+        delete: operations["deleteProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/providers/{provider_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activate Provider
+         * @description Make the provider the one new runs use. Runs already started keep theirs.
+         */
+        post: operations["activateProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/datasets/{dataset_id}/runs": {
         parameters: {
             query?: never;
@@ -499,26 +565,6 @@ export interface paths {
         /** Get Settings */
         get: operations["getSettings"];
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/settings/openrouter-key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Save Openrouter Key
-         * @description Check the key with OpenRouter and save it for the organisation.
-         */
-        put: operations["saveOpenRouterKey"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1420,11 +1466,6 @@ export interface components {
             /** Histogram */
             histogram: components["schemas"]["HistogramBin"][];
         };
-        /** OpenRouterKey */
-        OpenRouterKey: {
-            /** Key */
-            key: string;
-        };
         /** Option */
         Option: {
             /** Name */
@@ -1486,6 +1527,66 @@ export interface components {
             column: string;
             /** Template */
             template: string;
+        };
+        /**
+         * Provider
+         * @description A provider as the API shows it: without its key.
+         */
+        Provider: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "openrouter" | "litellm";
+            /** Base Url */
+            base_url: string;
+            /** Model Prefix */
+            model_prefix: string;
+            /**
+             * Active
+             * @description Whether new runs use it.
+             */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ProviderInput */
+        ProviderInput: {
+            /**
+             * Name
+             * @description Defaults to the type's name, e.g. `OpenRouter`.
+             * @default
+             */
+            name: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "openrouter" | "litellm";
+            /**
+             * Base Url
+             * @description Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`. For LiteLLM, the gateway's address, e.g. `https://litellm.example.com`.
+             * @default
+             */
+            base_url: string;
+            /**
+             * Model Prefix
+             * @description Put before rowlab's model ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.
+             * @default
+             */
+            model_prefix: string;
+            /**
+             * Api Key
+             * @description Required for a new provider; leave out to keep the saved one.
+             */
+            api_key?: string | null;
         };
         /** QueryRequest */
         QueryRequest: {
@@ -1706,6 +1807,11 @@ export interface components {
              */
             created_by: string | null;
             /**
+             * Provider Id
+             * @description The model provider its calls go to, kept from when it started. Empty on the server's key, and for manual runs.
+             */
+            provider_id: string | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1758,10 +1864,10 @@ export interface components {
         /** Settings */
         Settings: {
             /**
-             * Openrouter Key
-             * @description Where the OpenRouter API key comes from, if set. The key is never returned.
+             * Provider
+             * @description Where model calls go: the server's own key (`OPENROUTER_API_KEY`), the organisation's active provider, or nowhere yet.
              */
-            openrouter_key: ("environment" | "saved") | null;
+            provider: ("server" | "organisation") | null;
             /**
              * Mode
              * @description `local`: one person on their own machine. `hosted`: shared, with sign-in.
@@ -2867,6 +2973,154 @@ export interface operations {
             };
         };
     };
+    listProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"][];
+                };
+            };
+        };
+    };
+    createProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    updateProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activateProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     createRun: {
         parameters: {
             query?: never;
@@ -3113,39 +3367,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Settings"];
-                };
-            };
-        };
-    };
-    saveOpenRouterKey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OpenRouterKey"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Settings"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -9,6 +9,7 @@ from fastmcp import Client
 from rowlab.core import runs, storage
 from rowlab.core.config import config
 from rowlab.core.providers import openrouter
+from rowlab.core.providers.model_api import ProviderError
 
 
 def stored(dataset_id, *names):
@@ -81,15 +82,22 @@ class FakeOpenRouter:
 
     def __init__(self):
         self.calls = []
+        self.urls = []
         self.busy = 0
         self.crash_on = None
         self.flaky = set()
+        self.reports_cost = True
 
-    def __call__(self, method, path, *, api_key, body=None):
+    def __call__(self, method, url, *, api_key, body=None):
+        # Paths as OpenRouter's under its `/api`, and as any other provider's under its host.
+        path = url.removeprefix(openrouter.BASE_URL)
+        if path == url:
+            path = "/" + url.split("://", 1)[1].split("/", 1)[1]
         self.calls.append((method, path, api_key, body))
+        self.urls.append(url)
+        if path in ("/v1/key", "/v1/models") and api_key and api_key != "sk-good":
+            raise ProviderError("HTTP 401: Invalid key", status=401)
         if path == "/v1/key":
-            if api_key != "sk-good":
-                raise openrouter.OpenRouterError("HTTP 401: Invalid key", status=401)
             return {"data": {}}
         if path == "/v1/models?output_modalities=decisions":
             return {
@@ -110,20 +118,23 @@ class FakeOpenRouter:
             prompt = body["messages"][1]["content"]
             schema = body["response_format"]["json_schema"]["schema"]
             content = json.dumps(_llm_reply(schema, prompt))
-            return {"choices": [{"message": {"content": content}}], "usage": {"cost": 0.01}}
+            usage = {"prompt_tokens": 1000, "completion_tokens": 100}
+            if self.reports_cost:
+                usage["cost"] = 0.01
+            return {"choices": [{"message": {"content": content}}], "usage": usage}
         if self.busy:
             self.busy -= 1
-            raise openrouter.OpenRouterError("HTTP 429: Rate limited", status=429)
+            raise ProviderError("HTTP 429: Rate limited", status=429)
         if body["state"] == self.crash_on:
             self.crash_on = None
             raise KeyboardInterrupt
         if body["state"] in self.flaky:
             self.flaky.remove(body["state"])
-            raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
+            raise ProviderError("HTTP 400: Provider error", status=400)
         if body["state"] == "fail":
-            raise openrouter.OpenRouterError("HTTP 400: Provider error", status=400)
+            raise ProviderError("HTTP 400: Provider error", status=400)
         if body["state"] == "no credits":
-            raise openrouter.OpenRouterError("HTTP 402: Insufficient credits", status=402)
+            raise ProviderError("HTTP 402: Insufficient credits", status=402)
         return {
             "answers": {"answer": {"type": "noul", "noul": 0.9 if _bad(body["state"]) else 0.1}},
             "usage": {"input_tokens": 100, "output_tokens": 1, "cost": 0.001},

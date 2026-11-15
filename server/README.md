@@ -9,8 +9,8 @@ your data is never changed in place.
 uvx rowlab
 ```
 
-Open [localhost:8000](http://localhost:8000), paste an [OpenRouter](https://openrouter.ai) key in
-Settings, add a file, and ask it something.
+Open [localhost:8000](http://localhost:8000), add an [OpenRouter](https://openrouter.ai) key (or a
+LiteLLM gateway) in Settings → Providers, add a file, and ask it something.
 
 - Docs: [docs.rowlab.dev](https://docs.rowlab.dev)
 - Source, issues and contributing:

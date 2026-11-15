@@ -11,7 +11,7 @@ the address people reach never shows them. Nothing is served unless the port is 
   or `failed`. As in the usage, replies paid for in a chunk that is redone after a stop count again,
   as `cached`.
 - `rowlab_model_cost_usd_total{model}`, `rowlab_model_tokens_total{model, kind}` (`input`, `output`):
-  what the paid answers cost, as OpenRouter bills it.
+  what the paid answers cost, as the provider bills it.
 - `rowlab_runs_finished_total{status}`: runs `done` or `failed`.
 - `rowlab_runs{status}` (`queued`, `running`, `stopping`) and `rowlab_run_queue_wait_seconds`, how long
   the run first in line has waited for its turn: read from the database at every scrape, so every

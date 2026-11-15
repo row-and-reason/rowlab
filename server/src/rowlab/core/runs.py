@@ -31,8 +31,8 @@ from rowlab.core import (
     datasets,
     db,
     metrics,
+    model_providers,
     prompts,
-    settings,
     sql,
     storage,
     tasks,
@@ -41,7 +41,7 @@ from rowlab.core import (
 from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest, NotFound
-from rowlab.core.providers import openrouter
+from rowlab.core.providers.model_api import ProviderError, Request
 from rowlab.core.storage import sql_ident, sql_string
 from rowlab.core.tasks import Task
 
@@ -101,6 +101,10 @@ class Run(BaseModel):
     cost: float = Field(description="USD spent so far; cached answers are free.")
     error: str | None = Field(description="Why the run failed.")
     created_by: str | None = Field(description="The user who started it; empty locally.")
+    provider_id: str | None = Field(
+        description="The model provider its calls go to, kept from when it started. Empty on the "
+        "server's key, and for manual runs."
+    )
     created_at: datetime
     updated_at: datetime | None
 
@@ -136,8 +140,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
     request = _normalized(request)
     manual = request.method == "manual"
     check(dataset_id, request)
-    if request.method == "llm" and settings.openrouter_key(datasets.org_of(dataset_id)) is None:
-        raise InvalidRequest("Set your OpenRouter API key first.")
+    provider_id = None if manual else model_providers.for_new_run(datasets.org_of(dataset_id))[0]
     with sql.connect(dataset_id) as con:
         query = sql.row_ids(con, request.sql)
         asked = [r[0] for r in sql.execute(con, f"{query} ORDER BY {ROW_ID}").fetchall()]
@@ -155,8 +158,8 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
         with db.connect() as conn:
             conn.execute(
                 "INSERT INTO runs (id, dataset_id, status, config, columns, costs,"
-                " row_count, total, created_at, queued_at, created_by)"
-                " VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?)",
+                " row_count, total, created_at, queued_at, created_by, provider_id)"
+                " VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     made_id,
@@ -168,6 +171,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
                     datetime.now(UTC).isoformat(),
                     datetime.now(UTC).isoformat(),
                     created_by,
+                    provider_id,
                 ),
             )
     except BaseException:
@@ -203,11 +207,14 @@ def check(dataset_id: str, request: RunRequest) -> None:
     if parent.run and parent.run.status == "manual":
         raise InvalidRequest("Finish this dataset before starting another run on it.")
     manual = request.method == "manual"
+    provider_type = model_providers.active_type(datasets.org_of(dataset_id))
     for task in request.tasks:
         try:
             tasks.check(task, manual=manual)
             for model in task.models:
                 kind = catalog.get(model, offered=True).kind
+                if not manual:
+                    model_providers.check_model(provider_type, model)
                 if kind == "decision" and task.type in tasks.LLM_ONLY:
                     raise InvalidRequest(
                         f"{task.type.title()} needs an LLM: {tasks.model_slug(model)} is a "
@@ -262,9 +269,9 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
         return Estimate(rows=total, calls=0, cost=0, problem=problem)
     if problem or not rows:
         return Estimate(rows=total, calls=calls, cost=0, problem=problem)
-    # The cost is worth knowing before a key is set, too.
-    if settings.openrouter_key(datasets.org_of(dataset_id)) is None:
-        problem = "Set your OpenRouter API key first."
+    # The cost is worth knowing before a provider is added, too.
+    if model_providers.status(datasets.org_of(dataset_id)) is None:
+        problem = model_providers.NO_PROVIDER
 
     keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
     prices = {model: catalog.get(model) for task in request.tasks for model in task.models}
@@ -282,7 +289,9 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
         for model in task.models:
             # All of what is sent is billed: instructions, options and schema too, not just the prompt.
             prompt_tokens = sum(
-                prompts.count_tokens(json.dumps(_request(task, model, p).body, ensure_ascii=False))
+                prompts.count_tokens(
+                    json.dumps(model_providers.request("", task, model, p).body, ensure_ascii=False)
+                )
                 for p in prompts_by_row
             ) / len(rows)
             if prices[model].kind == "decision":
@@ -443,16 +452,14 @@ def _process(run_id: str) -> None:
     chunks = -(-run.row_count // CHUNK_ROWS)
     try:
         org_id = datasets.org_of(run.dataset_id)
-        api_key = settings.openrouter_key(org_id)
-        if api_key is None:
-            raise InvalidRequest("Set your OpenRouter API key first.")
+        use = model_providers.for_run(org_id, run.provider_id)
         keys = {path: k for path, (_, k) in datasets.dataset_fields(run.dataset_id).items()}
         if retry is not None:
-            finished = _process_chunk(run, retry, keys, org_id, api_key, retry=True)
+            finished = _process_chunk(run, retry, keys, org_id, use, retry=True)
             retry += 1
         else:
             finished = run.next_chunk >= chunks or _process_chunk(
-                run, run.next_chunk, keys, org_id, api_key
+                run, run.next_chunk, keys, org_id, use
             )
         if not finished:
             # Stopped by its user, or deleted; or this runner is shutting down and gives it back.
@@ -496,7 +503,7 @@ def _process_chunk(
     chunk: int,
     keys: dict[str, list[str]],
     org_id: str,
-    api_key: str,
+    use: model_providers.Use,
     *,
     retry: bool = False,
 ) -> bool:
@@ -522,7 +529,9 @@ def _process_chunk(
     if not units:
         return True
     requests = [
-        _request(task, model, prompts.render(task.template, row, keys))
+        model_providers.request(
+            use.model_prefix, task, model, prompts.render(task.template, row, keys)
+        )
         for row, task, model in units
     ]
     request_keys = [answers.key(org_id, request) for request in requests]
@@ -550,7 +559,7 @@ def _process_chunk(
         row, task, model = units[i]
         saved = found.get(request_keys[i])
         try:
-            answer, data = _ask(task, model, requests[i], api_key, saved)
+            answer, data = _ask(task, model, requests[i], use, saved)
         except KeyProblem:
             stopping.set()
             raise
@@ -580,7 +589,7 @@ def _process_chunk(
                     org_id=org_id,
                     user_id=run.created_by,
                     run_id=run.id,
-                    paid_by=settings.paid_by(),
+                    paid_by=use.paid_by,
                     spent=taken,
                 )
             metrics.count_spent(taken)
@@ -664,27 +673,18 @@ def _failed(written: dict[str, Any], task: Task, model: str) -> bool:
 
 
 class KeyProblem(Exception):
-    """OpenRouter refuses the key, or it is out of credits: every call would fail alike, so the run
+    """The provider refuses the key, or it is out of credits: every call would fail alike, so the run
     fails with this, to be resumed once the key is fixed."""
 
 
 _KEY_PROBLEMS = {
-    401: "OpenRouter refused the key. Change it in Settings → Providers, then resume the run",
-    402: "The OpenRouter key is out of credits. Add some at openrouter.ai, then resume the run",
+    401: "The model provider refused the key. Change it in Settings → Providers, then resume the run",
+    402: "The model provider's key is out of credits. Add some, then resume the run",
 }
 
 
-def _request(task: Task, model: str, prompt: str) -> openrouter.Request:
-    """The call asking one task for one row of one model."""
-    if catalog.kind(model) == "decision":
-        return openrouter.decision_request(model, prompt, tasks.decision_questions(task))
-    return openrouter.completion_request(
-        model, tasks.llm_messages(task, prompt), tasks.llm_schema(task)
-    )
-
-
 def _ask(
-    task: Task, model: str, request: openrouter.Request, api_key: str, saved: Any = None
+    task: Task, model: str, request: Request, use: model_providers.Use, saved: Any = None
 ) -> tuple[_Answer, Any]:
     """One task for one row from one model, as base columns, with the reply's data (None if there
     was no reply). `saved` is a reply already paid for, used instead of asking."""
@@ -693,8 +693,8 @@ def _ask(
     else:
         try:
             with metrics.CALLS_IN_FLIGHT.track_inprogress():
-                response = openrouter.post(request, api_key)
-        except openrouter.OpenRouterError as e:
+                response = model_providers.ask(use, request)
+        except ProviderError as e:
             if e.status in _KEY_PROBLEMS:
                 raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
             return _Answer(error=str(e)), None
@@ -706,7 +706,7 @@ def _ask(
         )
         data = response.data
     try:
-        if request.path == openrouter.DECISIONS:
+        if catalog.kind(model) == "decision":
             answer.values = tasks.read_decision(task, data)
         else:
             answer.values = tasks.read_llm(task, data)
@@ -745,6 +745,7 @@ def _from_row(row) -> Run:
         cost=row["cost"],
         error=row["error"],
         created_by=row["created_by"],
+        provider_id=row["provider_id"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

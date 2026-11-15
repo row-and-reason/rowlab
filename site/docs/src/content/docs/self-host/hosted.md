@@ -30,9 +30,10 @@ own and get tokens that are for rowlab alone. Scripts use an API key from **Sett
 
 ## Keys
 
-`ROWLAB_SECRET_KEY` encrypts the OpenRouter keys and S3 credentials people save. Set
-`OPENROUTER_API_KEY` on the server to pay for everyone's calls; leave it unset and each organisation
-brings its own key. **Settings → Usage** shows what was spent, by day, model and person; members see
+`ROWLAB_SECRET_KEY` encrypts the model provider keys and S3 credentials people save. Leave
+`OPENROUTER_API_KEY` unset and each organisation brings its own: OpenRouter, or a LiteLLM gateway, in
+**Settings → Providers**. Set it to pay for everyone's calls instead. A gateway on your own network
+needs its host in [`ROWLAB_PRIVATE_HOSTS`](/self-host/configuration#private-hosts). **Settings → Usage** shows what was spent, by day, model and person; members see
 their own.
 
 **Settings → Storage** shows how much the organisation's datasets take, from their recorded sizes:
@@ -59,13 +60,13 @@ rowlab runner              # as many as you like
 
 A run is with one runner at a time, which makes `ROWLAB_RUNNER_CALLS` (16) model calls at once. To
 make one run go faster, raise it; to have more runs going at once, add runners. How far it can go is
-up to each organisation's OpenRouter key and model: calls still rate-limited after four tries become
+up to each organisation's provider, key and model: calls still rate-limited after four tries become
 failed answers, which resuming the run asks again. Watch `rate_limited` in the
 [metrics](#metrics) after raising it.
 
 Both stop gracefully on `SIGTERM`. The API stops taking connections and finishes the requests under
 way. A runner takes no more runs, lets the model calls in flight finish (a few seconds usually; up
-to about four minutes when OpenRouter keeps timing out and is retried), then puts its run back in the
+to about four minutes when the provider keeps timing out and is retried), then puts its run back in the
 queue, where the next runner continues it at once. The chunk under way is redone, without paying again
 for the replies it already got. A runner that is killed instead loses only the calls in flight, and
 its run is taken back after two minutes of silence.
@@ -101,7 +102,7 @@ again, as `cached`. A series labelled by model starts when a process first sees 
 Put a reverse proxy or a tunnel in front, with TLS. Rate limits per client aren't rowlab's job: set
 them there (Cloudflare does this well). Nor, fully, is keeping requests off private addresses:
 rowlab refuses them, but DuckDB follows redirects from S3 endpoints, so block private addresses
-(other than the database, storage and any [private S3 hosts](/self-host/configuration#private-s3-hosts))
+(other than the database, storage and any [private hosts](/self-host/configuration#private-hosts))
 in the network, with a network policy or an egress firewall.
 
 Uploads need a `Content-Length`; a proxy that strips it gets `411`. An upload well past
