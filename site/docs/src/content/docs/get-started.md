@@ -19,10 +19,10 @@ Model calls go to a provider with your own key: [OpenRouter](https://openrouter.
 [LiteLLM](https://docs.litellm.ai) gateway. Add one in **Settings → Providers** (base URL and API
 key; OpenRouter's is filled in), or set `OPENROUTER_API_KEY` before starting. An organisation can
 save several; new runs use the active one, and a run keeps the provider it started with. A LiteLLM
-gateway runs language models only, under rowlab's model ids with an optional prefix (e.g.
-`openrouter/`). Where a gateway doesn't say what a call cost, rowlab works it out from the model's
-tokens and OpenRouter's prices. A saved key is sent only to the base URL it was saved with: to
-change the address, enter the key again.
+gateway runs decision models and language models alike, under rowlab's model ids with an optional
+prefix (e.g. `openrouter/`). Where a gateway doesn't say what a call cost, rowlab works it out from
+the model's tokens and OpenRouter's prices. A saved key is sent only to the base URL it was saved
+with: to change the address, enter the key again.
 
 ## Add a dataset
 

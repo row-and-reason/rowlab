@@ -340,8 +340,8 @@ function ProviderDialog({
               </Select>
               <FieldDescription>
                 {form.type === "litellm"
-                  ? "A LiteLLM gateway in front of other providers. Language models only; decision models need OpenRouter."
-                  : "Decision models and language models, billed to your OpenRouter account."}
+                  ? "A LiteLLM gateway in front of other providers, billed as it is set up."
+                  : "Billed to your OpenRouter account."}
               </FieldDescription>
             </Field>
             <Field>

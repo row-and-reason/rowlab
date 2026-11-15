@@ -140,7 +140,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
     request = _normalized(request)
     manual = request.method == "manual"
     check(dataset_id, request)
-    provider_id = None if manual else model_providers.for_new_run(datasets.org_of(dataset_id))[0]
+    provider_id = None if manual else model_providers.for_new_run(datasets.org_of(dataset_id))
     with sql.connect(dataset_id) as con:
         query = sql.row_ids(con, request.sql)
         asked = [r[0] for r in sql.execute(con, f"{query} ORDER BY {ROW_ID}").fetchall()]
@@ -207,14 +207,11 @@ def check(dataset_id: str, request: RunRequest) -> None:
     if parent.run and parent.run.status == "manual":
         raise InvalidRequest("Finish this dataset before starting another run on it.")
     manual = request.method == "manual"
-    provider_type = model_providers.active_type(datasets.org_of(dataset_id))
     for task in request.tasks:
         try:
             tasks.check(task, manual=manual)
             for model in task.models:
                 kind = catalog.get(model, offered=True).kind
-                if not manual:
-                    model_providers.check_model(provider_type, model)
                 if kind == "decision" and task.type in tasks.LLM_ONLY:
                     raise InvalidRequest(
                         f"{task.type.title()} needs an LLM: {tasks.model_slug(model)} is a "
@@ -290,7 +287,10 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
             # All of what is sent is billed: instructions, options and schema too, not just the prompt.
             prompt_tokens = sum(
                 prompts.count_tokens(
-                    json.dumps(model_providers.request("", task, model, p).body, ensure_ascii=False)
+                    json.dumps(
+                        model_providers.request("openrouter", "", task, model, p).body,
+                        ensure_ascii=False,
+                    )
                 )
                 for p in prompts_by_row
             ) / len(rows)
@@ -533,7 +533,7 @@ def _process_chunk(
         return True
     requests = [
         model_providers.request(
-            use.model_prefix, task, model, prompts.render(task.template, row, keys)
+            use.type, use.model_prefix, task, model, prompts.render(task.template, row, keys)
         )
         for row, task, model in units
     ]
