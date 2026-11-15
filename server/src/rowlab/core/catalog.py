@@ -119,7 +119,8 @@ def _priced() -> list[_Entry]:
     if _prices is None or time.monotonic() > _prices[0]:
         try:
             _prices = (time.monotonic() + PRICES_TTL_SECONDS, openrouter.prices())
-        except openrouter.OpenRouterError as e:
+        # Unreachable, or answering in a shape it didn't before: the list's own prices will do.
+        except (openrouter.OpenRouterError, KeyError, TypeError, ValueError) as e:
             log.warning("Using the model list's own prices: %s", e)
             _prices = (time.monotonic() + PRICES_RETRY_SECONDS, _prices[1] if _prices else {})
     live = _prices[1]

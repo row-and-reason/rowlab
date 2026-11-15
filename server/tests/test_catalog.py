@@ -43,6 +43,12 @@ def test_models_are_listed_when_openrouter_is_down(client, monkeypatch):
     models = {m["id"]: m for m in client.get("/v1/utils/models").json()}
     assert models["typesafe/jev-1.14"]["prompt_price"] == pytest.approx(5e-08)
 
+    # Nor when it answers in a shape it didn't before.
+    monkeypatch.setattr(catalog, "_prices", None)
+    monkeypatch.setattr(openrouter, "_request", lambda *args, **kwargs: {"models": []})
+    models = {m["id"]: m for m in client.get("/v1/utils/models").json()}
+    assert models["typesafe/jev-1.14"]["prompt_price"] == pytest.approx(5e-08)
+
 
 def test_deprecated_models_take_no_new_runs_but_old_ones_finish(client, dataset, api_key):
     job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data"}
