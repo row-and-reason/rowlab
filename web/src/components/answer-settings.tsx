@@ -3,22 +3,8 @@
 import { InfoIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxCollection,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxGroup,
-  ComboboxItem,
-  ComboboxLabel,
-  ComboboxList,
-  ComboboxValue,
-  useComboboxAnchor,
-} from "@/components/ui/combobox";
 import { Checkbox } from "@/components/ui/checkbox";
+import { type PickGroup, PickList } from "@/components/pick-list";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -345,97 +331,50 @@ const KINDS = [
 ] as const;
 const RECOMMENDED = "recommended";
 
+/** The models a task asks, as a searchable list: recommended first, then by kind. */
 export function ModelPicker({
-  id,
   value,
   llmOnly = false,
   onChange,
 }: {
-  id: string;
   value: string[];
   llmOnly?: boolean;
   onChange: (models: string[]) => void;
 }) {
   const models = useModels();
-  const anchor = useComboboxAnchor();
-
   // Recommended first, then the rest by kind, each in the order the server lists them.
   const offered = models.filter((m) => !llmOnly || m.kind === "llm");
-  const groups = [
-    { value: "Recommended", items: offered.filter((m) => m.tags.includes(RECOMMENDED)) },
+  const item = (m: Model) => ({ value: m.id, label: m.name, detail: price(m) });
+  const groups: PickGroup[] = [
+    { label: "Recommended", items: offered.filter((m) => m.tags.includes(RECOMMENDED)).map(item) },
     ...KINDS.map((k) => ({
-      value: k.label,
-      items: offered.filter((m) => m.kind === k.kind && !m.tags.includes(RECOMMENDED)),
+      label: k.label,
+      items: offered
+        .filter((m) => m.kind === k.kind && !m.tags.includes(RECOMMENDED))
+        .map(item),
     })),
-  ].filter((g) => g.items.length);
-  // Models the catalog doesn't (or doesn't yet) know are still shown, by id.
-  const selected = value.map(
-    (id) =>
-      models.find((m) => m.id === id) ??
-      ({
-        id,
-        name: id,
-        kind: "decision",
-        tags: [],
-        prompt_price: 0,
-        completion_price: 0,
-        context_length: 0,
-      } as Model),
-  );
+  ];
+  // Models the catalog doesn't (or doesn't yet) know are still shown, by id, so they can be removed.
+  const unknown = value.filter((id) => !models.some((m) => m.id === id));
+  if (unknown.length) groups.push({ label: "Not offered", items: unknown.map((id) => ({ value: id, label: id })) });
 
   return (
-    <Field>
-      <FieldLabel htmlFor={id}>Models</FieldLabel>
-      <Combobox
-        multiple
-        items={groups}
-        value={selected}
-        onValueChange={(picked: Model[], details) => {
-          // Escape on a closed picker would otherwise remove every model.
-          if (details.reason !== "escape-key") onChange(picked.map((m) => m.id));
-        }}
-        itemToStringLabel={(model: Model) => model.name}
-        isItemEqualToValue={(a: Model, b: Model) => a.id === b.id}
-      >
-        <ComboboxChips ref={anchor}>
-          <ComboboxValue>
-            {(picked: Model[]) => (
-              <>
-                {picked.map((model) => (
-                  <ComboboxChip key={model.id}>{model.name}</ComboboxChip>
-                ))}
-                <ComboboxChipsInput id={id} placeholder={picked.length ? "" : "Pick models"} />
-              </>
-            )}
-          </ComboboxValue>
-        </ComboboxChips>
-        <ComboboxContent anchor={anchor}>
-          <ComboboxEmpty>No matching models.</ComboboxEmpty>
-          <ComboboxList>
-            {(group: (typeof groups)[number]) => (
-              <ComboboxGroup key={group.value} items={group.items}>
-                <ComboboxLabel>{group.value}</ComboboxLabel>
-                <ComboboxCollection>
-                  {(model: Model) => (
-                    <ComboboxItem key={model.id} value={model}>
-                      <span className="truncate">{model.name}</span>
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                        {price(model)}
-                      </span>
-                    </ComboboxItem>
-                  )}
-                </ComboboxCollection>
-              </ComboboxGroup>
-            )}
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
-      <FieldDescription>
-        Pick several to compare them.
+    <div className="flex flex-col gap-2">
+      <PickList
+        groups={groups}
+        picked={value}
+        onPick={(id) =>
+          onChange(value.includes(id) ? value.filter((m) => m !== id) : [...value, id])
+        }
+        placeholder="Find a model…"
+        empty="No matching models."
+      />
+      <p className="px-2 pb-1 text-xs text-muted-foreground">
+        Pick several to compare them. Prices are per 1M tokens.
         {!llmOnly &&
           " Decision models are fast and cheap; language models cost more and are slower, but can reason through harder questions."}
-      </FieldDescription>
-    </Field>
+      </p>
+    </div>
   );
 }
 

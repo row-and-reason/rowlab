@@ -74,6 +74,45 @@ export function comparableColumns(columns: Dataset["columns"]): Dataset["columns
   return columns.filter((c) => c.name !== "__row_id");
 }
 
+/**
+ * The columns to pick from, in groups: each task's answers from models (newest first), labels people
+ * set, then the file's own columns; or, for a `reference`, labels and the file's columns first.
+ * Those in `leaveOut` aren't offered.
+ */
+export function columnGroups(
+  dataset: Pick<Dataset, "columns" | "answers">,
+  leaveOut: (string | null)[] = [],
+  { reference = false } = {},
+): { label: string; items: { value: string; label: string; detail?: string }[] }[] {
+  const offered = (name: string) => !leaveOut.includes(name);
+  const answered = new Set(dataset.answers.flatMap((a) => a.columns));
+  const fromModels = dataset.answers.filter((a) => a.model);
+  const tasks = [...new Set(fromModels.map((a) => a.name))];
+  const models = tasks.map((task) => ({
+    label: `${task} · models`,
+    items: fromModels
+      .filter((a) => a.name === task)
+      .flatMap((a) => a.columns)
+      .filter(offered)
+      .map((name) => ({ value: name, label: name })),
+  }));
+  const labels = {
+    label: "Labels",
+    items: dataset.answers
+      .filter((a) => !a.model)
+      .flatMap((a) => a.columns)
+      .filter(offered)
+      .map((name) => ({ value: name, label: name })),
+  };
+  const own = {
+    label: "The file's columns",
+    items: comparableColumns(dataset.columns)
+      .filter((c) => !answered.has(c.name) && offered(c.name))
+      .map((c) => ({ value: c.name, label: c.name })),
+  };
+  return reference ? [labels, own, ...models] : [...models, labels, own];
+}
+
 /** The `compare` URL value as known, de-duplicated column names. Anything malformed means none. */
 export function parseComparedColumns(
   encoded: string | null,

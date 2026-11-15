@@ -293,9 +293,8 @@ function TaskRow({
               </span>
               <ChevronDownIcon data-icon="inline-end" />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-96">
+            <PopoverContent align="end" className="w-96 p-1">
               <ModelPicker
-                id={`models-${task.id}`}
                 value={task.models}
                 llmOnly={type.llm_only}
                 onChange={(picked) => onChange({ ...task, models: picked })}
