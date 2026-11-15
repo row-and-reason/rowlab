@@ -1829,7 +1829,7 @@
           "utils"
         ],
         "summary": "List Models",
-        "description": "Models a task can use: decision models, then LLMs with structured outputs, each cheapest\nfirst.",
+        "description": "The models a task can use, decision models and LLMs, in the order we'd pick them, with\ncurrent prices.",
         "operationId": "listModels",
         "responses": {
           "200": {
@@ -3487,13 +3487,23 @@
             ],
             "title": "Kind"
           },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "description": "`recommended` for the ones to try first; others (`budget`, `accurate`) to filter by."
+          },
           "prompt_price": {
             "type": "number",
-            "title": "Prompt Price"
+            "title": "Prompt Price",
+            "description": "USD per input token."
           },
           "completion_price": {
             "type": "number",
-            "title": "Completion Price"
+            "title": "Completion Price",
+            "description": "USD per output token."
           },
           "context_length": {
             "type": "integer",
@@ -3505,6 +3515,7 @@
           "id",
           "name",
           "kind",
+          "tags",
           "prompt_price",
           "completion_price",
           "context_length"

@@ -599,8 +599,8 @@ export interface paths {
         };
         /**
          * List Models
-         * @description Models a task can use: decision models, then LLMs with structured outputs, each cheapest
-         *     first.
+         * @description The models a task can use, decision models and LLMs, in the order we'd pick them, with
+         *     current prices.
          */
         get: operations["listModels"];
         put?: never;
@@ -1367,9 +1367,20 @@ export interface components {
              * @enum {string}
              */
             kind: "decision" | "llm";
-            /** Prompt Price */
+            /**
+             * Tags
+             * @description `recommended` for the ones to try first; others (`budget`, `accurate`) to filter by.
+             */
+            tags: string[];
+            /**
+             * Prompt Price
+             * @description USD per input token.
+             */
             prompt_price: number;
-            /** Completion Price */
+            /**
+             * Completion Price
+             * @description USD per output token.
+             */
             completion_price: number;
             /** Context Length */
             context_length: number;

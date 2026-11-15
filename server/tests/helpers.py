@@ -26,14 +26,50 @@ def stored_datasets():
     return {o["Key"].removeprefix(prefix).split("/")[0] for o in found}
 
 
-def chat_model(id_, price, structured=True):
-    return {
-        "id": id_,
-        "name": id_.title(),
-        "pricing": {"prompt": price, "completion": "0.000001"},
-        "architecture": {"output_modalities": ["text"]},
-        "supported_parameters": ["structured_outputs"] if structured else [],
-    }
+# The models the tests may use, in place of rowlab's own list. OpenRouter (the fake) prices all but
+# `x/unpriced`; `old/retired` is deprecated.
+CATALOG = """
+[[models]]
+id = "typesafe/jev-1.14"
+name = "Jev"
+kind = "decision"
+tags = ["recommended"]
+price_in = 0.05
+
+[[models]]
+id = "a/cheap"
+name = "Cheap"
+kind = "decision"
+tags = ["budget"]
+
+[[models]]
+id = "anthropic/claude-haiku-5.5"
+name = "Haiku"
+kind = "llm"
+tags = ["recommended"]
+
+[[models]]
+id = "x/llm"
+name = "X"
+kind = "llm"
+
+[[models]]
+id = "x/unpriced"
+name = "Unpriced"
+kind = "llm"
+price_in = 3
+price_out = 4
+
+[[models]]
+id = "old/retired"
+name = "Retired"
+kind = "llm"
+deprecated = true
+"""
+
+
+def chat_model(id_, price):
+    return {"id": id_, "name": id_.title(), "pricing": {"prompt": price, "completion": "0.000001"}}
 
 
 class FakeOpenRouter:
@@ -67,7 +103,7 @@ class FakeOpenRouter:
                 "data": [
                     chat_model("x/llm", "0.000002"),
                     chat_model("anthropic/claude-haiku-5.5", "0.0000001"),
-                    chat_model("y/no-schema", "0.000001", structured=False),
+                    chat_model("old/retired", "0.000001"),
                 ]
             }
         if path == "/v1/chat/completions":

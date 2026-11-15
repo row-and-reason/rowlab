@@ -11,7 +11,8 @@ what cost". Answer it with the same rows asked of two or three models, compared.
 Take a sample of 50 to 200 rows that includes the hard cases: `ORDER BY random()` with a `LIMIT`, or
 a filter for the rows that matter. Run the same task on it with each candidate model, in one run, so
 the result is one dataset with a column per model. Good candidates: the default for the answer type, a
-cheaper one, and a decision model when the task is Classify.
+cheaper one, and a decision model when the task is Classify. rowlab offers a picked set of models, the
+recommended ones first, at OpenRouter's current prices.
 
 When you have labels you trust (earlier annotations, a human-checked column, an observed outcome),
 have them as a column of the dataset: join them to the data before adding it to rowlab.

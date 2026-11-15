@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from rowlab.core import (
     answers,
+    catalog,
     datasets,
     db,
     metrics,
@@ -206,7 +207,7 @@ def check(dataset_id: str, request: RunRequest) -> None:
         try:
             tasks.check(task, manual=manual)
             for model in task.models:
-                kind = openrouter.model_kind(model)
+                kind = catalog.get(model, offered=True).kind
                 if kind == "decision" and task.type in tasks.LLM_ONLY:
                     raise InvalidRequest(
                         f"{task.type.title()} needs an LLM: {tasks.model_slug(model)} is a "
@@ -266,7 +267,7 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
         problem = "Set your OpenRouter API key first."
 
     keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
-    prices = {m.id: m for m in openrouter.models()}
+    prices = {model: catalog.get(model) for task in request.tasks for model in task.models}
     cost = 0.0
     for task in request.tasks:
         prompts_by_row = [prompts.render(task.template, row, keys) for row in rows]
@@ -675,7 +676,7 @@ _KEY_PROBLEMS = {
 
 def _request(task: Task, model: str, prompt: str) -> openrouter.Request:
     """The call asking one task for one row of one model."""
-    if openrouter.model_kind(model) == "decision":
+    if catalog.kind(model) == "decision":
         return openrouter.decision_request(model, prompt, tasks.decision_questions(task))
     return openrouter.completion_request(
         model, tasks.llm_messages(task, prompt), tasks.llm_schema(task)

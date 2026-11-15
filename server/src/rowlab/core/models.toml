@@ -1,0 +1,140 @@
+# The models rowlab offers, curated. Order matters: the picker and `models_list` show them in this
+# order within each kind, so put the ones we'd pick first.
+#
+# - id: OpenRouter's model id.
+# - kind: `decision` (OpenRouter's Decisions API; Classify only) or `llm` (chat with structured outputs).
+# - tags: `recommended` puts it in the picker's Recommended group; others (`budget`, `accurate`) are
+#   for filtering.
+# - price_in / price_out: USD per million tokens, used only when OpenRouter's live prices can't be
+#   fetched. Decision models bill input only.
+# - deprecated: hidden from new runs; runs that already use it keep working. Remove the entry once no
+#   run needs it.
+
+[[models]]
+id = "typesafe/jev-1.14"
+name = "Jev 1.14"
+kind = "decision"
+tags = ["recommended"]
+price_in = 0.042
+context_length = 262144
+
+[[models]]
+id = "liquid/d1.1"
+name = "LiquidAI d1.1"
+kind = "decision"
+tags = ["budget"]
+price_in = 0.02
+context_length = 65536
+
+[[models]]
+id = "perplexity/pplx-decider-flash-v1.2"
+name = "Perplexity Decider Flash 1.2"
+kind = "decision"
+tags = ["budget"]
+price_in = 0.01
+context_length = 262144
+
+[[models]]
+id = "upstage/solar-decide"
+name = "Upstage Solar Decide"
+kind = "decision"
+tags = []
+price_in = 0.05
+context_length = 524288
+
+[[models]]
+id = "google/gemini-decision-1"
+name = "Gemini Decision 1"
+kind = "decision"
+tags = ["accurate"]
+price_in = 0.1
+context_length = 262144
+
+[[models]]
+id = "openai/gpt-6-luna-decisions"
+name = "GPT-6 Luna Decisions"
+kind = "decision"
+tags = ["accurate"]
+price_in = 0.1
+context_length = 1050000
+
+[[models]]
+id = "anthropic/claude-haiku-5.5"
+name = "Claude Haiku 5.5"
+kind = "llm"
+tags = ["recommended"]
+price_in = 0.1
+price_out = 0.5
+context_length = 1000000
+
+[[models]]
+id = "openai/gpt-6-luna"
+name = "GPT-6 Luna"
+kind = "llm"
+tags = []
+price_in = 0.1
+price_out = 0.5
+context_length = 1050000
+
+[[models]]
+id = "deepseek/deepseek-v4.1-flash"
+name = "DeepSeek V4.1 Flash"
+kind = "llm"
+tags = ["budget"]
+price_in = 0.0507
+price_out = 0.2028
+context_length = 1048576
+
+[[models]]
+id = "qwen/qwen3.8-flash"
+name = "Qwen3.8 Flash"
+kind = "llm"
+tags = ["budget"]
+price_in = 0.15
+price_out = 0.47
+context_length = 1000000
+
+[[models]]
+id = "google/gemini-3.8-flash"
+name = "Gemini 3.8 Flash"
+kind = "llm"
+tags = []
+price_in = 0.825
+price_out = 4.125
+context_length = 1048576
+
+[[models]]
+id = "mistralai/mistral-large-4-0"
+name = "Mistral Large 4"
+kind = "llm"
+tags = []
+price_in = 0.7
+price_out = 2.1
+context_length = 1048576
+
+[[models]]
+id = "anthropic/claude-sonnet-5.5"
+name = "Claude Sonnet 5.5"
+kind = "llm"
+tags = ["accurate"]
+price_in = 2.0
+price_out = 10.0
+context_length = 1000000
+
+[[models]]
+id = "openai/gpt-6.1-sol"
+name = "GPT-6.1 Sol"
+kind = "llm"
+tags = ["accurate"]
+price_in = 2.0
+price_out = 10.0
+context_length = 1050000
+
+[[models]]
+id = "google/gemini-4-carbon"
+name = "Gemini 4 Carbon"
+kind = "llm"
+tags = ["accurate"]
+price_in = 2.0
+price_out = 10.0
+context_length = 1048576

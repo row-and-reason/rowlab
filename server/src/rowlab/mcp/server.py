@@ -21,7 +21,7 @@ from fastmcp.server.dependencies import get_access_token
 from pydantic import BaseModel, Field
 
 from rowlab import __version__
-from rowlab.core import auth, compare, datasets, exports, links, manual, prompts, runs
+from rowlab.core import auth, catalog, compare, datasets, exports, links, manual, prompts, runs
 from rowlab.core import sql as sql_core
 from rowlab.core import tasks as tasks_core
 from rowlab.core.auth import Me, Role
@@ -442,14 +442,18 @@ def create_server() -> FastMCP:
             Literal["decision", "llm"] | None,
             Field(description="Decision models (fast, cheap, classify only) or LLMs."),
         ] = None,
+        tag: Annotated[
+            str | None,
+            Field(description="Only models with this tag: `recommended`, `budget` or `accurate`."),
+        ] = None,
         offset: Annotated[int, Field(ge=0)] = 0,
         limit: Annotated[int, Field(ge=1, le=100)] = 20,
-    ) -> openrouter.ModelPage:
-        """A page of models with per-token prices: decision models then LLMs, cheapest first in
-        each kind. Search by name or kind; follow next_offset for more. Defaults from
-        task_types_get are fine to start with."""
+    ) -> catalog.ModelPage:
+        """A page of the models rowlab offers, with per-token prices, in the order we'd pick them.
+        Search by name, kind or tag; follow next_offset for more. Defaults from task_types_get are
+        fine to start with."""
         _me()
-        return openrouter.list_models(search, kind, offset, limit)
+        return catalog.list_models(search, kind, tag, offset, limit)
 
     return mcp
 

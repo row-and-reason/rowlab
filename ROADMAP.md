@@ -36,9 +36,6 @@ Not planned yet; noted so they aren't lost. Add new ones here.
   (Postgres, BigQuery) as sources and destinations.
 - **Other sign-in providers.** WorkOS is the only one; a generic OIDC login (Keycloak, Authentik,
   Google) would let self-hosters sign in without a WorkOS project, if they ask for it.
-- **Recommended models first.** In the model picker, show a short "Recommended for <type>" group at the
-  top, picked by the task's type (e.g. fast decision models for Classify, LLMs good at structured output
-  for Extract), then the rest sorted as now.
 
 ## Risks and open questions
 
