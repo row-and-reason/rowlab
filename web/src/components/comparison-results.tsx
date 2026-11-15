@@ -30,13 +30,14 @@ import {
   type ReferenceMetrics,
 } from "@/lib/comparison";
 import { columnLabel, formatNumber } from "@/lib/format";
-import { ALL_ROWS } from "@/lib/sql";
-import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
+import { ALL_ROWS, ident } from "@/lib/sql";
+import { useComparison, type CompareRequest, type ComparisonActions } from "@/lib/use-comparison";
 
 export function ComparisonResults({
   dataset,
   version,
   comparison,
+  rows,
   onFilter,
   actionsRef,
 }: {
@@ -45,6 +46,7 @@ export function ComparisonResults({
   /** Changes when answers do, so a pair's own comparison is fetched again. */
   version: number;
   comparison: Comparison;
+  rows: CompareRequest["rows"];
   onFilter: InspectRows;
 }) {
   const params = useSearchParams();
@@ -107,6 +109,7 @@ export function ComparisonResults({
   return (
     <div className="min-h-0 flex-1 overflow-auto text-sm">
       <div className="space-y-4 p-3">
+        <Coverage comparison={comparison} rows={rows} />
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs tabular-nums">
           {comparison.columns.length > 2 && (
             <span>
@@ -163,7 +166,7 @@ export function ComparisonResults({
             <span className="ml-auto text-xs text-muted-foreground tabular-nums">
               <Definition
                 label={`${formatNumber(pair.compared)} / ${formatNumber(comparison.rows)} paired`}
-                description="Rows with both answers / all dataset rows. Missing means NULL, not an empty string. Matrix totals and rates use paired rows."
+                description="Rows with both answers / rows compared. Missing means NULL, not an empty string. Matrix totals and rates use paired rows."
               />
             </span>
           </div>
@@ -255,6 +258,7 @@ export function ComparisonResults({
             dataset={dataset}
             version={version}
             comparison={comparison}
+            rows={rows}
             pair={pair}
             reference={ref ? reference : null}
             metrics={ref}
@@ -266,6 +270,25 @@ export function ComparisonResults({
   );
 }
 
+/** E.g. "Compared 67 of 2,414 rows · gold 67 · answer__jev 2,400 (2,333 left out)". */
+function Coverage({ comparison, rows }: { comparison: Comparison; rows: CompareRequest["rows"] }) {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground tabular-nums">
+      <span className="text-foreground">
+        {rows === "common"
+          ? `Compared ${formatNumber(comparison.rows)} of ${formatNumber(comparison.scope_rows)} rows: those every column has`
+          : `${formatNumber(comparison.scope_rows)} rows, each pair on the rows both its columns have`}
+      </span>
+      {comparison.coverage.map((c) => (
+        <span key={c.column}>
+          {columnLabel(c.column)} {formatNumber(c.answered)}
+          {c.left_out > 0 && ` (${formatNumber(c.left_out)} left out)`}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function PairDetail({
   dataset,
   version,
@@ -273,11 +296,13 @@ function PairDetail({
   pair,
   reference,
   metrics,
+  rows,
   onFilter,
 }: {
   dataset: Dataset;
   version: number;
   comparison: Comparison;
+  rows: CompareRequest["rows"];
   pair: Pair;
   reference: string | null;
   metrics: ReferenceMetrics | undefined;
@@ -288,15 +313,21 @@ function PairDetail({
       comparison.columns.length === 2
         ? undefined
         : {
-            sql: ALL_ROWS,
+            // With common rows, the pair's on the rows every column compared has, as above.
+            sql:
+              rows === "common"
+                ? `${ALL_ROWS} WHERE ${comparison.columns.map((c) => `${ident(c)} IS NOT NULL`).join(" AND ")}`
+                : ALL_ROWS,
             columns: pair.columns,
             reference: null,
             tolerance: comparison.tolerance,
             ignore_case: comparison.ignore_case,
             trim_whitespace: comparison.trim_whitespace,
+            rows,
           },
     [
-      comparison.columns.length,
+      comparison.columns,
+      rows,
       pair.columns,
       comparison.tolerance,
       comparison.ignore_case,

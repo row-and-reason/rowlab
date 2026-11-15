@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { api, type Dataset, downloadUrl, type ExportFormat } from "@/lib/api/client";
+import { api, type DatasetSummary, downloadUrl, type ExportFormat } from "@/lib/api/client";
 import { errorMessage, formatBytes } from "@/lib/format";
 
 const FORMATS: { value: ExportFormat; label: string }[] = [
@@ -69,7 +69,7 @@ export function ExportDataset({
   open,
   onOpenChange,
 }: {
-  dataset: Dataset;
+  dataset: DatasetSummary;
   tableSql: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;

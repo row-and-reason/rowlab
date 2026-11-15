@@ -36,14 +36,12 @@ import {
 } from "@/components/ui/empty";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Spinner } from "@/components/ui/spinner";
-import { api, type Dataset, type Settings } from "@/lib/api/client";
+import { api, type Dataset, type DatasetSummary, type Settings } from "@/lib/api/client";
 import type { ComparisonActions } from "@/lib/use-comparison";
-import { datasetTree } from "@/lib/dataset-tree";
-import type { OriginActions } from "@/components/origin";
 import { loadDraft } from "@/lib/draft";
-import { isActive } from "@/lib/runs";
 import { viewSql } from "@/lib/sql";
 import { type Section, settingsUrl } from "@/lib/settings";
+import { useDataset } from "@/lib/use-dataset";
 import { useDatasets } from "@/lib/use-datasets";
 
 // The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
@@ -71,11 +69,10 @@ function Workspace() {
     (section: Section) => router.push(settingsUrl(params, section)),
     [router, params],
   );
-  const [renaming, setRenaming] = useState<Dataset>();
-  const [deleting, setDeleting] = useState<Dataset>();
-  const [exporting, setExporting] = useState<Dataset>();
+  const [renaming, setRenaming] = useState<DatasetSummary>();
+  const [deleting, setDeleting] = useState<DatasetSummary>();
+  const [exporting, setExporting] = useState<DatasetSummary>();
   const [palette, setPalette] = useState(false);
-  const originActionsRef = useRef<OriginActions | null>(null);
   const taskActionsRef = useRef<TaskActions | null>(null);
   const [comparisonReady, setComparisonReady] = useState(false);
   const comparisonActionsRef = useRef<ComparisonActions | null>({ setReady: setComparisonReady });
@@ -89,11 +86,18 @@ function Workspace() {
   }, []);
 
   const selected = datasets?.find((d) => d.id === selectedId);
-  // A dataset a run is still making can't be exported yet.
-  const exportable =
-    canEdit &&
-    !!selected &&
-    !(selected.run && (isActive(selected.run) || selected.run.status === "manual"));
+  const detail = useDataset(selected ? selected.id : null);
+  const reload = detail.load;
+  // A run started elsewhere (an agent, another tab) shows up in the list first.
+  const activeRuns = selected?.active_runs;
+  useEffect(() => {
+    if (activeRuns !== undefined) reload();
+  }, [activeRuns, reload]);
+  const changed = useCallback(() => {
+    load();
+    reload();
+  }, [load, reload]);
+  const exportable = canEdit && !!selected;
   const select = useCallback((id: string) => router.push(`/?dataset=${id}`), [router]);
 
   // Keyboard shortcuts. ⌘K and ⌘↵ work everywhere; single keys only when not typing.
@@ -113,8 +117,7 @@ function Workspace() {
         } else taskActionsRef.current?.run();
       } else if (!mod && !e.altKey && !isTyping(e.target)) {
         if ((e.key === "j" || e.key === "k") && datasets?.length) {
-          // In the list's order, made datasets under the one they were made from.
-          const order = datasetTree(datasets).map((r) => r.dataset.id);
+          const order = datasets.map((d) => d.id);
           const index = order.indexOf(selectedId ?? "");
           const next = e.key === "j" ? index + 1 : index - 1;
           select(order[Math.min(order.length - 1, Math.max(0, next))]);
@@ -149,11 +152,11 @@ function Workspace() {
             onSettings={openSettings}
           />
         </ResizablePanel>
-        {selected ? (
+        {detail.dataset && detail.runs ? (
           <DatasetPanels
-            key={selected.id}
-            dataset={selected}
-            datasets={datasets ?? []}
+            key={detail.dataset.id}
+            dataset={detail.dataset}
+            runs={detail.runs}
             tab={tab}
             onTabChange={(t) => {
               const query = new URLSearchParams(window.location.search);
@@ -163,12 +166,10 @@ function Workspace() {
             onExport={() => setExporting(selected)}
             onRename={() => setRenaming(selected)}
             onDelete={() => setDeleting(selected)}
-            onChanged={load}
-            onOpenDataset={select}
+            onChanged={changed}
             actionsRef={taskActionsRef}
             comparisonActionsRef={comparisonActionsRef}
             needsProvider={settings?.provider === null}
-            originActionsRef={originActionsRef}
           />
         ) : (
           <>
@@ -178,7 +179,7 @@ function Workspace() {
                 <PaneHeader>
                   <span className="font-medium">Rows</span>
                 </PaneHeader>
-                {datasets === null ? (
+                {datasets === null || (selected && !detail.error) ? (
                   <Spinner className="m-3" />
                 ) : datasets.length === 0 ? (
                   <Empty className="flex-1">
@@ -220,7 +221,11 @@ function Workspace() {
                       </EmptyMedia>
                       <EmptyTitle>{selectedId ? "Dataset not found" : "Pick a dataset"}</EmptyTitle>
                       <EmptyDescription>
-                        Choose one on the left, or press <Keys keys={["⌘", "K"]} />.
+                        {detail.error ?? (
+                          <>
+                            Choose one on the left, or press <Keys keys={["⌘", "K"]} />.
+                          </>
+                        )}
                       </EmptyDescription>
                     </EmptyHeader>
                   </Empty>
@@ -260,7 +265,6 @@ function Workspace() {
         canEdit={canEdit}
         exportable={exportable}
         comparisonReady={comparisonReady}
-        originActionsRef={originActionsRef}
         taskActionsRef={taskActionsRef}
         comparisonActionsRef={comparisonActionsRef}
         onSelect={select}
@@ -285,7 +289,7 @@ function Workspace() {
         <ExportDataset
           key={exporting.id}
           dataset={exporting}
-          tableSql={tableSql(exporting)}
+          tableSql={exporting.id === detail.dataset?.id ? tableSql(detail.dataset) : null}
           open
           onOpenChange={(open) => !open && setExporting(undefined)}
         />
@@ -295,7 +299,7 @@ function Workspace() {
           key={renaming.id}
           dataset={renaming}
           onClose={() => setRenaming(undefined)}
-          onSaved={load}
+          onSaved={changed}
         />
       )}
       <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(undefined)}>
@@ -303,8 +307,8 @@ function Workspace() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes rowlab&apos;s copy of the data and its job. The original file is not
-              touched.
+              This removes rowlab&apos;s copy of the data, its answers, labels and runs. The
+              original file is not touched.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

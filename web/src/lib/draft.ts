@@ -5,8 +5,11 @@ import { useCallback, useState } from "react";
 import type { Task } from "@/lib/api/client";
 import type { View } from "@/lib/sql";
 
-/** What the next run of a dataset will be: which rows (the view) and what to ask (the tasks). */
-export type Draft = { view: View; tasks: Task[]; method?: "llm" | "manual" };
+/**
+ * What you are doing with a dataset: which rows (the view), what to ask models (the tasks), and
+ * whether you are asking models or labelling by hand (`mode`), in the label column `label`.
+ */
+export type Draft = { view: View; tasks: Task[]; mode?: "ask" | "label"; label?: Task };
 
 // Drafts live in this browser only: the server only ever sees runs.
 const key = (datasetId: string) => `rowlab.draft.${datasetId}`;
@@ -17,8 +20,7 @@ export function loadDraft(datasetId: string): Draft | undefined {
   return saved ? (JSON.parse(saved) as Draft) : undefined;
 }
 
-/** Save a dataset's draft, e.g. to start from a run's settings. */
-export function saveDraft(datasetId: string, draft: Draft): void {
+function saveDraft(datasetId: string, draft: Draft): void {
   localStorage.setItem(key(datasetId), JSON.stringify(draft));
 }
 

@@ -8,7 +8,7 @@ import { TooltipButton } from "@/components/tooltip-button";
 import type { Task } from "@/lib/api/client";
 import type { Row } from "@/lib/api/client";
 
-export function ManualAnswer({
+export function LabelAnswer({
   task,
   row,
   disabled,
@@ -117,7 +117,7 @@ export function ManualAnswer({
       )}
       <Textarea
         aria-label="Label value"
-        aria-describedby="manual-submit-hint"
+        aria-describedby="label-submit-hint"
         autoFocus
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !e.repeat) {
@@ -131,7 +131,7 @@ export function ManualAnswer({
         onChange={(e) => setText(e.target.value)}
       />
       {error && <p className="text-xs text-destructive">{error}</p>}
-      <p id="manual-submit-hint" className="text-xs text-muted-foreground">
+      <p id="label-submit-hint" className="text-xs text-muted-foreground">
         Enter to save & next · Shift+Enter for a new line
       </p>
       <TooltipButton

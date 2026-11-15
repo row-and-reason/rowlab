@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Row, type Run } from "@/lib/api/client";
+import { api, type Row, type Task } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
 
 type Answer = { row_id: number; value: unknown };
@@ -15,32 +15,29 @@ function positionSql(query: string, rowId: unknown) {
 }
 
 /**
- * Loads one row of a manual run at a time and saves its label. `busy` guards against overlapping
- * saves and finishes; `pending` holds an answer whose response was lost, so it can be retried as-is.
+ * Loads one row of the view at a time and saves its label in the label column `task.column`, with
+ * the task itself while the column is `isNew`. `busy` guards against overlapping saves; `pending`
+ * holds an answer whose response was lost, so it can be retried as-is.
  */
-export function useManualLabeling({
-  runId,
+export function useLabelling({
   datasetId,
+  task,
+  isNew,
   sql,
   position,
   onPosition,
   onChanged,
   canEdit,
-  finishOpen,
-  onFinishOpen,
 }: {
-  runId: string;
   datasetId: string;
+  task: Task;
+  isNew: boolean;
   sql: string;
   position: number;
   onPosition: (position: number) => void;
   onChanged: () => void;
   canEdit: boolean;
-  finishOpen: boolean;
-  onFinishOpen: (open: boolean) => void;
 }) {
-  const [run, setRun] = useState<Run>();
-  const [taskId, setTaskId] = useState<string>();
   const [item, setItem] = useState<{ row: Row; prompt: string; total: number }>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -52,28 +49,11 @@ export function useManualLabeling({
   // Bumped whenever another row is loaded, e.g. one picked in the table while a save or move is
   // under way: their late responses then no longer apply.
   const loads = useRef(0);
-  const task = run?.config.tasks.find((t) => t.id === taskId) ?? run?.config.tasks[0];
   const query = sql.trim().replace(/;\s*$/, "");
+  // The prompt shows the row; the rest of the task (options, fields) doesn't change what is loaded.
+  const template = task.template;
 
   useEffect(() => {
-    let current = true;
-    api
-      .GET("/v1/runs/{run_id}", { params: { path: { run_id: runId } } })
-      .then(({ data, error }) => {
-        if (!current) return;
-        if (data) setRun(data);
-        else setError(errorMessage(error));
-      })
-      .catch((e) => {
-        if (current) setError(errorMessage(e));
-      });
-    return () => {
-      current = false;
-    };
-  }, [runId]);
-
-  useEffect(() => {
-    if (!task) return;
     let current = true;
     loads.current += 1;
     async function load() {
@@ -96,7 +76,7 @@ export function useManualLabeling({
           throw new Error("Include __row_id in the query to label these rows.");
         const rendered = await api.POST("/v1/datasets/{dataset_id}/render", {
           params: { path: { dataset_id: datasetId } },
-          body: { template: task!.template, sql: rowSql(row.__row_id), offset: 0, limit: 1 },
+          body: { template, sql: rowSql(row.__row_id), offset: 0, limit: 1 },
         });
         if (!current) return;
         if (!rendered.data) throw new Error(errorMessage(rendered.error));
@@ -114,7 +94,7 @@ export function useManualLabeling({
     return () => {
       current = false;
     };
-  }, [datasetId, task, query, position, refresh]);
+  }, [datasetId, template, query, position, refresh]);
 
   const move = useCallback(
     async (direction: number, afterSave = false) => {
@@ -151,7 +131,7 @@ export function useManualLabeling({
   /** Saves `value` for the current row (null clears it), or resends `retry` exactly. */
   const save = useCallback(
     async (value: unknown, retry?: Answer) => {
-      if (!task || !item || busy.current || !canEdit || (pending && !retry)) return;
+      if (!item || busy.current || !canEdit || (pending && !retry)) return;
       const answer = retry ?? { row_id: Number(item.row.__row_id), value };
       const started = loads.current;
       busy.current = true;
@@ -159,16 +139,15 @@ export function useManualLabeling({
       setSaved(false);
       setError(undefined);
       try {
-        const result = await api.PUT("/v1/runs/{run_id}/tasks/{task_id}/answers", {
-          params: { path: { run_id: runId, task_id: task.id } },
-          body: { answers: [answer] },
+        const result = await api.PUT("/v1/datasets/{dataset_id}/labels/{column}", {
+          params: { path: { dataset_id: datasetId, column: task.column } },
+          body: { task: isNew ? task : undefined, labels: [answer] },
         });
         if (!result.data) {
           setPending(undefined);
           setError(errorMessage(result.error));
           return;
         }
-        setRun((current) => ({ ...result.data!, config: current?.config ?? result.data!.config }));
         setPending(undefined);
         onChanged();
         // Another row was picked meanwhile (or before a retry): the label is saved, that row stays.
@@ -193,37 +172,15 @@ export function useManualLabeling({
         setSaving(false);
       }
     },
-    [canEdit, datasetId, item, move, onChanged, pending, runId, task],
+    [canEdit, datasetId, isNew, item, move, onChanged, pending, task],
   );
 
-  async function finish() {
-    if (busy.current || pending) return;
-    busy.current = true;
-    setSaving(true);
-    setError(undefined);
-    try {
-      const result = await api.POST("/v1/runs/{run_id}/finish", {
-        params: { path: { run_id: runId } },
-      });
-      if (!result.data) throw new Error(errorMessage(result.error));
-      onFinishOpen(false);
-      onChanged();
-    } catch (e) {
-      setError(errorMessage(e));
-      onFinishOpen(false);
-    } finally {
-      busy.current = false;
-      setSaving(false);
-    }
-  }
-
-  const disabled = !canEdit || loading || saving || !!pending || finishOpen;
+  const disabled = !canEdit || loading || saving || !!pending;
   useEffect(() => {
     function key(e: KeyboardEvent) {
       if (
         disabled ||
         e.repeat ||
-        !task ||
         (e.target instanceof HTMLElement &&
           e.target.closest("input, textarea, [contenteditable=true], [role=combobox]")) ||
         e.metaKey ||
@@ -254,9 +211,6 @@ export function useManualLabeling({
   }, [disabled, save, task, move, item, position]);
 
   return {
-    run,
-    task,
-    setTaskId,
     item,
     loading,
     error,
@@ -266,6 +220,5 @@ export function useManualLabeling({
     disabled,
     move,
     save,
-    finish,
   };
 }
