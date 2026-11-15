@@ -23,18 +23,20 @@ export function PickList({
   groups,
   picked,
   onPick,
+  onSearch,
   placeholder,
   empty,
 }: {
   groups: PickGroup[];
   picked: string[];
   onPick: (value: string) => void;
+  onSearch?: (text: string) => void;
   placeholder: string;
   empty: string;
 }) {
   return (
     <Command className="rounded-none! bg-transparent p-0" filter={contains}>
-      <CommandInput placeholder={placeholder} />
+      <CommandInput placeholder={placeholder} onValueChange={onSearch} />
       <CommandList>
         <CommandEmpty>{empty}</CommandEmpty>
         {groups

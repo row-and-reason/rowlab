@@ -11,9 +11,10 @@ what cost". Answer it with the same rows asked of two or three models, compared.
 Take a sample of 50 to 200 rows in a stable order, `ORDER BY md5('s1' || __row_id) LIMIT 100`, or
 a filter for the rows that matter. Run the same task on it with each candidate model, in one run:
 each model's answers are a column of the dataset, on the same rows. Good candidates: the default for
-the answer type, a cheaper one, and a decision model when the task is Classify. rowlab offers a
-picked set of models, the recommended ones first, at OpenRouter's current prices. A model added
-later, on the same sample, compares just as well.
+the answer type, a cheaper one, and a decision model when the task is Classify. rowlab offers its own
+picked list of models first, the recommended ones at the top, at OpenRouter's current prices; search
+the picker for any other decision model, or LLM with structured outputs, in OpenRouter's catalog. A
+model added later, on the same sample, compares just as well.
 
 Labels you trust are a column too: one that came with the file (earlier annotations, an observed
 outcome), or [labels people set](/guides/labeling#labels-people-set), before or after the models

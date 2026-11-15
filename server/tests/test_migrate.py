@@ -63,7 +63,9 @@ def made(dataset_id, parent_id, name, run_id, status, tasks, day, *, sql=ALL, **
 def reply(row_id, review, task=NEGATIVE):
     """The reply the old run kept for a row, with the key a run asks it by."""
     prompt = Task.model_validate(task).template.replace("{{review}}", review)
-    request = model_providers.request("openrouter", "", Task.model_validate(task), JEV, prompt)
+    request = model_providers.request(
+        "openrouter", "", Task.model_validate(task), JEV, prompt, kind="decision"
+    )
     yes = 0.9 if review != "Love it" else 0.1
     return (
         row_id,

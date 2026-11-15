@@ -1,6 +1,7 @@
 "use client";
 
 import { InfoIcon, PlusIcon, XIcon } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -342,17 +343,25 @@ export function ModelPicker({
   onChange: (models: string[]) => void;
 }) {
   const models = useModels();
-  // Recommended first, then the rest by kind, each in the order the server lists them.
-  const offered = models.filter((m) => !llmOnly || m.kind === "llm");
-  const item = (m: Model) => ({ value: m.id, label: m.name, detail: price(m) });
+  const [search, setSearch] = useState("");
+  // rowlab's list: recommended first, then the rest by kind, each in the order the server lists
+  // them. The rest of OpenRouter's catalog shows only when searching.
+  const usable = models.filter((m) => !llmOnly || m.kind === "llm");
+  const listed = usable.filter((m) => m.listed);
+  const item = (m: Model) => ({
+    value: m.id,
+    label: m.listed ? m.name : `${m.name} · ${m.id}`,
+    detail: price(m),
+  });
   const groups: PickGroup[] = [
-    { label: "Recommended", items: offered.filter((m) => m.tags.includes(RECOMMENDED)).map(item) },
+    { label: "Recommended", items: listed.filter((m) => m.tags.includes(RECOMMENDED)).map(item) },
     ...KINDS.map((k) => ({
       label: k.label,
-      items: offered
+      items: listed
         .filter((m) => m.kind === k.kind && !m.tags.includes(RECOMMENDED))
         .map(item),
     })),
+    { label: "More on OpenRouter", items: search ? usable.filter((m) => !m.listed).map(item) : [] },
   ];
   // Models the catalog doesn't (or doesn't yet) know are still shown, by id, so they can be removed.
   const unknown = value.filter((id) => !models.some((m) => m.id === id));
@@ -366,11 +375,12 @@ export function ModelPicker({
         onPick={(id) =>
           onChange(value.includes(id) ? value.filter((m) => m !== id) : [...value, id])
         }
+        onSearch={setSearch}
         placeholder="Find a model…"
         empty="No matching models."
       />
       <p className="px-2 pb-1 text-xs text-muted-foreground">
-        Pick several to compare them. Prices are per 1M tokens.
+        Pick several to compare them. Search to find any other model on OpenRouter. Prices are per 1M tokens.
         {!llmOnly &&
           " Decision models are fast and cheap; language models cost more and are slower, but can reason through harder questions."}
       </p>

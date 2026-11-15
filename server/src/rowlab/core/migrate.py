@@ -1,5 +1,5 @@
 """`rowlab migrate`: fold the old layout, where a run made a new dataset in a tree, into one dataset
-per file, in place. Run once, with runners stopped; a follow-up deletes this module with migration 008.
+per file, in place. Run once, with runners stopped; a follow-up deletes this module with migration 009.
 
 For each tree, the root keeps its id, name and `data.parquet`. Each dataset made from it gives its own
 columns (those its parent doesn't have) to the root: a model run's as `runs/{run}.parquet` with its

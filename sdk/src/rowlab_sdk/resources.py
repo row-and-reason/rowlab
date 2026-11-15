@@ -241,6 +241,8 @@ class ModelsResource:
     def __init__(self, client: Client):
         self._client = client
 
-    def list(self) -> list[Model]:
-        """The decision models and LLMs a task can use, recommended first, with their prices."""
-        return self._client._request("GET", "v1/utils/models", list[Model])
+    def list(self, *, all: bool = False) -> list[Model]:
+        """Decision models and LLMs, with their prices: rowlab's list, recommended first; with `all`,
+        the rest of OpenRouter's catalog after it. Any of them can be asked, by id."""
+        params = {"all": "true"} if all else None
+        return self._client._request("GET", "v1/utils/models", list[Model], params=params)
