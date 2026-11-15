@@ -7,7 +7,7 @@ Everywhere rowlab takes rows, it takes a DuckDB `SELECT` over one table, `data`,
 The same query views rows, selects the rows a run asks about, and chooses what to export.
 
 ```sql
-SELECT * FROM data WHERE stars <= 2 AND length(review) > 40 ORDER BY random() LIMIT 200
+SELECT * FROM data WHERE stars <= 2 AND length(review) > 40 ORDER BY md5('s1' || __row_id) LIMIT 200
 ```
 
 The query runs read-only, in a connection that can see nothing but `data`. For a run or an export it
@@ -17,13 +17,14 @@ and nowhere else.
 
 ## Useful patterns
 
-- **A sample with the hard cases**: `ORDER BY random() LIMIT 100`, or a filter for the rows that
-  matter, rather than the first rows of the file.
+- **A sample**: `ORDER BY md5('s1' || __row_id) LIMIT 100`, rather than the first rows of the file.
+  The order stays the same, so a run on it again asks nothing new, and a bigger sample keeps the
+  smaller one. Another seed (`'s2'`) gives other rows. Add a filter for the hard cases.
 - **A cascade**: run an expensive question only on rows a cheap one selected:
   `WHERE "delivery__jev-1.14" = true`.
-- **Rows without an answer**: `WHERE "delivery__jev-1.14" IS NULL`. On a running run, those are rows
-  not reached yet; on a finished one, rows the run's query didn't pick, rows whose call failed, and,
-  for Extract, rows where the text didn't say.
+- **Rows without an answer**: `WHERE "delivery__jev-1.14" IS NULL`: rows no run has asked yet (or a
+  running run hasn't reached), rows whose call failed, and, for Extract, rows where the text didn't
+  say.
 
 Column names with dots or dashes need double quotes: `"team__jev-1.14"`.
 

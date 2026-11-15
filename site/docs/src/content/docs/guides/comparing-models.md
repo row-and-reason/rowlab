@@ -8,19 +8,26 @@ what cost". Answer it with the same rows asked of two or three models, compared.
 
 ## Set up the comparison
 
-Take a sample of 50 to 200 rows that includes the hard cases: `ORDER BY random()` with a `LIMIT`, or
-a filter for the rows that matter. Run the same task on it with each candidate model, in one run, so
-the result is one dataset with a column per model. Good candidates: the default for the answer type, a
-cheaper one, and a decision model when the task is Classify. rowlab offers a picked set of models, the
-recommended ones first, at OpenRouter's current prices.
+Take a sample of 50 to 200 rows in a stable order, `ORDER BY md5('s1' || __row_id) LIMIT 100`, or
+a filter for the rows that matter. Run the same task on it with each candidate model, in one run:
+each model's answers are a column of the dataset, on the same rows. Good candidates: the default for
+the answer type, a cheaper one, and a decision model when the task is Classify. rowlab offers a
+picked set of models, the recommended ones first, at OpenRouter's current prices. A model added
+later, on the same sample, compares just as well.
 
-When you have labels you trust (earlier annotations, a human-checked column, an observed outcome),
-have them as a column of the dataset: join them to the data before adding it to rowlab.
+Labels you trust are a column too: one that came with the file (earlier annotations, an observed
+outcome), or [labels people set](/guides/labeling#labels-people-set), before or after the models
+run, on the sampled rows.
 
 ## Read the comparison
 
 _Compare columns_ on the dataset shows agreement between the models' columns, and accuracy against a
-reference column when there is one. Agreement rates are the summary; the disagreements are the
+reference column when there is one. It first says on which rows: answer columns are often sparse, so
+by default every number is measured on the rows where all the compared columns have a value, and the
+coverage says how many rows each column has a value in and how many of those were left out ("67 of
+2,414 rows have a reference"). Read it before the numbers: a comparison on 12 rows says little,
+whatever its rates. `rows="pairwise"` measures each pair on its own rows instead, which uses more of
+them but compares models on different rows. Agreement rates are the summary; the disagreements are the
 finding. Every count comes with a `WHERE` clause: query those rows and read them. Disagreements split
 into rows where the prompt is ambiguous (fix the prompt, and the models will agree), rows where one
 model is wrong (count which), and rows where the reference is wrong (references are often older than
@@ -37,8 +44,8 @@ differ. The columns, reference, rules and selected pair are kept in the URL, so 
 shared.
 
 Without a reference, agreement is not accuracy: two models can agree on a wrong answer. When the
-stakes warrant it, [label](/guides/labeling#label-by-hand) 30 to 50 of the sampled rows by hand and
-use that as the reference.
+stakes warrant it, [label](/guides/labeling#labels-people-set) 30 to 50 of the sampled rows by hand
+and use that as the reference.
 
 ## Agreement beyond chance
 
@@ -46,8 +53,8 @@ Raw agreement flatters easy questions: two models that answer "no" to almost eve
 almost every row, whatever they read. So each pair also gets **Cohen's κ**, and the comparison as a
 whole **Krippendorff's α**: 1 is full agreement, 0 is what chance would give, below 0 is worse than
 chance. κ is for two columns of labels, over the rows where both have one. α takes any number of
-columns, the reference included, and skips the rows with fewer than two answers, so it uses what
-partly answered rows there are. Both are empty when every answer is the same, as nothing can then be
+columns, the reference included; with `rows="pairwise"` it skips the rows with fewer than two
+answers, so it uses what partly answered rows there are. Both are empty when every answer is the same, as nothing can then be
 told from chance.
 
 α weighs a difference by what the values are (`alpha_level`): numbers and dates by how far apart
@@ -70,15 +77,15 @@ probability and being right, 0 is perfect), the **expected calibration error** (
 probability is from the accuracy, over ten bins of the probability), and **AUROC** (how well the
 probability tells right answers from wrong ones: 1 always ranks the right ones higher, 0.5 is
 chance). Each bin has its rows' accuracy and a `WHERE` clause, so a threshold can be checked and
-used: the rows below 0.8, say, go to a second model or to labelling by hand.
+used: the rows below 0.8, say, go to a second model or to people to label.
 
 ## Cost
 
-Each column a model wrote in a run comes with what it cost (`costs`): the run's spend on that task
-and model, and per 1,000 answered rows. Cached answers were free, so a model asked again on rows it
+Each column a model wrote comes with what it cost (`costs`): the runs' spend on that task and model,
+and per 1,000 answered rows. Cached answers were free, so a model asked again on rows it
 already answered looks cheaper than it is. Against a reference, a column also gets the cost per
-correct answer, the cost of an answer over its accuracy. Columns uploaded with the data or labelled
-by hand have no cost.
+correct answer, the cost of an answer over its accuracy. Columns uploaded with the data or labels people
+set have no cost.
 
 ## Matching rules
 
