@@ -17,7 +17,6 @@ URL = "http://localhost"
 REVIEWS = pl.DataFrame(
     {
         "review": ["Terrible product", "Love it", "Broke after a day"],
-        "manual_answer": [True, False, False],
     }
 )
 NEGATIVE = Task(template="Is this review negative? {{review}}", type="yes_no", column="negative")
@@ -52,22 +51,36 @@ def drain():
 def test_a_labelling_run_from_upload_to_comparison(rl, api_key, tmp_path):
     ds = rl.datasets.upload(REVIEWS, name="reviews")
     assert ds.name == "reviews"
-    assert {"review", "manual_answer"} <= {c.name for c in ds.columns}
+    assert "review" in {c.name for c in ds.columns}
+    assert [d.id for d in rl.datasets.list()] == [ds.id]
     assert "typesafe/jev-1.14" in {m.id for m in rl.models.list()}
 
+    sample = rl.runs.create(ds.id, NEGATIVE, sql="SELECT * FROM data WHERE __row_id < 2")
+    drain()
+    run = rl.runs.wait(sample.id, interval=0)
+    assert (run.status, run.dataset_id, run.columns) == ("done", ds.id, ["negative__jev-1.14"])
+    assert rl.datasets.export(ds.id)["negative__jev-1.14"].to_list() == [True, False, None]
+
+    # All rows: only the one the sample didn't answer is asked.
     estimate = rl.runs.estimate(ds.id, NEGATIVE)
-    assert (estimate.rows, estimate.problem) == (3, None)
+    assert (estimate.rows, estimate.answered, estimate.calls, estimate.problem) == (3, 2, 1, None)
     created = rl.runs.create(ds.id, NEGATIVE)
+    assert created.row_count == 1
     drain()
     run = rl.runs.wait(created.id, interval=0)
-    assert (run.status, run.columns) == ("done", ["negative__jev-1.14"])
+    assert [r.id for r in rl.runs.list(ds.id)] == [run.id, sample.id]
 
-    out = rl.datasets.export(run.dataset_id)
+    out = rl.datasets.export(ds.id)
     assert out["negative__jev-1.14"].to_list() == [True, False, True]
-    path = rl.datasets.export(run.dataset_id, format="csv", path=tmp_path / "out.csv")
+    path = rl.datasets.export(ds.id, format="csv", path=tmp_path / "out.csv")
     assert pl.read_csv(path)["review"].to_list() == REVIEWS["review"].to_list()
 
-    comparison = rl.datasets.compare(run.dataset_id, run.columns, reference="manual_answer")
+    gold = rl.datasets.set_labels(ds.id, "gold", {0: True, 1: False, 2: False}, task=NEGATIVE)
+    assert (gold.name, gold.model, gold.answered) == ("gold", None, 3)
+    answers = {(a.name, a.model): a.answered for a in rl.datasets.get(ds.id).answers}
+    assert answers == {("negative", "typesafe/jev-1.14"): 3, ("gold", None): 3}
+
+    comparison = rl.datasets.compare(ds.id, run.columns, reference="gold")
     [accuracy] = comparison.reference
     assert (accuracy.column, accuracy.correct, accuracy.compared) == ("negative__jev-1.14", 2, 3)
 
@@ -81,9 +94,20 @@ def test_a_labelling_run_from_upload_to_comparison(rl, api_key, tmp_path):
     assert (round(calibration.brier, 3), round(calibration.ece, 3)) == (0.277, 0.233)
     assert calibration.bins
     [cost] = comparison.costs
-    assert (cost.column, cost.run_id, cost.model) == (run.columns[0], run.id, "typesafe/jev-1.14")
+    assert (cost.column, cost.model) == (run.columns[0], "typesafe/jev-1.14")
     assert (round(cost.usd, 4), cost.answered) == (0.003, 3)
     assert round(accuracy.usd_per_correct, 4) == 0.0015
+
+
+def test_compare_uses_the_rows_every_column_has_unless_pairwise(rl, api_key):
+    ds = rl.datasets.upload(REVIEWS)
+    rl.runs.create(ds.id, NEGATIVE)
+    drain()
+    rl.datasets.set_labels(ds.id, "gold", {0: True, 1: False}, task=NEGATIVE)
+    common = rl.datasets.compare(ds.id, ["negative__jev-1.14"], reference="gold")
+    assert (common.scope_rows, common.rows) == (3, 2)
+    pairwise = rl.datasets.compare(ds.id, ["negative__jev-1.14"], reference="gold", rows="pairwise")
+    assert (pairwise.scope_rows, pairwise.rows) == (3, 3)
 
 
 def test_a_task_gets_the_servers_defaults_for_its_type(rl, client, api_key):
@@ -94,19 +118,19 @@ def test_a_task_gets_the_servers_defaults_for_its_type(rl, client, api_key):
     assert (task.column, task.models) == (write["column"], [write["model"]])
 
 
-def test_wait_returns_runs_that_stopped_and_times_out_on_the_rest(rl, api_key):
+def test_wait_returns_runs_that_ended_and_times_out_on_the_rest(rl, api_key):
     ds = rl.datasets.upload(REVIEWS)
-    manual = rl.runs.create(ds.id, NEGATIVE, method="manual")
-    assert rl.runs.wait(manual.id).status == "manual"
-
     queued = rl.runs.create(ds.id, NEGATIVE)
     with pytest.raises(TimeoutError):
         rl.runs.wait(queued.id, timeout=0)
-    assert rl.runs.stop(queued.id).status == "stopped"
-    assert rl.runs.resume(queued.id).status == "queued"
     rl.runs.stop(queued.id)
+    assert rl.runs.wait(queued.id).status == "stopped"
+    # Starting it again asks for what it didn't get to.
+    again = rl.runs.create(ds.id, NEGATIVE)
+    assert (again.status, again.row_count) == ("queued", 3)
+    rl.runs.stop(again.id)
 
-    broke = rl.runs.create(ds.id, Task(template="no credits", column="negative"))
+    broke = rl.runs.create(ds.id, Task(template="no credits", column="broke"))
     with pytest.raises(runs.KeyProblem):
         runs.process_next()
     failed = rl.runs.wait(broke.id)
@@ -135,26 +159,46 @@ def test_wait_polls_until_its_timeout_and_no_longer(rl, api_key, monkeypatch):
     assert slept == [1]
 
 
-def test_manual_labels_are_saved_cleared_and_frozen(rl):
+def test_labels_are_set_changed_cleared_and_deleted(rl, api_key):
     ds = rl.datasets.upload(REVIEWS)
-    run = rl.runs.create(ds.id, NEGATIVE, method="manual")
-    task_id = run.config.tasks[0].id
-    rl.runs.save_answers(run.id, task_id, {0: True, 1: False})
-    rl.runs.save_answers(run.id, task_id, {1: None})
-    assert rl.runs.save_answers(run.id, task_id, {}).id == run.id
-    assert rl.runs.finish(run.id).status == "done"
-    assert rl.datasets.export(run.dataset_id)["negative"].to_list() == [True, None, None]
+    with pytest.raises(ApiError):  # The first labels in a column need their task.
+        rl.datasets.set_labels(ds.id, "gold", {0: True})
+    rl.datasets.set_labels(ds.id, "gold", {0: True, 1: False, 2: True}, task=NEGATIVE)
+    gold = rl.datasets.set_labels(ds.id, "gold", {1: True, 2: None})
+    assert gold.answered == 2
+    assert rl.datasets.export(ds.id)["gold"].to_list() == [True, True, None]
+    with pytest.raises(ApiError):  # Saved whole or not at all.
+        rl.datasets.set_labels(ds.id, "gold", {0: False, 2: "maybe"})
+    with pytest.raises(ValueError):
+        rl.datasets.set_labels(ds.id, "gold", {})
+    assert rl.datasets.export(ds.id)["gold"].to_list() == [True, True, None]
+
+    rl.datasets.delete_answers(ds.id, "gold")
+    assert rl.datasets.get(ds.id).answers == []
     with pytest.raises(ApiError):
-        rl.runs.save_answers(run.id, task_id, {2: True})
+        rl.datasets.delete_answers(ds.id, "gold")
 
 
-def test_saving_more_answers_than_one_request_takes(rl):
+def test_deleting_a_models_answers_keeps_its_replies(rl, api_key):
+    ds = rl.datasets.upload(REVIEWS)
+    rl.runs.create(ds.id, NEGATIVE)
+    drain()
+    rl.datasets.delete_answers(ds.id, "negative", model="typesafe/jev-1.14")
+    assert rl.datasets.get(ds.id).answers == []
+    rl.runs.create(ds.id, NEGATIVE)
+    drain()
+    [answers] = rl.datasets.get(ds.id).answers
+    assert (answers.answered, answers.cost) == (3, 0)  # From the kept replies, for free.
+
+
+def test_setting_more_labels_than_one_request_takes(rl):
     many = pl.DataFrame({"review": [f"Review {i}" for i in range(2500)]})
     ds = rl.datasets.upload(many, name="many")
-    run = rl.runs.create(ds.id, NEGATIVE, method="manual")
-    rl.runs.save_answers(run.id, run.config.tasks[0].id, {i: i % 2 == 0 for i in range(2500)})
-    rl.runs.finish(run.id)
-    labels = rl.datasets.export(run.dataset_id, include_row_id=True).sort("__row_id")["negative"]
+    gold = rl.datasets.set_labels(
+        ds.id, "gold", {i: i % 2 == 0 for i in range(2500)}, task=NEGATIVE
+    )
+    assert gold.answered == 2500
+    labels = rl.datasets.export(ds.id, include_row_id=True).sort("__row_id")["gold"]
     assert labels.to_list() == [i % 2 == 0 for i in range(2500)]
 
 
