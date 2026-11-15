@@ -131,6 +131,13 @@ def _request(method: str, url: str, *, api_key: str | None, body: Any = None) ->
         response = _client.request(method, url, headers=headers, json=body)
     except httpx.HTTPError as e:
         raise ProviderError(f"Could not reach {httpx.URL(url).host}: {e}") from e
+    if response.is_redirect:
+        # Not followed: a call goes only where its base URL was checked to point.
+        raise ProviderError(
+            f"HTTP {response.status_code}: redirected to {response.headers.get('location')}."
+            " Use that address as the base URL.",
+            status=response.status_code,
+        )
     if response.is_error:
         try:
             message = response.json()["error"]["message"]
@@ -142,4 +149,10 @@ def _request(method: str, url: str, *, api_key: str | None, body: Any = None) ->
             status=response.status_code,
             retry_after=float(retry_after) if retry_after and retry_after.isdigit() else None,
         )
-    return response.json()
+    try:
+        return response.json()
+    except ValueError:
+        raise ProviderError(
+            f"HTTP {response.status_code}: the reply wasn't JSON. Is the base URL the API's?",
+            status=response.status_code,
+        ) from None

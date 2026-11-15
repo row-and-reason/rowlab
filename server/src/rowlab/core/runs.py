@@ -354,6 +354,9 @@ def resume_run(run_id: str) -> Run:
     failed = any(c.failed for c in run.costs)
     if run.status not in ("stopped", "failed") and not (run.status == "done" and failed):
         raise InvalidRequest(f"The run is {run.status}, with nothing to resume.")
+    if run.config.method == "llm":
+        # One that can't go on (its provider deleted, say) is left as it is.
+        model_providers.for_run(datasets.org_of(run.dataset_id), run.provider_id)
     if run.status == "done":
         datasets.reopen_run_dataset(run.dataset_id)
     _set(
@@ -705,6 +708,9 @@ def _ask(
             output_tokens=response.output_tokens,
         )
         data = response.data
+        if data is None:
+            answer.error = "The model's reply couldn't be read."
+            return answer, None
     try:
         if catalog.kind(model) == "decision":
             answer.values = tasks.read_decision(task, data)

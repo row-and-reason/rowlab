@@ -21,6 +21,10 @@ from rowlab.core.config import config
 from rowlab.core.errors import InvalidRequest
 
 
+class Unresolved(InvalidRequest):
+    """The host's name couldn't be looked up, which may pass."""
+
+
 def check_url(url: str, trusted: frozenset[str] = frozenset()) -> None:
     """Raise InvalidRequest unless the URL is http(s) to a public address, to one of the `trusted`
     hostnames (matched exactly), or private addresses are allowed."""
@@ -33,7 +37,7 @@ def check_url(url: str, trusted: frozenset[str] = frozenset()) -> None:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         found = socket.getaddrinfo(parsed.hostname, port, proto=socket.IPPROTO_TCP)
     except (OSError, ValueError) as e:
-        raise InvalidRequest(f"Could not reach {url}: {describe(e, parsed.hostname)}.") from e
+        raise Unresolved(f"Could not reach {url}: {describe(e, parsed.hostname)}.") from e
     for *_, address in found:
         ip = ipaddress.ip_address(address[0].split("%")[0])
         if ip.version == 6 and ip.ipv4_mapped:

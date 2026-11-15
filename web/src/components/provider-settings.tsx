@@ -314,6 +314,7 @@ function ProviderDialog({
               <Select
                 items={TYPES}
                 value={form.type}
+                disabled={!!provider}
                 onValueChange={(type) =>
                   type &&
                   setForm({
@@ -360,6 +361,9 @@ function ProviderDialog({
                 value={form.base_url}
                 onChange={set("base_url")}
               />
+              {provider && (
+                <FieldDescription>To change it, enter the API key again.</FieldDescription>
+              )}
             </Field>
             {form.type === "litellm" && (
               <Field>
