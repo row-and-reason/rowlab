@@ -167,7 +167,7 @@ function Workspace() {
             onOpenDataset={select}
             actionsRef={taskActionsRef}
             comparisonActionsRef={comparisonActionsRef}
-            needsKey={settings?.openrouter_key === null}
+            needsProvider={settings?.provider === null}
             originActionsRef={originActionsRef}
           />
         ) : (

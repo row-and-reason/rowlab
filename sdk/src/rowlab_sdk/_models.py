@@ -403,10 +403,6 @@ class NewApiKey(BaseModel):
     ]
 
 
-class OpenRouterKey(BaseModel):
-    key: Annotated[str, Field(title='Key')]
-
-
 class Option(BaseModel):
     name: Annotated[str, Field(title='Name')]
     description: Annotated[str | None, Field(title='Description')] = ''
@@ -422,6 +418,45 @@ class Preset(BaseModel):
     label: Annotated[str, Field(title='Label')]
     column: Annotated[str, Field(title='Column')]
     template: Annotated[str, Field(title='Template')]
+
+
+class Provider(BaseModel):
+    id: Annotated[str, Field(title='Id')]
+    name: Annotated[str, Field(title='Name')]
+    type: Annotated[Literal['openrouter', 'litellm'], Field(title='Type')]
+    base_url: Annotated[str, Field(title='Base Url')]
+    model_prefix: Annotated[str, Field(title='Model Prefix')]
+    active: Annotated[bool, Field(description='Whether new runs use it.', title='Active')]
+    created_at: Annotated[AwareDatetime, Field(title='Created At')]
+
+
+class ProviderInput(BaseModel):
+    name: Annotated[
+        str | None,
+        Field(description="Defaults to the type's name, e.g. `OpenRouter`.", title='Name'),
+    ] = ''
+    type: Annotated[Literal['openrouter', 'litellm'], Field(title='Type')]
+    base_url: Annotated[
+        str | None,
+        Field(
+            description="Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`. For LiteLLM, the gateway's address, e.g. `https://litellm.example.com`.",
+            title='Base Url',
+        ),
+    ] = ''
+    model_prefix: Annotated[
+        str | None,
+        Field(
+            description="Put before rowlab's model ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.",
+            title='Model Prefix',
+        ),
+    ] = ''
+    api_key: Annotated[
+        str | None,
+        Field(
+            description='Required for a new provider; leave out to keep the saved one.',
+            title='Api Key',
+        ),
+    ] = None
 
 
 class QueryRequest(BaseModel):
@@ -495,11 +530,11 @@ class Rows(BaseModel):
 
 
 class Settings(BaseModel):
-    openrouter_key: Annotated[
-        Literal['environment', 'saved'] | None,
+    provider: Annotated[
+        Literal['server', 'organisation'] | None,
         Field(
-            description='Where the OpenRouter API key comes from, if set. The key is never returned.',
-            title='Openrouter Key',
+            description="Where model calls go: the server's own key (`OPENROUTER_API_KEY`), the organisation's active provider, or nowhere yet.",
+            title='Provider',
         ),
     ]
     mode: Annotated[
@@ -1143,6 +1178,13 @@ class Run(BaseModel):
     error: Annotated[str | None, Field(description='Why the run failed.', title='Error')]
     created_by: Annotated[
         str | None, Field(description='The user who started it; empty locally.', title='Created By')
+    ]
+    provider_id: Annotated[
+        str | None,
+        Field(
+            description="The model provider its calls go to, kept from when it started. Empty on the server's key, and for manual runs.",
+            title='Provider Id',
+        ),
     ]
     created_at: Annotated[AwareDatetime, Field(title='Created At')]
     updated_at: Annotated[AwareDatetime | None, Field(title='Updated At')]

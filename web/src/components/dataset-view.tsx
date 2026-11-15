@@ -77,7 +77,7 @@ export function DatasetPanels({
   onOpenDataset,
   actionsRef,
   comparisonActionsRef,
-  needsKey,
+  needsProvider,
   originActionsRef,
 }: {
   dataset: Dataset;
@@ -91,7 +91,7 @@ export function DatasetPanels({
   onOpenDataset: (datasetId: string) => void;
   actionsRef: React.RefObject<TaskActions | null>;
   comparisonActionsRef: React.RefObject<ComparisonActions | null>;
-  needsKey: boolean;
+  needsProvider: boolean;
   originActionsRef: React.RefObject<OriginActions | null>;
 }) {
   const { draft, update } = useDraft(dataset.id, () => ({
@@ -422,7 +422,7 @@ export function DatasetPanels({
                 onAddTask={addTask}
                 runError={runError}
                 problem={problem}
-                needsKey={method === "llm" && needsKey}
+                needsProvider={method === "llm" && needsProvider}
                 manual={method === "manual"}
               />
             </div>

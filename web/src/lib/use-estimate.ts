@@ -14,7 +14,7 @@ export function useEstimate(
   method: "llm" | "manual",
 ): { estimate?: Estimate; problem?: string } {
   // What the API says the run would cost, and why it can't start, if it can't: its own answer, or
-  // the request's error (e.g. OpenRouter can't be reached).
+  // the request's error (e.g. rowlab can't be reached).
   const [estimate, setEstimate] = useState<{ estimate?: Estimate; problem?: string }>();
   const key = JSON.stringify([sql, tasks, method]);
   useEffect(() => {

@@ -1,17 +1,13 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from rowlab.api.auth import CanAdmin, CanRead
+from rowlab.api.auth import CanRead
 from rowlab.core import auth, settings, usage
 from rowlab.core.auth import ApiKey, NewApiKey
 from rowlab.core.settings import Settings
 from rowlab.core.usage import Usage
 
 router = APIRouter(prefix="/v1/settings", tags=["settings"])
-
-
-class OpenRouterKey(BaseModel):
-    key: str
 
 
 class ApiKeyRequest(BaseModel):
@@ -21,12 +17,6 @@ class ApiKeyRequest(BaseModel):
 @router.get("", operation_id="getSettings")
 def get_settings(me: CanRead) -> Settings:
     return settings.get_settings(me.org.id)
-
-
-@router.put("/openrouter-key", operation_id="saveOpenRouterKey")
-def save_openrouter_key(body: OpenRouterKey, me: CanAdmin) -> Settings:
-    """Check the key with OpenRouter and save it for the organisation."""
-    return settings.save_openrouter_key(me.org.id, body.key)
 
 
 @router.get("/api-keys", operation_id="listApiKeys")

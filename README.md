@@ -16,8 +16,8 @@ Open source (Apache-2.0). Runs on your laptop, on your own servers, or hosted at
 uvx rowlab
 ```
 
-Open [localhost:8000](http://localhost:8000), paste an [OpenRouter](https://openrouter.ai) key in
-Settings (or set `OPENROUTER_API_KEY`), add a file, and ask it something. State lives in
+Open [localhost:8000](http://localhost:8000), add an [OpenRouter](https://openrouter.ai) key (or a
+LiteLLM gateway) in Settings → Providers, or set `OPENROUTER_API_KEY`, add a file, and ask it something. State lives in
 `~/.rowlab`.
 
 Or with Docker: `docker compose up` in this repository runs it with Postgres and S3 storage, the way

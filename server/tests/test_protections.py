@@ -3,7 +3,7 @@ from urllib.request import Request
 import duckdb
 import pytest
 
-from rowlab.core import connections, crypto, db, network, settings, storage
+from rowlab.core import connections, crypto, db, model_providers, network, storage
 from rowlab.core.config import config
 from rowlab.core.connections import ConnectionInput
 from rowlab.core.errors import InvalidRequest
@@ -104,8 +104,8 @@ def test_hosted_s3_endpoints_must_be_public(hosted):
     assert "private address" in response.json()["detail"]
 
 
-def test_hosted_s3_endpoints_on_private_s3_hosts_are_allowed(hosted, monkeypatch):
-    configure(monkeypatch, ROWLAB_PRIVATE_S3_HOSTS="NAS.local., other.local")
+def test_hosted_s3_endpoints_on_private_hosts_are_allowed(hosted, monkeypatch):
+    configure(monkeypatch, ROWLAB_PRIVATE_HOSTS="NAS.local., other.local")
     client = hosted("ada@example.com")
     # Every host in this test resolves to the NAS; everything else (Postgres, MinIO) as before.
     real = network.socket.getaddrinfo
@@ -130,10 +130,10 @@ def test_hosted_s3_endpoints_on_private_s3_hosts_are_allowed(hosted, monkeypatch
         secret = con.execute("SELECT secret_string FROM duckdb_secrets()").fetchone()[0]
     assert "url_style=path" in secret
     # Taken off the list, the saved connection no longer reaches it.
-    configure(monkeypatch, ROWLAB_PRIVATE_S3_HOSTS="")
+    configure(monkeypatch, ROWLAB_PRIVATE_HOSTS="")
     with duckdb.connect() as con, pytest.raises(InvalidRequest, match="private address"):
         connections.configure(con, org_id, created.json()["id"])
-    configure(monkeypatch, ROWLAB_PRIVATE_S3_HOSTS="nas.local")
+    configure(monkeypatch, ROWLAB_PRIVATE_HOSTS="nas.local")
     # Exactly the names listed: not subdomains, nor other names for the same address.
     for endpoint in (
         "https://s3.nas.local",
@@ -143,9 +143,36 @@ def test_hosted_s3_endpoints_on_private_s3_hosts_are_allowed(hosted, monkeypatch
         response = add(endpoint)
         assert response.status_code == 400
         assert "private address" in response.json()["detail"]
-    # Only for S3: web sources still can't reach them.
+    # Only for S3 and model providers: web sources still can't reach them.
     response = client.post("/v1/datasets", data={"source": "https://nas.local/data.csv"})
     assert "private address" in response.json()["detail"]
+
+
+def test_hosted_model_providers_reach_private_hosts_only_when_named(hosted, fake, monkeypatch):
+    client = hosted("ada@example.com")
+    real = network.socket.getaddrinfo
+
+    def resolve(host, *args, **kwargs):
+        if host.endswith(".local"):
+            return [(0, 0, 0, "", ("192.168.40.42", 4000))]
+        return real(host, *args, **kwargs)
+
+    monkeypatch.setattr(network.socket, "getaddrinfo", resolve)
+    gateway = {"type": "litellm", "base_url": "http://litellm.local:4000", "api_key": "sk-good"}
+    for base_url in ("http://litellm.local:4000", "http://localhost:4000", "http://10.0.0.1"):
+        response = client.post("/v1/settings/providers", json={**gateway, "base_url": base_url})
+        assert response.status_code == 400
+        assert "private address" in response.json()["detail"]
+    assert not fake.calls  # Refused before the key is sent anywhere.
+
+    configure(monkeypatch, ROWLAB_PRIVATE_HOSTS="litellm.local")
+    created = client.post("/v1/settings/providers", json=gateway)
+    assert created.status_code == 201
+    # Taken off the list, its runs no longer reach it.
+    configure(monkeypatch, ROWLAB_PRIVATE_HOSTS="")
+    org_id = client.get("/v1/me").json()["org"]["id"]
+    with pytest.raises(InvalidRequest, match="private address"):
+        model_providers.for_run(org_id, created.json()["id"])
 
 
 def test_hosted_the_servers_own_aws_credentials_go_unused(hosted):
@@ -162,16 +189,17 @@ def test_the_bucket_datasets_are_kept_in_is_off_limits(monkeypatch):
 
 
 def test_hosted_saved_keys_are_encrypted(hosted, monkeypatch):
-    monkeypatch.setattr(openrouter, "check_key", lambda key: None)
+    monkeypatch.setattr(openrouter, "check_key", lambda base_url, key: None)
     client = hosted("ada@example.com")
     org_id = client.get("/v1/me").json()["org"]["id"]
-    assert client.put("/v1/settings/openrouter-key", json={"key": "sk-or-1"}).status_code == 200
+    provider = {"type": "openrouter", "api_key": "sk-or-1"}
+    assert client.post("/v1/settings/providers", json=provider).status_code == 201
     connection = connections.create_connection(
         org_id, ConnectionInput(name="Lake", access_key_id="id", secret_access_key="s3-secret")
     )
     with db.connect() as conn:
         stored = [
-            conn.execute("SELECT value FROM settings").fetchone()["value"],
+            conn.execute("SELECT api_key FROM providers").fetchone()["api_key"],
             conn.execute("SELECT secret_access_key FROM connections").fetchone()[
                 "secret_access_key"
             ],
@@ -179,7 +207,7 @@ def test_hosted_saved_keys_are_encrypted(hosted, monkeypatch):
     assert all(value.startswith("enc:") for value in stored)
     assert "sk-or-1" not in stored[0] and "s3-secret" not in stored[1]
     # Read back as they were.
-    assert settings.openrouter_key(org_id) == "sk-or-1"
+    assert model_providers.for_run(org_id, None).api_key == "sk-or-1"
     assert crypto.decrypt(stored[1]) == "s3-secret"
     with duckdb.connect() as con:
         connections.configure(con, org_id, connection.id)

@@ -1,4 +1,4 @@
-"""Saved keys (OpenRouter, S3) encrypted at rest with `ROWLAB_SECRET_KEY`, when it is set, and
+"""Saved keys (model providers, S3) encrypted at rest with `ROWLAB_SECRET_KEY`, when it is set, and
 sealed tokens for links (see `links`).
 
 Encrypted values are stored as `enc:<token>`; anything else is a key saved before there was a secret

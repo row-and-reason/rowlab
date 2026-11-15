@@ -12,7 +12,7 @@ it.
 On Row & Reason's own servers. A dataset's rows are kept as Parquet files in object storage, a copy
 of the file or source you added; your original is never changed. Everything else is in a Postgres
 database: your organisation and its members, the datasets' names and columns, runs with their
-prompts, the model replies, how much each run used, and saved OpenRouter keys and S3 credentials,
+prompts, the model replies, how much each run used, and saved model provider keys and S3 credentials,
 which are encrypted.
 
 Each organisation's data is its own. Nobody in another organisation sees it, and a model reply is
@@ -35,9 +35,10 @@ To delete your organisation or account and everything in it, email
 
 ## Who else sees it
 
-- **OpenRouter and the model you pick** get, for each row a run asks about, the prompt with that
-  row's columns, sent with your OpenRouter key. What they keep is set by
-  [OpenRouter's terms](https://openrouter.ai/terms) and your account's privacy settings there.
+- **Your model provider and the model you pick** get, for each row a run asks about, the prompt
+  with that row's columns, sent with your key. What they keep is set by the provider's terms (for
+  OpenRouter, [its terms](https://openrouter.ai/terms) and your account's privacy settings there),
+  and for a LiteLLM gateway, by whoever runs it and the providers behind it.
 - **WorkOS** signs you in, so it has your name and email.
 - **Cloudflare** carries every request to and from rowlab.dev, and protects it from abuse.
 - **PostHog** (EU) gets product analytics from the web app: the pages you open and what you click,

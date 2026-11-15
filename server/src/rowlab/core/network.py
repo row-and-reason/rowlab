@@ -1,7 +1,8 @@
-"""Requests the server makes on someone's behalf: web sources and S3 endpoints. Unless private URLs are
-allowed (`ROWLAB_PRIVATE_URLS`, on locally), they can only reach public addresses, so nobody can make
-the server fetch from its own network or the cloud's metadata service (SSRF). The one exception is
-S3 endpoints on hosts the operator names (`ROWLAB_PRIVATE_S3_HOSTS`), which may be private.
+"""Requests the server makes on someone's behalf: web sources, S3 endpoints and model providers.
+Unless private URLs are allowed (`ROWLAB_PRIVATE_URLS`, on locally), they can only reach public
+addresses, so nobody can make the server fetch from its own network or the cloud's metadata service
+(SSRF). The one exception is S3 endpoints and model providers on hosts the operator names
+(`ROWLAB_PRIVATE_HOSTS`), which may be private.
 
 The address is checked when the request is made, and again on every redirect. Two ways past it are
 left to the network a hosted rowlab runs in, which must block private addresses too: a DNS server that
@@ -20,6 +21,10 @@ from rowlab.core.config import config
 from rowlab.core.errors import InvalidRequest
 
 
+class Unresolved(InvalidRequest):
+    """The host's name couldn't be looked up, which may pass."""
+
+
 def check_url(url: str, trusted: frozenset[str] = frozenset()) -> None:
     """Raise InvalidRequest unless the URL is http(s) to a public address, to one of the `trusted`
     hostnames (matched exactly), or private addresses are allowed."""
@@ -32,7 +37,7 @@ def check_url(url: str, trusted: frozenset[str] = frozenset()) -> None:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         found = socket.getaddrinfo(parsed.hostname, port, proto=socket.IPPROTO_TCP)
     except (OSError, ValueError) as e:
-        raise InvalidRequest(f"Could not reach {url}: {describe(e, parsed.hostname)}.") from e
+        raise Unresolved(f"Could not reach {url}: {describe(e, parsed.hostname)}.") from e
     for *_, address in found:
         ip = ipaddress.ip_address(address[0].split("%")[0])
         if ip.version == 6 and ip.ipv4_mapped:

@@ -51,7 +51,7 @@ export function TaskEditor({
   onAddTask,
   runError,
   problem,
-  needsKey,
+  needsProvider,
   manual = false,
 }: {
   dataset: Dataset;
@@ -62,22 +62,23 @@ export function TaskEditor({
   onAddTask: (task?: Task) => void;
   runError: string | undefined;
   problem: string | undefined;
-  /** No OpenRouter key yet: runs can't start until an admin adds one. */
-  needsKey: boolean;
+  /** No model provider yet: runs can't start until an admin adds one. */
+  needsProvider: boolean;
   manual?: boolean;
 }) {
   const types = useTaskTypes();
   const params = useSearchParams();
   const isAdmin = useCan("admin");
   // The first thing to fix, before anything about the tasks.
-  const keyLink = (
+  const providersLink = (
     <Link href={settingsUrl(params, "providers")} className="underline">
       Settings → Providers
     </Link>
   );
-  const hint = needsKey ? (
+  const hint = needsProvider ? (
     <>
-      No OpenRouter key yet: {isAdmin ? <>add one in {keyLink}</> : "an admin adds one in Settings"}
+      No model provider yet:{" "}
+      {isAdmin ? <>add one in {providersLink}</> : "an admin adds one in Settings"}
       .
     </>
   ) : (
@@ -117,7 +118,7 @@ export function TaskEditor({
           <AlertDescription>
             <p>
               {runError}
-              {needsKey && isAdmin && <> Add one in {keyLink}.</>}
+              {needsProvider && isAdmin && <> Add one in {providersLink}.</>}
             </p>
           </AlertDescription>
         </Alert>

@@ -13,12 +13,12 @@ from pydantic import BaseModel
 from starlette.routing import Mount
 
 from rowlab import __version__
-from rowlab.api import auth, connections, datasets, links, members, runs, settings, utils
+from rowlab.api import auth, connections, datasets, links, members, providers, runs, settings, utils
 from rowlab.core import metrics
 from rowlab.core import runs as runs_core
 from rowlab.core.config import config
 from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
-from rowlab.core.providers.openrouter import OpenRouterError
+from rowlab.core.providers.model_api import ProviderError
 from rowlab.mcp.server import create_server
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -95,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(datasets.router)
     app.include_router(links.router)
     app.include_router(members.router)
+    app.include_router(providers.router)
     app.include_router(runs.router)
     app.include_router(settings.router)
     app.include_router(utils.router)
@@ -124,8 +125,8 @@ def create_app() -> FastAPI:
     def forbidden(request: Request, exc: Forbidden) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=403)
 
-    @app.exception_handler(OpenRouterError)
-    def openrouter_error(request: Request, exc: OpenRouterError) -> JSONResponse:
+    @app.exception_handler(ProviderError)
+    def provider_error(request: Request, exc: ProviderError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=502)
 
     # MCP at `/mcp`, with its sign-in metadata at `/.well-known/…`, which must be at the root; the

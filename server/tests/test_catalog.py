@@ -5,7 +5,8 @@ from fastmcp.exceptions import ToolError
 from helpers import NEGATIVE, call, run, start
 
 from rowlab.core import catalog, runs
-from rowlab.core.providers import openrouter
+from rowlab.core.providers import model_api, openrouter
+from rowlab.core.providers.model_api import ProviderError
 from rowlab.mcp import server
 
 pytestmark = pytest.mark.usefixtures("fake")
@@ -37,7 +38,7 @@ def test_lists_the_offered_models_in_order_at_openrouters_prices(client):
 
 def test_models_are_listed_when_openrouter_is_down(client, monkeypatch):
     def down():
-        raise openrouter.OpenRouterError("Could not reach OpenRouter")
+        raise ProviderError("Could not reach openrouter.ai")
 
     monkeypatch.setattr(openrouter, "prices", down)
     models = {m["id"]: m for m in client.get("/v1/utils/models").json()}
@@ -45,7 +46,7 @@ def test_models_are_listed_when_openrouter_is_down(client, monkeypatch):
 
     # Nor when it answers in a shape it didn't before.
     monkeypatch.setattr(catalog, "_prices", None)
-    monkeypatch.setattr(openrouter, "_request", lambda *args, **kwargs: {"models": []})
+    monkeypatch.setattr(model_api, "_request", lambda *args, **kwargs: {"models": []})
     models = {m["id"]: m for m in client.get("/v1/utils/models").json()}
     assert models["typesafe/jev-1.14"]["prompt_price"] == pytest.approx(5e-08)
 

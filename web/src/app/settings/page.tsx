@@ -4,29 +4,19 @@ import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { toast } from "sonner";
 
 import { ConnectAgents } from "@/components/connect-agents";
 import { ApiKeys } from "@/components/api-keys";
-import { useCan, useMe } from "@/components/me";
+import { useMe } from "@/components/me";
 import { MembersSettings } from "@/components/members-settings";
 import { PaneHeader } from "@/components/pane";
 import { Plans } from "@/components/plans";
+import { ProviderSettings } from "@/components/provider-settings";
 import { StorageSettings } from "@/components/storage-settings";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { TooltipButton } from "@/components/tooltip-button";
 import { UsageSettings } from "@/components/usage-settings";
 import { Button } from "@/components/ui/button";
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { Item, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Spinner } from "@/components/ui/spinner";
 import { api, type Settings } from "@/lib/api/client";
@@ -149,22 +139,10 @@ function SettingsView() {
               ) : !settings ? (
                 <Spinner />
               ) : (
-                <FieldSet className="gap-4">
-                  <FieldLegend variant="label" className="flex items-center justify-between gap-3">
-                    OpenRouter
-                    <Badge variant="secondary">
-                      {settings.openrouter_key === "environment"
-                        ? "Managed by server"
-                        : settings.openrouter_key
-                          ? "Connected"
-                          : "Not connected"}
-                    </Badge>
-                  </FieldLegend>
-                  <FieldDescription>
-                    One provider key for decision models and LLMs.
-                  </FieldDescription>
-                  <OpenRouterKey settings={settings} onSaved={setSettings} />
-                </FieldSet>
+                <ProviderSettings
+                  settings={settings}
+                  onChanged={() => setAttempt((n) => n + 1)}
+                />
               ))}
             {section === "agents" && <ConnectAgents />}
             {section === "storage" && <StorageSettings />}
@@ -176,90 +154,5 @@ function SettingsView() {
         </div>
       </section>
     </main>
-  );
-}
-
-/** Save an OpenRouter API key, checked with OpenRouter first. */
-function OpenRouterKey({
-  settings,
-  onSaved,
-}: {
-  settings: Settings | undefined;
-  onSaved: (settings: Settings) => void;
-}) {
-  const [key, setKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
-  const canAdmin = useCan("admin");
-
-  async function save() {
-    setSaving(true);
-    setError(undefined);
-    try {
-      const { data, error } = await api.PUT("/v1/settings/openrouter-key", { body: { key } });
-      if (error) {
-        setError(errorMessage(error));
-        return;
-      }
-      setKey("");
-      onSaved(data);
-      toast.success("OpenRouter key saved");
-    } catch {
-      setError("Could not reach rowlab. Your key was not saved.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!canAdmin) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        {settings?.openrouter_key ? "A key is set." : "No key is set yet."} Admins change it.
-      </p>
-    );
-  }
-  if (settings?.openrouter_key === "environment") {
-    return (
-      <p className="text-sm text-muted-foreground">
-        The key comes from the <code>OPENROUTER_API_KEY</code> environment variable. Unset it to
-        save one here instead.
-      </p>
-    );
-  }
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (key.trim()) save();
-      }}
-    >
-      <Field data-invalid={!!error}>
-        <FieldLabel htmlFor="openrouter-key">API key</FieldLabel>
-        <div className="flex items-center gap-2">
-          <Input
-            id="openrouter-key"
-            type="password"
-            placeholder={
-              settings?.openrouter_key ? "Saved · paste a new one to replace it" : "sk-or-v1-…"
-            }
-            autoComplete="off"
-            value={key}
-            aria-invalid={!!error}
-            onChange={(e) => setKey(e.target.value)}
-          />
-          <Button type="submit" size="sm" disabled={saving || !key.trim()}>
-            {saving && <Spinner data-icon="inline-start" />}
-            Save
-          </Button>
-        </div>
-        {error ? (
-          <FieldError>{error}</FieldError>
-        ) : (
-          <FieldDescription>
-            Checked before saving. Used for model calls; never shown again.
-          </FieldDescription>
-        )}
-      </Field>
-    </form>
   );
 }

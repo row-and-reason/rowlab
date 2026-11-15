@@ -24,6 +24,7 @@ export type TaskTypes = components["schemas"]["TaskTypes"];
 export type Preset = TaskTypes["presets"][number];
 export type Estimate = components["schemas"]["Estimate"];
 export type Connection = components["schemas"]["Connection"];
+export type Provider = components["schemas"]["Provider"];
 export type Comparison = components["schemas"]["Comparison"];
 export type Me = components["schemas"]["WhoAmI"];
 export type Role = Me["role"];

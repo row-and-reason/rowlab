@@ -28,9 +28,9 @@ Not planned yet; noted so they aren't lost. Add new ones here.
   models for the Translate preset, next to LLMs: cheaper and faster for plain translation. They'd be a
   third kind of model that only answers Write tasks started from Translate, with the target language as
   a setting rather than part of the prompt.
-- **More model providers.** OpenRouter is the only provider today; Settings → Providers is where others
-  would go: direct API keys for OpenAI, Anthropic, Google and the like, or a local OpenAI-compatible
-  server (Ollama, vLLM) for private data. Each adds its models to the picker next to OpenRouter's.
+- **More model providers.** OpenRouter and LiteLLM are the ones today; Settings → Providers is where
+  others would go: direct API keys for OpenAI, Anthropic, Google and the like, or a local
+  OpenAI-compatible server (Ollama, vLLM) for private data. Each is a module beside `model_api`.
 - **More kinds of storage.** S3-compatible storage is the only remote one; Settings → Storage is where
   others would go: Google Cloud Storage, Azure Blob Storage, and maybe databases or warehouses
   (Postgres, BigQuery) as sources and destinations.
@@ -43,6 +43,6 @@ Not planned yet; noted so they aren't lost. Add new ones here.
   flattening step — still to be confirmed.
 - **OpenRouter Decisions API is alpha.** Keeping it behind one module limits the impact of changes.
   Confirm the exact request/response fields and whether the model catalog can be filtered via the API.
-- **Local secret storage** (OpenRouter key, S3 keys) is plaintext in the local data dir unless
+- **Local secret storage** (provider keys, S3 keys) is plaintext in the local data dir unless
   `ROWLAB_SECRET_KEY` is set — acceptable for a single-user local tool; always encrypted when hosted.
 - **Large files:** 1M+ rows must stay responsive in the explorer and runs; test early with real data.

@@ -1166,6 +1166,241 @@
         }
       }
     },
+    "/v1/settings/providers": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List Providers",
+        "description": "The organisation's model providers, by name, and which one new runs use. Keys are never\nreturned.",
+        "operationId": "listProviders",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Provider"
+                  },
+                  "type": "array",
+                  "title": "Response Listproviders"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Create Provider",
+        "description": "Save a provider once it accepts the key. The organisation's first becomes active.",
+        "operationId": "createProvider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Provider"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/settings/providers/{provider_id}": {
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Update Provider",
+        "description": "Change a provider; leave out `api_key` to keep the saved one.",
+        "operationId": "updateProvider",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Provider"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Delete Provider",
+        "operationId": "deleteProvider",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/providers/{provider_id}/activate": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Activate Provider",
+        "description": "Make the provider the one new runs use. Runs already started keep theirs.",
+        "operationId": "activateProvider",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Provider"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/datasets/{dataset_id}/runs": {
       "post": {
         "tags": [
@@ -1575,56 +1810,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Settings"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          },
-          {
-            "APIKeyCookie": []
-          }
-        ]
-      }
-    },
-    "/v1/settings/openrouter-key": {
-      "put": {
-        "tags": [
-          "settings"
-        ],
-        "summary": "Save Openrouter Key",
-        "description": "Check the key with OpenRouter and save it for the organisation.",
-        "operationId": "saveOpenRouterKey",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OpenRouterKey"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Settings"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3633,19 +3818,6 @@
         ],
         "title": "NumericSummary"
       },
-      "OpenRouterKey": {
-        "properties": {
-          "key": {
-            "type": "string",
-            "title": "Key"
-          }
-        },
-        "type": "object",
-        "required": [
-          "key"
-        ],
-        "title": "OpenRouterKey"
-      },
       "Option": {
         "properties": {
           "name": {
@@ -3798,6 +3970,103 @@
         ],
         "title": "Preset",
         "description": "A starting point for a write task: its prompt, to finish by adding the row's columns."
+      },
+      "Provider": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "openrouter",
+              "litellm"
+            ],
+            "title": "Type"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url"
+          },
+          "model_prefix": {
+            "type": "string",
+            "title": "Model Prefix"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "description": "Whether new runs use it."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "type",
+          "base_url",
+          "model_prefix",
+          "active",
+          "created_at"
+        ],
+        "title": "Provider",
+        "description": "A provider as the API shows it: without its key."
+      },
+      "ProviderInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Defaults to the type's name, e.g. `OpenRouter`.",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "openrouter",
+              "litellm"
+            ],
+            "title": "Type"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url",
+            "description": "Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`. For LiteLLM, the gateway's address, e.g. `https://litellm.example.com`.",
+            "default": ""
+          },
+          "model_prefix": {
+            "type": "string",
+            "title": "Model Prefix",
+            "description": "Put before rowlab's model ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.",
+            "default": ""
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key",
+            "description": "Required for a new provider; leave out to keep the saved one."
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "ProviderInput"
       },
       "QueryRequest": {
         "properties": {
@@ -4239,6 +4508,18 @@
             "title": "Created By",
             "description": "The user who started it; empty locally."
           },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Id",
+            "description": "The model provider its calls go to, kept from when it started. Empty on the server's key, and for manual runs."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -4272,6 +4553,7 @@
           "cost",
           "error",
           "created_by",
+          "provider_id",
           "created_at",
           "updated_at"
         ],
@@ -4345,21 +4627,21 @@
       },
       "Settings": {
         "properties": {
-          "openrouter_key": {
+          "provider": {
             "anyOf": [
               {
                 "type": "string",
                 "enum": [
-                  "environment",
-                  "saved"
+                  "server",
+                  "organisation"
                 ]
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Openrouter Key",
-            "description": "Where the OpenRouter API key comes from, if set. The key is never returned."
+            "title": "Provider",
+            "description": "Where model calls go: the server's own key (`OPENROUTER_API_KEY`), the organisation's active provider, or nowhere yet."
           },
           "mode": {
             "type": "string",
@@ -4378,7 +4660,7 @@
         },
         "type": "object",
         "required": [
-          "openrouter_key",
+          "provider",
           "mode",
           "server_files"
         ],
