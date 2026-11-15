@@ -1,18 +1,29 @@
-"""A typed client for the rowlab API: upload a dataset, label it with models or by hand, then
-export and compare the answers, from a script or a notebook."""
+"""A typed client for the rowlab API: upload a dataset, add answer columns from models and labels
+you set, then compare and export them, from a script or a notebook."""
 
-from ._models import Comparison, Dataset, Estimate, Model, Option, Run
+from ._models import (
+    AnswerColumn,
+    Comparison,
+    Dataset,
+    DatasetSummary,
+    Estimate,
+    Model,
+    Option,
+    Run,
+)
 from ._models import ExtractFieldInput as ExtractField
 from ._models import TaskInput as Task
 from .client import Client
 from .errors import ApiError, ConfigurationError, ResponseError, RowlabError, TransportError
 
 __all__ = [
+    "AnswerColumn",
     "ApiError",
     "Client",
     "Comparison",
     "ConfigurationError",
     "Dataset",
+    "DatasetSummary",
     "Estimate",
     "ExtractField",
     "Model",
