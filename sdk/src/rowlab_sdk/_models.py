@@ -382,8 +382,17 @@ class Model(BaseModel):
     id: Annotated[str, Field(title='Id')]
     name: Annotated[str, Field(title='Name')]
     kind: Annotated[Literal['decision', 'llm'], Field(title='Kind')]
-    prompt_price: Annotated[float, Field(title='Prompt Price')]
-    completion_price: Annotated[float, Field(title='Completion Price')]
+    tags: Annotated[
+        list[str],
+        Field(
+            description='`recommended` for the ones to try first; others (`budget`, `accurate`) to filter by.',
+            title='Tags',
+        ),
+    ]
+    prompt_price: Annotated[float, Field(description='USD per input token.', title='Prompt Price')]
+    completion_price: Annotated[
+        float, Field(description='USD per output token.', title='Completion Price')
+    ]
     context_length: Annotated[int, Field(title='Context Length')]
 
 

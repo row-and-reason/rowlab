@@ -6,7 +6,6 @@ from fastmcp.server.auth import AccessToken
 from helpers import call, tools
 
 from rowlab.core import runs
-from rowlab.core.providers import openrouter
 from rowlab.mcp import server
 
 CSV = b"review\nTerrible product\nLove it\nBroke after a day\n"
@@ -179,28 +178,3 @@ def test_comparison_summary_preserves_class_metrics(mcp, tmp_path):
     assert "values" not in summary
     assert summary["pairs"][0]["coverage"]["missing_left"] == 0
     assert full["pairs"][0]["coverage"]["missing_left"]["rows"] == 0
-
-
-def test_model_default_is_bounded_and_filters_before_paging(mcp, monkeypatch):
-    catalog = [
-        openrouter.Model(
-            id=f"llm-{i}",
-            name=f"Model {i}",
-            kind="llm",
-            prompt_price=0,
-            completion_price=0,
-            context_length=1000,
-        )
-        for i in range(423)
-    ]
-    monkeypatch.setattr(openrouter, "models", lambda: catalog)
-    page = call(mcp, "models_list")
-    assert len(page["models"]) == 20
-    assert page["total"] == 423
-    assert page["next_offset"] == 20
-    page = call(mcp, "models_list", search="llm-42", offset=1)
-    assert [m["id"] for m in page["models"]] == ["llm-420", "llm-421", "llm-422"]
-    assert page["total"] == 4
-    assert page["next_offset"] is None
-    with pytest.raises(ToolError):
-        call(mcp, "models_list", limit=101)

@@ -1,4 +1,4 @@
-"""Settings: the OpenRouter key, and the models it opens up."""
+"""Settings: the OpenRouter key."""
 
 import pytest
 from helpers import NEGATIVE, run
@@ -28,15 +28,3 @@ def test_environment_key_wins(client, api_key, fake, monkeypatch):
         if not path.startswith(("/v1/key", "/v1/models"))
     }
     assert asked == {"sk-env"}
-
-
-def test_lists_decision_models_then_llms_with_structured_outputs(client):
-    models = client.get("/v1/utils/models").json()
-    assert [(m["id"], m["kind"]) for m in models] == [
-        ("a/cheap", "decision"),
-        ("typesafe/jev-1.14", "decision"),
-        ("anthropic/claude-haiku-5.5", "llm"),
-        ("x/llm", "llm"),
-    ]
-    assert models[3]["prompt_price"] == 2e-06
-    assert models[3]["completion_price"] == 1e-06

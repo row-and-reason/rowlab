@@ -8,7 +8,7 @@ import { api, type Model, type TaskTypes } from "@/lib/api/client";
 let models: Promise<Model[]> | undefined;
 let taskTypes: Promise<TaskTypes | undefined> | undefined;
 
-/** OpenRouter's decision models and LLMs, cheapest first within each kind. */
+/** The models rowlab offers, decision models and LLMs, in the order we'd pick them. */
 export function useModels(): Model[] {
   const [loaded, setLoaded] = useState<Model[]>([]);
   useEffect(() => {

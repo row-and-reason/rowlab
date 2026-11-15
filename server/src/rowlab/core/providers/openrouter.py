@@ -1,4 +1,4 @@
-"""OpenRouter: the model catalog, decision calls and chat completions. Everything OpenRouter-specific
+"""OpenRouter: model prices, decision calls and chat completions. Everything OpenRouter-specific
 lives here.
 
 - Decisions API (alpha): `POST /api/alpha/decisions` with a `state` (the content to judge) and typed
@@ -10,7 +10,7 @@ Both report their cost in USD as `usage.cost`, and the tokens used.
 
 import random
 import time
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 from pydantic import BaseModel
@@ -20,7 +20,6 @@ from rowlab.core import metrics
 from rowlab.core.errors import InvalidRequest
 
 BASE_URL = "https://openrouter.ai/api"
-CATALOG_TTL_SECONDS = 3600
 
 # Per call: wait this long for an answer, and try this many times when the failure may pass.
 TIMEOUT_SECONDS = 60
@@ -36,15 +35,6 @@ _client = httpx.Client(
     timeout=TIMEOUT_SECONDS,
     limits=httpx.Limits(max_connections=None, max_keepalive_connections=None),
 )
-
-
-class Model(BaseModel):
-    id: str
-    name: str
-    kind: Literal["decision", "llm"]
-    prompt_price: float  # USD per input token
-    completion_price: float  # USD per output token
-    context_length: int
 
 
 class Response(BaseModel):
@@ -72,60 +62,17 @@ class OpenRouterError(Exception):
         return self.status is None or self.status == 429 or self.status >= 500
 
 
-_catalog: tuple[float, list[Model]] | None = None
-
-
-def models() -> list[Model]:
-    """Decision models, then LLMs that support structured outputs, each cheapest first. Cached for
-    an hour."""
-    global _catalog
-    if _catalog is None or time.monotonic() - _catalog[0] > CATALOG_TTL_SECONDS:
-        decision = _request("GET", "/v1/models?output_modalities=decisions", api_key=None)["data"]
-        chat = _request("GET", "/v1/models", api_key=None)["data"]
-        llms = [
-            m
-            for m in chat
-            if "text" in m["architecture"]["output_modalities"]
-            and "structured_outputs" in (m.get("supported_parameters") or [])
-        ]
-        found = [_model(m, "decision") for m in decision] + [_model(m, "llm") for m in llms]
-        _catalog = (
-            time.monotonic(),
-            sorted(found, key=lambda m: (m.kind != "decision", m.prompt_price, m.name)),
-        )
-    return _catalog[1]
-
-
-class ModelPage(BaseModel):
-    models: list[Model]
-    total: int
-    next_offset: int | None
-
-
-def list_models(
-    search: str = "",
-    kind: Literal["decision", "llm"] | None = None,
-    offset: int = 0,
-    limit: int = 20,
-) -> ModelPage:
-    needle = search.lower()
-    found = [
-        m
-        for m in models()
-        if (kind is None or m.kind == kind) and (needle in m.id.lower() or needle in m.name.lower())
-    ]
-    return ModelPage(
-        models=found[offset : offset + limit],
-        total=len(found),
-        next_offset=offset + limit if offset + limit < len(found) else None,
-    )
-
-
-def model_kind(model_id: str) -> Literal["decision", "llm"]:
-    for model in models():
-        if model.id == model_id:
-            return model.kind
-    raise InvalidRequest(f"Unknown model: {model_id}")
+def prices() -> dict[str, tuple[float, float]]:
+    """USD per input and output token, by model id, from OpenRouter's public catalog."""
+    found = {}
+    for path in ("/v1/models?output_modalities=decisions", "/v1/models"):
+        for m in _request("GET", path, api_key=None)["data"]:
+            pricing = m.get("pricing") or {}
+            found[m["id"]] = (
+                float(pricing.get("prompt") or 0),
+                float(pricing.get("completion") or 0),
+            )
+    return found
 
 
 def check_key(api_key: str) -> None:
@@ -210,18 +157,6 @@ def _post_with_retries(path: str, body: dict[str, Any], api_key: str) -> dict[st
 def _timed(body: dict[str, Any], started: float, status: int | None) -> None:
     metrics.MODEL_CALL_SECONDS.labels(body["model"], metrics.outcome(status)).observe(
         time.monotonic() - started
-    )
-
-
-def _model(data: dict[str, Any], kind: Literal["decision", "llm"]) -> Model:
-    pricing = data.get("pricing") or {}
-    return Model(
-        id=data["id"],
-        name=data["name"],
-        kind=kind,
-        prompt_price=float(pricing.get("prompt") or 0),
-        completion_price=float(pricing.get("completion") or 0),
-        context_length=data.get("context_length") or 0,
     )
 
 

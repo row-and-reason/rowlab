@@ -59,14 +59,15 @@ organisation.
 | `run_start`, `run_get`, `run_resume`, `run_stop`  | runs, with `run_get` and `run_resume` waiting up to 30 seconds for progress |
 | `run_answers`, `run_finish`                       | save manual labels and finish the manual run                                |
 | `dataset_export`                                  | a dataset as CSV, JSONL or Parquet, to S3 (locally, also a path)            |
-| `task_types_get`, `models_list`                   | the answer types and their fields; models by name or kind                   |
+| `task_types_get`, `models_list`                   | the answer types and their fields; models by name, kind or tag             |
 
 Each tool's description says why it exists and when to use it, and the server's instructions give the
 order of work: read the dataset, run on a few rows, read the answers, then run on all. The
 [Rowlab skill](/agents/skills) goes further.
 
-`models_list` returns `{models, total, next_offset}`: 20 models by default, at most 100 per page.
-Use `search` and `kind` to narrow results and `offset` to continue. `columns_compare` keeps per-class
+`models_list` returns `{models, total, next_offset}`: 20 models by default, at most 100 per page,
+recommended ones first. Use `search`, `kind` and `tag` (`recommended`, `budget`, `accurate`) to narrow
+results and `offset` to continue. `columns_compare` keeps per-class
 precision and recall, κ, α, intervals, calibration and cost in its default summary; `detail="full"`
 includes distributions and all row filters. New run datasets contain only the selected source rows,
 keeping their original row IDs.

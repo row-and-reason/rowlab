@@ -343,6 +343,7 @@ const KINDS = [
   { kind: "decision", label: "Decision models · fast and cheap" },
   { kind: "llm", label: "Language models · slower, can reason" },
 ] as const;
+const RECOMMENDED = "recommended";
 
 export function ModelPicker({
   id,
@@ -358,10 +359,15 @@ export function ModelPicker({
   const models = useModels();
   const anchor = useComboboxAnchor();
 
-  const groups = KINDS.filter((k) => !llmOnly || k.kind === "llm").map((k) => ({
-    value: k.label,
-    items: models.filter((m) => m.kind === k.kind),
-  }));
+  // Recommended first, then the rest by kind, each in the order the server lists them.
+  const offered = models.filter((m) => !llmOnly || m.kind === "llm");
+  const groups = [
+    { value: "Recommended", items: offered.filter((m) => m.tags.includes(RECOMMENDED)) },
+    ...KINDS.map((k) => ({
+      value: k.label,
+      items: offered.filter((m) => m.kind === k.kind && !m.tags.includes(RECOMMENDED)),
+    })),
+  ].filter((g) => g.items.length);
   // Models the catalog doesn't (or doesn't yet) know are still shown, by id.
   const selected = value.map(
     (id) =>
@@ -370,6 +376,7 @@ export function ModelPicker({
         id,
         name: id,
         kind: "decision",
+        tags: [],
         prompt_price: 0,
         completion_price: 0,
         context_length: 0,

@@ -213,5 +213,5 @@ class ModelsResource:
         self._client = client
 
     def list(self) -> list[Model]:
-        """The decision models and LLMs a task can use, with their prices."""
+        """The decision models and LLMs a task can use, recommended first, with their prices."""
         return self._client._request("GET", "v1/utils/models", list[Model])
