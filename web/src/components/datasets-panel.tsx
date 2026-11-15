@@ -1,7 +1,10 @@
 "use client";
 
+import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
 import {
   ChevronUpIcon,
+  CircleAlertIcon,
+  CirclePauseIcon,
   CircleUserIcon,
   DownloadIcon,
   KeyRoundIcon,
@@ -44,6 +47,7 @@ import {
   ItemGroup,
   ItemTitle,
 } from "@/components/ui/item";
+import { ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { type DatasetSummary, type Settings, signOut } from "@/lib/api/client";
 import type { Section } from "@/lib/settings";
@@ -112,11 +116,12 @@ export function DatasetsPanel({
                       size="xs"
                       variant={dataset.id === selectedId ? "muted" : "default"}
                       aria-current={dataset.id === selectedId ? "page" : undefined}
-                      className="min-w-0 flex-nowrap aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground"
+                      className="relative min-w-0 flex-nowrap overflow-hidden aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground"
                       render={<Link href={`/?dataset=${dataset.id}`} />}
                     />
                   }
                 >
+                  {dataset.active_runs > 0 && <RunProgress dataset={dataset} />}
                   <ItemContent className="min-w-0">
                     <ItemTitle className="w-full truncate" title={dataset.name}>
                       {dataset.name}
@@ -125,11 +130,7 @@ export function DatasetsPanel({
                       {describe(dataset)}
                     </ItemDescription>
                   </ItemContent>
-                  {dataset.active_runs > 0 && (
-                    <ItemActions title={`${dataset.active_runs} running`}>
-                      <Spinner className="size-3" />
-                    </ItemActions>
-                  )}
+                  <RunStatus dataset={dataset} />
                 </ContextMenuTrigger>
                 <ContextMenuContent>
                   <ContextMenuItem disabled={!canEdit} onClick={() => onRename(dataset)}>
@@ -219,4 +220,44 @@ function describe(dataset: DatasetSummary): string {
   const rows = `${formatNumber(dataset.row_count)} rows`;
   if (!dataset.answer_columns) return rows;
   return `${rows} · ${dataset.answer_columns} answer column${dataset.answer_columns === 1 ? "" : "s"}`;
+}
+
+/** How the dataset's runs stand, unless all is well: going, or the newest failed or was stopped. */
+function RunStatus({ dataset }: { dataset: DatasetSummary }) {
+  const [icon, label] =
+    dataset.active_runs > 0
+      ? [<Spinner key="running" />, `${dataset.active_runs} running`]
+      : dataset.last_run_status === "failed"
+        ? [<CircleAlertIcon key="failed" className="text-destructive" />, "Its last run failed"]
+        : dataset.last_run_status === "stopped"
+          ? [<CirclePauseIcon key="stopped" />, "Its last run was stopped"]
+          : [null, null];
+  if (!icon) return null;
+  return (
+    <ItemActions
+      role="img"
+      aria-label={label!}
+      title={label!}
+      className="text-muted-foreground [&_svg]:size-3.5"
+    >
+      {icon}
+    </ItemActions>
+  );
+}
+
+/** A thin bar along the top edge of a dataset runs are adding to: how many of their answers are in. */
+function RunProgress({ dataset }: { dataset: DatasetSummary }) {
+  const percent = dataset.active_total ? (100 * dataset.active_done) / dataset.active_total : 0;
+  return (
+    <ProgressPrimitive.Root
+      value={percent}
+      aria-label="Progress"
+      title={`${formatNumber(dataset.active_done)} of ${formatNumber(dataset.active_total)} answers`}
+      className="absolute inset-x-0 top-0"
+    >
+      <ProgressTrack className="h-0.5 rounded-none bg-transparent">
+        <ProgressIndicator />
+      </ProgressTrack>
+    </ProgressPrimitive.Root>
+  );
 }

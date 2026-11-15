@@ -3151,6 +3151,36 @@
             "title": "Active Runs",
             "description": "Runs queued or going."
           },
+          "active_done": {
+            "type": "integer",
+            "title": "Active Done",
+            "description": "Answers those runs have asked so far."
+          },
+          "active_total": {
+            "type": "integer",
+            "title": "Active Total",
+            "description": "Answers those runs ask for, in all."
+          },
+          "last_run_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "queued",
+                  "running",
+                  "stopping",
+                  "stopped",
+                  "done",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run Status",
+            "description": "How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run."
+          },
           "columns": {
             "items": {
               "$ref": "#/components/schemas/Column"
@@ -3178,6 +3208,9 @@
           "created_at",
           "answer_columns",
           "active_runs",
+          "active_done",
+          "active_total",
+          "last_run_status",
           "columns",
           "answers"
         ],
@@ -3220,6 +3253,36 @@
             "type": "integer",
             "title": "Active Runs",
             "description": "Runs queued or going."
+          },
+          "active_done": {
+            "type": "integer",
+            "title": "Active Done",
+            "description": "Answers those runs have asked so far."
+          },
+          "active_total": {
+            "type": "integer",
+            "title": "Active Total",
+            "description": "Answers those runs ask for, in all."
+          },
+          "last_run_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "queued",
+                  "running",
+                  "stopping",
+                  "stopped",
+                  "done",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run Status",
+            "description": "How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run."
           }
         },
         "type": "object",
@@ -3231,7 +3294,10 @@
           "size_bytes",
           "created_at",
           "answer_columns",
-          "active_runs"
+          "active_runs",
+          "active_done",
+          "active_total",
+          "last_run_status"
         ],
         "title": "DatasetSummary"
       },

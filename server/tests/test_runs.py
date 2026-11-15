@@ -68,9 +68,11 @@ def test_a_run_adds_answer_columns_that_fill_in_as_it_goes(client, dataset, job,
     assert created["dataset_id"] == dataset["id"]
     assert (created["status"], created["row_count"], created["total"]) == ("queued", 2, 2)
     listed = client.get("/v1/datasets").json()
-    assert [(d["id"], d["answer_columns"], d["active_runs"]) for d in listed] == [
-        (dataset["id"], 1, 1)
-    ]
+    assert [
+        (d["id"], d["answer_columns"], d["active_runs"], d["active_done"], d["active_total"])
+        for d in listed
+    ] == [(dataset["id"], 1, 1, 0, 2)]
+    assert listed[0]["last_run_status"] == "queued"
     found = client.get(f"/v1/datasets/{dataset['id']}").json()
     assert [c["name"] for c in found["columns"]] == [
         "__row_id",
@@ -96,7 +98,8 @@ def test_a_run_adds_answer_columns_that_fill_in_as_it_goes(client, dataset, job,
         (2, True),
     ]
     done = client.get(f"/v1/datasets/{dataset['id']}").json()
-    assert (done["active_runs"], done["answers"][0]["answered"]) == (0, 2)
+    assert (done["active_runs"], done["active_total"], done["last_run_status"]) == (0, 0, "done")
+    assert done["answers"][0]["answered"] == 2
     assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "done"
     # Its file is untouched; the run's answers are one file of its own.
     assert stored(dataset["id"], "runs", f"{created['id']}.parquet")
@@ -169,6 +172,8 @@ def test_a_key_out_of_credits_fails_the_run_until_started_again(client, job, api
     assert failed["error"].startswith("The model provider's key is out of credits.")
     assert "HTTP 402: Insufficient credits" in failed["error"]
     assert "start the run again" in failed["error"]
+    # The datasets list says so, until a run is started again.
+    assert client.get("/v1/datasets").json()[0]["last_run_status"] == "failed"
     assert (
         start(client, update(job, tasks=[{**NEGATIVE, "template": "no credits"}]))["status"]
         == "queued"

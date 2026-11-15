@@ -1176,6 +1176,21 @@ export interface components {
              */
             active_runs: number;
             /**
+             * Active Done
+             * @description Answers those runs have asked so far.
+             */
+            active_done: number;
+            /**
+             * Active Total
+             * @description Answers those runs ask for, in all.
+             */
+            active_total: number;
+            /**
+             * Last Run Status
+             * @description How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.
+             */
+            last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
+            /**
              * Columns
              * @description Every column of `data`: `__row_id`, the answer columns, newest first, then the file's own.
              */
@@ -1216,6 +1231,21 @@ export interface components {
              * @description Runs queued or going.
              */
             active_runs: number;
+            /**
+             * Active Done
+             * @description Answers those runs have asked so far.
+             */
+            active_done: number;
+            /**
+             * Active Total
+             * @description Answers those runs ask for, in all.
+             */
+            active_total: number;
+            /**
+             * Last Run Status
+             * @description How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.
+             */
+            last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
         };
         /** Day */
         Day: {

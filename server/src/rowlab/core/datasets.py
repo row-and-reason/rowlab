@@ -78,6 +78,14 @@ class DatasetSummary(BaseModel):
     created_at: datetime
     answer_columns: int = Field(description="Tasks with answers from a model, or labels.")
     active_runs: int = Field(description="Runs queued or going.")
+    active_done: int = Field(description="Answers those runs have asked so far.")
+    active_total: int = Field(description="Answers those runs ask for, in all.")
+    last_run_status: (
+        Literal["queued", "running", "stopping", "stopped", "done", "failed"] | None
+    ) = Field(
+        description="How its newest run stands: `failed` or `stopped` until a run is started "
+        "again. Empty before any run."
+    )
 
 
 class Dataset(DatasetSummary):
@@ -330,11 +338,7 @@ def list_datasets(org_id: str) -> list[DatasetSummary]:
     """The organisation's datasets, newest first."""
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT d.*,"
-            " (SELECT count(*) FROM answer_columns a WHERE a.dataset_id = d.id) AS answer_columns,"
-            " (SELECT count(*) FROM runs r WHERE r.dataset_id = d.id"
-            f" AND r.status IN {_ACTIVE}) AS active_runs"
-            " FROM datasets d WHERE d.org_id = ? ORDER BY d.created_at DESC",
+            f"SELECT d.*, {_SUMMARY} FROM datasets d WHERE d.org_id = ? ORDER BY d.created_at DESC",
             (org_id,),
         ).fetchall()
     return [DatasetSummary(**row) for row in rows]
@@ -342,28 +346,32 @@ def list_datasets(org_id: str) -> list[DatasetSummary]:
 
 def get_dataset(dataset_id: str) -> Dataset:
     with db.connect() as conn:
-        row = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
-        if row is None:
-            raise NotFound(f"Dataset {dataset_id} not found")
-        active = conn.execute(
-            f"SELECT count(*) AS n FROM runs WHERE dataset_id = ? AND status IN {_ACTIVE}",
-            (dataset_id,),
-        ).fetchone()["n"]
-    answers = answer_columns(dataset_id)
+        row = conn.execute(
+            f"SELECT d.*, {_SUMMARY} FROM datasets d WHERE d.id = ?", (dataset_id,)
+        ).fetchone()
+    if row is None:
+        raise NotFound(f"Dataset {dataset_id} not found")
     with storage.connect() as con:
         attach(con, dataset_id)
         columns = [Column(name=r[0], type=r[1]) for r in con.execute("DESCRIBE data").fetchall()]
-    return Dataset(
-        **{**row, "columns": columns},
-        answers=answers,
-        answer_columns=len(answers),
-        active_runs=active,
-    )
+    return Dataset(**{**row, "columns": columns}, answers=answer_columns(dataset_id))
 
 
 # Statuses of a run that still has work to do, and as SQL.
 ACTIVE = ("queued", "running", "stopping")
 _ACTIVE = "('queued', 'running', 'stopping')"
+
+# What a dataset's summary says of its answers and runs, for `SELECT d.*, … FROM datasets d`.
+_SUMMARY = f"""
+    (SELECT count(*) FROM answer_columns a WHERE a.dataset_id = d.id) AS answer_columns,
+    (SELECT count(*) FROM runs r WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_runs,
+    (SELECT coalesce(sum(r.done), 0) FROM runs r
+        WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_done,
+    (SELECT coalesce(sum(r.total), 0) FROM runs r
+        WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_total,
+    (SELECT r.status FROM runs r WHERE r.dataset_id = d.id
+        ORDER BY r.created_at DESC LIMIT 1) AS last_run_status
+"""
 
 
 def org_of(dataset_id: str) -> str:

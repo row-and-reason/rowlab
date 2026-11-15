@@ -253,6 +253,19 @@ class DatasetSummary(BaseModel):
         Field(description='Tasks with answers from a model, or labels.', title='Answer Columns'),
     ]
     active_runs: Annotated[int, Field(description='Runs queued or going.', title='Active Runs')]
+    active_done: Annotated[
+        int, Field(description='Answers those runs have asked so far.', title='Active Done')
+    ]
+    active_total: Annotated[
+        int, Field(description='Answers those runs ask for, in all.', title='Active Total')
+    ]
+    last_run_status: Annotated[
+        Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'] | None,
+        Field(
+            description='How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.',
+            title='Last Run Status',
+        ),
+    ]
 
 
 class Day(BaseModel):
@@ -964,6 +977,19 @@ class Dataset(BaseModel):
         Field(description='Tasks with answers from a model, or labels.', title='Answer Columns'),
     ]
     active_runs: Annotated[int, Field(description='Runs queued or going.', title='Active Runs')]
+    active_done: Annotated[
+        int, Field(description='Answers those runs have asked so far.', title='Active Done')
+    ]
+    active_total: Annotated[
+        int, Field(description='Answers those runs ask for, in all.', title='Active Total')
+    ]
+    last_run_status: Annotated[
+        Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'] | None,
+        Field(
+            description='How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.',
+            title='Last Run Status',
+        ),
+    ]
     columns: Annotated[
         list[Column],
         Field(
