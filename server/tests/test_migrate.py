@@ -214,13 +214,14 @@ def test_a_folded_run_started_again_pays_only_for_what_no_run_had(
 def test_a_dry_run_changes_nothing_and_a_second_migrate_does_nothing(
     client, tree, monkeypatch, capsys
 ):
-    before = (client.get("/v1/datasets").json(), stored_datasets())
+    # Before migrating, the database is read directly: the API doesn't serve the old layout.
+    before = (_tables(), stored_datasets())
     rowlab(monkeypatch, "migrate", "--dry-run")
     said = capsys.readouterr().out
     assert "reviews__1.1: manual run run-c, 2 label(s) in ['gold']" in said
     assert "`negative` of run run-d is `negative_2`" in said
     assert "1 tree(s) to fold" in said
-    assert (client.get("/v1/datasets").json(), stored_datasets()) == before
+    assert (_tables(), stored_datasets()) == before
 
     rowlab(monkeypatch, "migrate")
     after = (client.get(f"/v1/datasets/{tree['id']}").json(), stored_datasets())
@@ -272,3 +273,11 @@ def test_serving_waits_for_the_migration(client, tree, monkeypatch, capsys):
     rowlab(monkeypatch, "migrate")
     rowlab(monkeypatch, "serve")
     assert served == [("rowlab.app:app",)]
+
+
+def _tables():
+    with db.connect() as conn:
+        return [
+            conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+            for table in ("datasets", "runs", "answer_columns", "labels")
+        ]
