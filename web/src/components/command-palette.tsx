@@ -12,6 +12,7 @@ import {
   SearchIcon,
   SettingsIcon,
   TableIcon,
+  TagIcon,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -19,7 +20,6 @@ import type { RefObject } from "react";
 
 import type { Tab, TaskActions } from "@/components/dataset-view";
 import { useMe } from "@/components/me";
-import type { OriginActions } from "@/components/origin";
 import {
   Command,
   CommandDialog,
@@ -30,7 +30,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import type { Dataset } from "@/lib/api/client";
+import type { DatasetSummary } from "@/lib/api/client";
 import { useTaskTypes } from "@/lib/catalog";
 import { type Section, sections } from "@/lib/settings";
 import type { ComparisonActions } from "@/lib/use-comparison";
@@ -45,7 +45,6 @@ export function CommandPalette({
   canEdit,
   exportable,
   comparisonReady,
-  originActionsRef,
   taskActionsRef,
   comparisonActionsRef,
   onSelect,
@@ -56,18 +55,17 @@ export function CommandPalette({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  datasets: Dataset[] | null;
-  selected: Dataset | undefined;
+  datasets: DatasetSummary[] | null;
+  selected: DatasetSummary | undefined;
   tab: Tab;
   canEdit: boolean;
   exportable: boolean;
   comparisonReady: boolean;
-  originActionsRef: RefObject<OriginActions | null>;
   taskActionsRef: RefObject<TaskActions | null>;
   comparisonActionsRef: RefObject<ComparisonActions | null>;
   onSelect: (id: string) => void;
-  onRename: (dataset: Dataset) => void;
-  onExport: (dataset: Dataset) => void;
+  onRename: (dataset: DatasetSummary) => void;
+  onExport: (dataset: DatasetSummary) => void;
   onAdd: () => void;
   onSettings: (section: Section) => void;
 }) {
@@ -111,21 +109,13 @@ export function CommandPalette({
                   onSelect={() =>
                     command(() => {
                       const query = new URLSearchParams(window.location.search);
-                      query.set("tab", "origin");
+                      query.set("tab", "runs");
                       router.push(`/?${query}`);
                     })
                   }
                 >
-                  View origin
+                  View runs
                 </CommandItem>
-                {tab === "origin" &&
-                  canEdit &&
-                  selected.run &&
-                  datasets?.some((d) => d.id === selected.parent_id) && (
-                    <CommandItem onSelect={() => command(() => originActionsRef.current?.edit?.())}>
-                      Edit original run settings
-                    </CommandItem>
-                  )}
               </>
             )}
             {selected && tab === "compare" && (
@@ -161,17 +151,13 @@ export function CommandPalette({
                   <>
                     <CommandItem onSelect={() => command(() => taskActionsRef.current?.run())}>
                       <PlayIcon />
-                      Label selected rows
+                      Run tasks on the rows in the table
                       <CommandShortcut>⌘↵</CommandShortcut>
                     </CommandItem>
-                    <CommandItem onSelect={() => command(() => taskActionsRef.current?.manual())}>
-                      Label manually
+                    <CommandItem onSelect={() => command(() => taskActionsRef.current?.label())}>
+                      <TagIcon />
+                      Label by hand
                     </CommandItem>
-                    {selected.run?.status === "manual" && (
-                      <CommandItem onSelect={() => command(() => taskActionsRef.current?.finish())}>
-                        Finish labeling
-                      </CommandItem>
-                    )}
                     <CommandItem
                       onSelect={() => command(() => taskActionsRef.current?.clearTasks())}
                     >

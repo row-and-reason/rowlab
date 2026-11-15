@@ -28,11 +28,11 @@ def test_every_tool_is_listed_with_a_description(mcp):
         "columns_compare",
         "run_preview",
         "run_start",
-        "run_answers",
-        "run_finish",
+        "runs_list",
         "run_get",
         "run_stop",
-        "run_resume",
+        "labels_set",
+        "answers_delete",
         "dataset_export",
         "dataset_upload",
         "dataset_download",
@@ -70,6 +70,27 @@ def test_the_workflow_from_a_file_to_an_export(mcp, tmp_path):
     assert run["status"] == "done"
     rows = call(mcp, "sql_query", dataset_id=run["dataset_id"], sql="SELECT * FROM data")
     assert [r["negative__jev-1.14"] for r in rows["rows"]] == [True, False, True]
+    assert [r["id"] for r in call(mcp, "runs_list", dataset_id=added["id"])] == [run["id"]]
+
+    # A person labels two rows; the model is compared with them on those rows.
+    gold = call(
+        mcp,
+        "labels_set",
+        dataset_id=added["id"],
+        column="gold",
+        task={"type": "yes_no", "column": "gold"},
+        labels=[{"row_id": 0, "value": True}, {"row_id": 1, "value": True}],
+    )
+    assert (gold["name"], gold["model"], gold["answered"]) == ("gold", None, 2)
+    compared = call(
+        mcp,
+        "columns_compare",
+        dataset_id=added["id"],
+        columns=["negative__jev-1.14"],
+        reference="gold",
+    )
+    assert compared["rows"] == 2
+    assert compared["reference"][0]["correct"] == 1
 
     out = tmp_path / "out.csv"
     exported = call(

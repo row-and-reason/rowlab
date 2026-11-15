@@ -13,27 +13,6 @@ class Analytics(BaseModel):
     host: Annotated[str, Field(title='Host')]
 
 
-class Answer(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    row_id: Annotated[int, Field(ge=0, le=9223372036854776000, title='Row Id')]
-    value: Annotated[
-        Any,
-        Field(
-            description='The label; null clears it. Pick any takes option names; extract takes an object keyed by field name.',
-            title='Value',
-        ),
-    ]
-
-
-class Answers(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    answers: Annotated[list[Answer], Field(max_length=1000, min_length=1, title='Answers')]
-
-
 class ApiKey(BaseModel):
     id: Annotated[str, Field(title='Id')]
     name: Annotated[str, Field(title='Name')]
@@ -120,24 +99,38 @@ class Column(BaseModel):
 
 class ColumnCost(BaseModel):
     column: Annotated[str, Field(title='Column')]
-    run_id: Annotated[str, Field(title='Run Id')]
-    task_id: Annotated[str, Field(title='Task Id')]
     model: Annotated[str, Field(title='Model')]
     usd: Annotated[
         float,
         Field(
-            description='What the run spent on this task and model, for all its rows; cached answers are free. Columns of one task and model share it.',
+            description="What runs spent on this task and model, for all the dataset's rows; cached answers are free. Columns of one task and model share it.",
             title='Usd',
         ),
     ]
     answered: Annotated[
-        int, Field(description="The run's rows with an answer from the model.", title='Answered')
+        int,
+        Field(description="The dataset's rows with an answer from the model.", title='Answered'),
     ]
     usd_per_1k_rows: Annotated[
         float | None,
         Field(
             description='USD per 1,000 answered rows. Answered rows include cached ones, which cost nothing, so this can look cheaper than a fresh run would be.',
             title='Usd Per 1K Rows',
+        ),
+    ]
+
+
+class ColumnCoverage(BaseModel):
+    column: Annotated[str, Field(title='Column')]
+    answered: Annotated[
+        int,
+        Field(description='Rows the query returns where the column has a value.', title='Answered'),
+    ]
+    left_out: Annotated[
+        int,
+        Field(
+            description='Of those, rows left out because another column compared is empty there; always 0 with `rows` `pairwise`.',
+            title='Left Out',
         ),
     ]
 
@@ -198,6 +191,13 @@ class CompareRequest(BaseModel):
     sql: Annotated[
         str | None, Field(description='The rows to compare: a SELECT over `data`.', title='Sql')
     ] = 'SELECT * FROM data'
+    rows: Annotated[
+        Literal['common', 'pairwise'] | None,
+        Field(
+            description='`common`: every statistic uses the same rows, those where every column compared has a value, so each column is measured on the same rows. `pairwise`: each statistic uses the rows where its own columns have a value.',
+            title='Rows',
+        ),
+    ] = 'common'
 
 
 class Completeness(BaseModel):
@@ -239,18 +239,33 @@ class ConnectionInput(BaseModel):
     ] = None
 
 
-class DatasetRun(BaseModel):
+class DatasetSummary(BaseModel):
     id: Annotated[str, Field(title='Id')]
-    status: Annotated[
-        Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed', 'manual'],
-        Field(title='Status'),
+    name: Annotated[str, Field(title='Name')]
+    source: Annotated[str, Field(title='Source')]
+    row_count: Annotated[int, Field(title='Row Count')]
+    size_bytes: Annotated[
+        int, Field(description='Of its file; answers are kept beside it.', title='Size Bytes')
     ]
-    failed: Annotated[
-        int, Field(description='Answers that failed, which resuming asks again.', title='Failed')
+    created_at: Annotated[AwareDatetime, Field(title='Created At')]
+    answer_columns: Annotated[
+        int,
+        Field(description='Tasks with answers from a model, or labels.', title='Answer Columns'),
     ]
-    done: Annotated[int, Field(description='Answers saved so far.', title='Done')]
-    total: Annotated[int, Field(description='Answers the run asks for.', title='Total')]
-    error: Annotated[str | None, Field(description='Why the run failed.', title='Error')]
+    active_runs: Annotated[int, Field(description='Runs queued or going.', title='Active Runs')]
+    active_done: Annotated[
+        int, Field(description='Answers those runs have asked so far.', title='Active Done')
+    ]
+    active_total: Annotated[
+        int, Field(description='Answers those runs ask for, in all.', title='Active Total')
+    ]
+    last_run_status: Annotated[
+        Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'] | None,
+        Field(
+            description='How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.',
+            title='Last Run Status',
+        ),
+    ]
 
 
 class Day(BaseModel):
@@ -266,12 +281,33 @@ class Day(BaseModel):
 
 
 class Estimate(BaseModel):
-    rows: Annotated[int, Field(description='Rows the run would ask about.', title='Rows')]
-    calls: Annotated[int, Field(description='Model calls it would make.', title='Calls')]
+    rows: Annotated[int, Field(description='Rows the query picks.', title='Rows')]
+    answered: Annotated[
+        int,
+        Field(
+            description="Answers those rows have already, which it won't ask again.",
+            title='Answered',
+        ),
+    ]
+    calls: Annotated[int, Field(description='Answers it would ask models for.', title='Calls')]
+    missing_input: Annotated[
+        int,
+        Field(
+            description='Answers it would skip, because a column the prompt uses is empty in the row.',
+            title='Missing Input',
+        ),
+    ]
+    failed_before: Annotated[
+        int,
+        Field(
+            description="Of the answers it would ask for, those an earlier run asked and didn't get.",
+            title='Failed Before',
+        ),
+    ]
     cost: Annotated[
         float,
         Field(
-            description="Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already given to the same rows in the dataset's tree would be free.",
+            description="Roughly what it would cost in USD, from sample rows' token counts and the models' prices; replies kept from earlier runs would be free.",
             title='Cost',
         ),
     ]
@@ -376,6 +412,20 @@ class Invite(BaseModel):
 class InviteRequest(BaseModel):
     email: Annotated[str, Field(title='Email')]
     role: Annotated[Literal['verifier', 'member', 'admin'] | None, Field(title='Role')] = 'member'
+
+
+class Label(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    row_id: Annotated[int, Field(ge=0, le=9223372036854776000, title='Row Id')]
+    value: Annotated[
+        Any,
+        Field(
+            description="The label; null clears it. Yes/no takes true or false, pick one and scale an option's name, pick any a list of names, write text, extract an object keyed by field name.",
+            title='Value',
+        ),
+    ]
 
 
 class Model(BaseModel):
@@ -696,7 +746,13 @@ class TaskModelCost(BaseModel):
     output_tokens: Annotated[
         int | None, Field(description='Answer tokens billed.', title='Output Tokens')
     ] = 0
-    failed: Annotated[int, Field(description='Rows without an answer.', title='Failed')]
+    failed: Annotated[
+        int,
+        Field(
+            description='Answers that failed; starting the run again asks them again.',
+            title='Failed',
+        ),
+    ]
 
 
 class TemplateField(BaseModel):
@@ -837,6 +893,26 @@ class Agreement(BaseModel):
     ]
 
 
+class AnswerColumn(BaseModel):
+    name: Annotated[str, Field(description="The task's column, e.g. `fallacy`.", title='Name')]
+    model: Annotated[
+        str | None,
+        Field(description='The model that answers; empty for labels people set.', title='Model'),
+    ]
+    task: Annotated[TaskOutput, Field(description='The question its answers are to.')]
+    columns: Annotated[
+        list[str],
+        Field(
+            description='Its columns in `data`, e.g. `fallacy__jev-1.14` and `fallacy__jev-1.14_proba`.',
+            title='Columns',
+        ),
+    ]
+    answered: Annotated[int, Field(description='Rows with an answer.', title='Answered')]
+    cost: Annotated[
+        float, Field(description='USD runs spent on it; cached answers are free.', title='Cost')
+    ]
+
+
 class ByPerson(BaseModel):
     answers: Annotated[
         int, Field(description='Answers given, from the cache too.', title='Answers')
@@ -899,21 +975,38 @@ class Dataset(BaseModel):
     name: Annotated[str, Field(title='Name')]
     source: Annotated[str, Field(title='Source')]
     row_count: Annotated[int, Field(title='Row Count')]
-    size_bytes: Annotated[int, Field(title='Size Bytes')]
-    columns: Annotated[list[Column], Field(title='Columns')]
-    created_at: Annotated[AwareDatetime, Field(title='Created At')]
-    parent_id: Annotated[
-        str | None, Field(description='The dataset it was made from by a run.', title='Parent Id')
+    size_bytes: Annotated[
+        int, Field(description='Of its file; answers are kept beside it.', title='Size Bytes')
     ]
-    branch: Annotated[
-        str | None,
+    created_at: Annotated[AwareDatetime, Field(title='Created At')]
+    answer_columns: Annotated[
+        int,
+        Field(description='Tasks with answers from a model, or labels.', title='Answer Columns'),
+    ]
+    active_runs: Annotated[int, Field(description='Runs queued or going.', title='Active Runs')]
+    active_done: Annotated[
+        int, Field(description='Answers those runs have asked so far.', title='Active Done')
+    ]
+    active_total: Annotated[
+        int, Field(description='Answers those runs ask for, in all.', title='Active Total')
+    ]
+    last_run_status: Annotated[
+        Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'] | None,
         Field(
-            description='Its place in the tree, e.g. `1.2`: the 2nd made from the 1st made from a file. Empty for a dataset added from a file.',
-            title='Branch',
+            description='How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.',
+            title='Last Run Status',
         ),
     ]
-    run: Annotated[
-        DatasetRun | None, Field(description='The run that makes it; its rows fill in as it goes.')
+    columns: Annotated[
+        list[Column],
+        Field(
+            description="Every column of `data`: `__row_id`, the answer columns, newest first, then the file's own.",
+            title='Columns',
+        ),
+    ]
+    answers: Annotated[
+        list[AnswerColumn],
+        Field(description='What its answer columns are, newest first.', title='Answers'),
     ]
 
 
@@ -1047,30 +1140,35 @@ class RunRequestInput(BaseModel):
     sql: Annotated[
         str | None,
         Field(
-            description='Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.',
+            description="Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default. For a sample that grows without changing, order by a hash: `SELECT * FROM data ORDER BY md5('s1' || __row_id) LIMIT 50`.",
             title='Sql',
         ),
     ] = 'SELECT * FROM data'
     tasks: Annotated[list[TaskInput], Field(title='Tasks')]
-    method: Annotated[
-        Literal['llm', 'manual'] | None,
-        Field(description='Label with models or enter labels manually.', title='Method'),
-    ] = 'llm'
 
 
 class RunRequestOutput(BaseModel):
     sql: Annotated[
         str | None,
         Field(
-            description='Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.',
+            description="Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default. For a sample that grows without changing, order by a hash: `SELECT * FROM data ORDER BY md5('s1' || __row_id) LIMIT 50`.",
             title='Sql',
         ),
     ] = 'SELECT * FROM data'
     tasks: Annotated[list[TaskOutput], Field(title='Tasks')]
-    method: Annotated[
-        Literal['llm', 'manual'] | None,
-        Field(description='Label with models or enter labels manually.', title='Method'),
-    ] = 'llm'
+
+
+class SetLabels(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    task: Annotated[
+        TaskInput | None,
+        Field(
+            description="The question the labels answer: needed with the first labels in a column, and otherwise the same as then. Its `column` is the column's name; it asks no models."
+        ),
+    ] = None
+    labels: Annotated[list[Label], Field(max_length=1000, min_length=1, title='Labels')]
 
 
 class TaskTypes(BaseModel):
@@ -1114,7 +1212,21 @@ class Comparison(BaseModel):
     tolerance: Annotated[float | None, Field(title='Tolerance')]
     values_completeness: Completeness
     crosstab_completeness: Completeness | None
-    rows: Annotated[int, Field(description='Rows compared: those the query returns.', title='Rows')]
+    scope_rows: Annotated[int, Field(description='Rows the query returns.', title='Scope Rows')]
+    rows: Annotated[
+        int,
+        Field(
+            description='Rows compared: with `rows` `common`, those where every column has a value; otherwise all the query returns.',
+            title='Rows',
+        ),
+    ]
+    coverage: Annotated[
+        list[ColumnCoverage],
+        Field(
+            description='How many rows each column has a value in, and how many of them were left out.',
+            title='Coverage',
+        ),
+    ]
     columns: Annotated[
         list[str],
         Field(description='The columns compared, with the reference last.', title='Columns'),
@@ -1145,7 +1257,7 @@ class Comparison(BaseModel):
     costs: Annotated[
         list[ColumnCost],
         Field(
-            description='For each column a model wrote in a run, what it cost. Uploaded and manual columns have none.',
+            description="For each column a model wrote, what it cost. The file's columns and labels have none.",
             title='Costs',
         ),
     ]
@@ -1153,10 +1265,11 @@ class Comparison(BaseModel):
 
 class Run(BaseModel):
     id: Annotated[str, Field(title='Id')]
-    dataset_id: Annotated[str, Field(description='The dataset it makes.', title='Dataset Id')]
+    dataset_id: Annotated[
+        str, Field(description='The dataset it adds answers to.', title='Dataset Id')
+    ]
     status: Annotated[
-        Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed', 'manual'],
-        Field(title='Status'),
+        Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'], Field(title='Status')
     ]
     config: Annotated[
         RunRequestOutput, Field(description='The query and tasks it was started with.')
@@ -1172,7 +1285,7 @@ class Run(BaseModel):
     columns: Annotated[
         list[str],
         Field(
-            description="The output columns; manual runs use the task's column name without a model suffix.",
+            description='The answer columns it writes, without their `_proba` and `_reason` columns.',
             title='Columns',
         ),
     ]
@@ -1180,13 +1293,14 @@ class Run(BaseModel):
         list[TaskModelCost], Field(description='Per task and model, so far.', title='Costs')
     ]
     row_count: Annotated[
-        int, Field(description='Rows it asks about: the rows in its scope.', title='Row Count')
+        int,
+        Field(
+            description='Rows it asks about: those the query picks that miss one of its answers.',
+            title='Row Count',
+        ),
     ]
-    next_chunk: Annotated[
-        int, Field(description='The first chunk of rows not yet written.', title='Next Chunk')
-    ]
-    done: Annotated[int, Field(description='Answers saved (or failed) so far.', title='Done')]
-    total: Annotated[int, Field(description='Answers the run asks for.', title='Total')]
+    done: Annotated[int, Field(description='Answers asked so far, failed ones too.', title='Done')]
+    total: Annotated[int, Field(description='Answers it asks for.', title='Total')]
     cost: Annotated[
         float, Field(description='USD spent so far; cached answers are free.', title='Cost')
     ]
@@ -1197,7 +1311,7 @@ class Run(BaseModel):
     provider_id: Annotated[
         str | None,
         Field(
-            description="The model provider its calls go to, kept from when it started. Empty on the server's key, and for manual runs.",
+            description="The model provider its calls go to, kept from when it started. Empty on the server's key.",
             title='Provider Id',
         ),
     ]

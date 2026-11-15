@@ -2,8 +2,9 @@
 
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
 import {
-  ChevronRightIcon,
   ChevronUpIcon,
+  CircleAlertIcon,
+  CirclePauseIcon,
   CircleUserIcon,
   DownloadIcon,
   KeyRoundIcon,
@@ -17,7 +18,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { useMemo, useState } from "react";
 
 import { PaneHeader } from "@/components/pane";
 import { TooltipButton } from "@/components/tooltip-button";
@@ -39,21 +39,21 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
-import { Spinner } from "@/components/ui/spinner";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item";
 import { ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
-import { type Dataset, type Settings, signOut } from "@/lib/api/client";
-import { datasetTree } from "@/lib/dataset-tree";
+import { Spinner } from "@/components/ui/spinner";
+import { type DatasetSummary, type Settings, signOut } from "@/lib/api/client";
 import type { Section } from "@/lib/settings";
 import { formatNumber } from "@/lib/format";
-import { isActive } from "@/lib/runs";
-import { useSlideReorder } from "@/lib/use-slide-reorder";
 
-type DatasetRun = NonNullable<Dataset["run"]>;
-
-const MAX_INDENT = 3;
-
-/** The left column: every dataset, added from a file or made by a run, and app-wide settings. */
+/** The left column: every dataset, one per file, newest first, and app-wide settings. */
 export function DatasetsPanel({
   datasets,
   selectedId,
@@ -64,31 +64,19 @@ export function DatasetsPanel({
   onDelete,
   onSettings,
 }: {
-  datasets: Dataset[] | null;
+  datasets: DatasetSummary[] | null;
   selectedId: string | null;
   settings: Settings | undefined;
   onAdd: () => void;
-  onExport: (dataset: Dataset) => void;
-  onRename: (dataset: Dataset) => void;
-  onDelete: (dataset: Dataset) => void;
+  onExport: (dataset: DatasetSummary) => void;
+  onRename: (dataset: DatasetSummary) => void;
+  onDelete: (dataset: DatasetSummary) => void;
   onSettings: (section: Section) => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
   const me = useMe();
   const canEdit = useCan("member");
   const canAdmin = useCan("admin");
-  const [collapsed, setCollapsed] = useState(new Set<string>());
-  const rows = useMemo(() => datasetTree(datasets ?? [], collapsed), [datasets, collapsed]);
-  // A run brings its dataset's family to the top: it slides there.
-  const slideRef = useSlideReorder(rows.map((r) => r.dataset.id));
-
-  function toggle(id: string) {
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-  }
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -119,72 +107,49 @@ export function DatasetsPanel({
         ) : datasets.length === 0 ? (
           <p className="px-2 py-1 text-sm text-muted-foreground">No datasets yet.</p>
         ) : (
-          <ItemGroup className="relative gap-0.5">
-            {rows.map(({ dataset, depth, hasChildren, open }) => (
-              <div
-                key={dataset.id}
-                ref={slideRef(dataset.id)}
-                className="flex items-center gap-0.5"
-                // Deep chains stop indenting, so names stay readable in a narrow column.
-                style={{ paddingLeft: Math.min(depth, MAX_INDENT) * 12 }}
-              >
-                {hasChildren ? (
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={open ? "Hide what was made from it" : "Show what was made from it"}
-                    aria-expanded={open}
-                    onClick={() => toggle(dataset.id)}
-                  >
-                    <ChevronRightIcon
-                      className={open ? "rotate-90 transition-transform" : "transition-transform"}
+          <ItemGroup className="gap-0.5">
+            {datasets.map((dataset) => (
+              <ContextMenu key={dataset.id}>
+                <ContextMenuTrigger
+                  render={
+                    <Item
+                      size="xs"
+                      variant={dataset.id === selectedId ? "muted" : "default"}
+                      aria-current={dataset.id === selectedId ? "page" : undefined}
+                      className="relative min-w-0 flex-nowrap overflow-hidden aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground"
+                      render={<Link href={`/?dataset=${dataset.id}`} />}
                     />
-                  </Button>
-                ) : null}
-                <ContextMenu>
-                  <ContextMenuTrigger
-                    render={
-                      <Item
-                        size="xs"
-                        variant={dataset.id === selectedId ? "muted" : "default"}
-                        aria-current={dataset.id === selectedId ? "page" : undefined}
-                        className="relative min-w-0 flex-1 overflow-hidden aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground"
-                        render={<Link href={`/?dataset=${dataset.id}`} />}
-                      />
-                    }
+                  }
+                >
+                  {dataset.active_runs > 0 && <RunProgress dataset={dataset} />}
+                  <ItemContent className="min-w-0">
+                    <ItemTitle className="w-full truncate" title={dataset.name}>
+                      {dataset.name}
+                    </ItemTitle>
+                    <ItemDescription className="truncate text-xs">
+                      {describe(dataset)}
+                    </ItemDescription>
+                  </ItemContent>
+                  <RunStatus dataset={dataset} />
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem disabled={!canEdit} onClick={() => onRename(dataset)}>
+                    Rename…
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!canEdit} onClick={() => onExport(dataset)}>
+                    <DownloadIcon />
+                    Export…
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    variant="destructive"
+                    disabled={!canEdit}
+                    onClick={() => onDelete(dataset)}
                   >
-                    {dataset.run && isActive(dataset.run) && <RunProgress run={dataset.run} />}
-                    <ItemContent className="min-w-0">
-                      <ItemTitle className="w-full truncate" title={dataset.name}>
-                        {dataset.name}
-                      </ItemTitle>
-                      <ItemDescription className="truncate text-xs">
-                        {describe(dataset)}
-                      </ItemDescription>
-                    </ItemContent>
-                  </ContextMenuTrigger>
-                  <ContextMenuContent>
-                    <ContextMenuItem disabled={!canEdit} onClick={() => onRename(dataset)}>
-                      Rename…
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      disabled={!canEdit || (!!dataset.run && isActive(dataset.run))}
-                      onClick={() => onExport(dataset)}
-                    >
-                      <DownloadIcon />
-                      Export…
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      variant="destructive"
-                      disabled={!canEdit}
-                      onClick={() => onDelete(dataset)}
-                    >
-                      <Trash2Icon />
-                      Delete
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                </ContextMenu>
-              </div>
+                    <Trash2Icon />
+                    Delete
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             ))}
           </ItemGroup>
         )}
@@ -250,20 +215,44 @@ export function DatasetsPanel({
   );
 }
 
-/** E.g. "600 rows · 12 columns", with how its run stands while that isn't done, e.g. "· stopped". */
-function describe(dataset: Dataset): string {
-  const size = `${formatNumber(dataset.row_count)} rows · ${dataset.columns.length - 1} columns`;
-  return dataset.run && dataset.run.status !== "done" ? `${size} · ${dataset.run.status}` : size;
+/** E.g. "600 rows · 3 answer columns". */
+function describe(dataset: DatasetSummary): string {
+  const rows = `${formatNumber(dataset.row_count)} rows`;
+  if (!dataset.answer_columns) return rows;
+  return `${rows} · ${dataset.answer_columns} answer column${dataset.answer_columns === 1 ? "" : "s"}`;
 }
 
-/** A thin bar along the top edge of a dataset a run is making: how many model calls are done. */
-function RunProgress({ run }: { run: DatasetRun }) {
-  const percent = run.total ? (100 * run.done) / run.total : 0;
+/** How the dataset's runs stand, unless all is well: going, or the newest failed or was stopped. */
+function RunStatus({ dataset }: { dataset: DatasetSummary }) {
+  const [icon, label] =
+    dataset.active_runs > 0
+      ? [<Spinner key="running" />, `${dataset.active_runs} running`]
+      : dataset.last_run_status === "failed"
+        ? [<CircleAlertIcon key="failed" className="text-destructive" />, "Its last run failed"]
+        : dataset.last_run_status === "stopped"
+          ? [<CirclePauseIcon key="stopped" />, "Its last run was stopped"]
+          : [null, null];
+  if (!icon) return null;
+  return (
+    <ItemActions
+      role="img"
+      aria-label={label!}
+      title={label!}
+      className="text-muted-foreground [&_svg]:size-3.5"
+    >
+      {icon}
+    </ItemActions>
+  );
+}
+
+/** A thin bar along the top edge of a dataset runs are adding to: how many of their answers are in. */
+function RunProgress({ dataset }: { dataset: DatasetSummary }) {
+  const percent = dataset.active_total ? (100 * dataset.active_done) / dataset.active_total : 0;
   return (
     <ProgressPrimitive.Root
       value={percent}
       aria-label="Progress"
-      title={`${formatNumber(run.done)} of ${formatNumber(run.total)} answers`}
+      title={`${formatNumber(dataset.active_done)} of ${formatNumber(dataset.active_total)} answers`}
       className="absolute inset-x-0 top-0"
     >
       <ProgressTrack className="h-0.5 rounded-none bg-transparent">

@@ -1,13 +1,16 @@
-"""Runs: tasks asked about the rows a query picks, making a new dataset, by runners taking turns.
+"""Runs: tasks asked by models about the rows a query picks, adding answer columns to the dataset,
+by runners taking turns.
 
-Starting a run copies the selected rows into a new dataset, which shows up straight away;
-they get their answers as the run goes. The run keeps
-a frozen copy of its query and tasks. It works in chunks of those rows by `__row_id` (chunk k is always
-the same rows). A chunk's answers are written to the dataset's `parts/part-{k}.parquet` in one go, and
-only then does the run's bookmark (`next_chunk`) move on. So a stop, a crash or a restart loses at most
-the chunk in progress, and redoing it costs nothing: the replies paid for are journaled until the chunk
-is written (see `answers`). When every chunk is written, the dataset is written out as one Parquet
-file.
+A run asks only for answers its dataset doesn't have yet. A cell an earlier run answered (a try on a
+few rows, say) is skipped, and so is a row missing a value the prompt uses, e.g. an earlier answer
+that failed. So starting the same run again, after a stop or a failure, asks only what is still missing.
+
+The rows a run asks about are listed when it starts (`runs/{id}/asked.parquet`), and it works in chunks
+of them: chunk k is always the same rows. A chunk's answers are written to `runs/{id}/part-{k}.parquet`
+in one go, and only then does the run's bookmark (`next_chunk`) move on. So a stop, a crash or a
+restart loses at most the chunk in progress, and redoing it costs nothing: the replies paid for are
+journaled until the chunk is written (see `replies`). When the run ends (done, stopped or failed), its
+parts are written out as one file, `runs/{id}.parquet`.
 
 Runners take turns: a runner does one chunk of a run, then puts it back in the queue (`process_next`).
 The next turn goes to a run that has waited long (`ROWLAB_RUN_WAIT_SECONDS`), or else to the one with
@@ -26,13 +29,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from rowlab.core import (
-    answers,
     catalog,
     datasets,
     db,
     metrics,
     model_providers,
     prompts,
+    replies,
     sql,
     storage,
     tasks,
@@ -56,10 +59,7 @@ STALE_SECONDS = 120
 
 log = logging.getLogger(__name__)
 
-Status = Literal["queued", "running", "stopping", "stopped", "done", "failed", "manual"]
-
-# Statuses of a run that still has work to do.
-ACTIVE = ("queued", "running", "stopping")
+Status = Literal["queued", "running", "stopping", "stopped", "done", "failed"]
 
 
 class TaskModelCost(BaseModel):
@@ -68,7 +68,7 @@ class TaskModelCost(BaseModel):
     cost: float = Field(description="USD spent by this run; cached answers are free.")
     input_tokens: int = Field(0, description="Prompt tokens billed, as the provider counts them.")
     output_tokens: int = Field(0, description="Answer tokens billed.")
-    failed: int = Field(description="Rows without an answer.")
+    failed: int = Field(description="Answers that failed; starting the run again asks them again.")
 
 
 class RunRequest(BaseModel):
@@ -77,47 +77,53 @@ class RunRequest(BaseModel):
     sql: str = Field(
         sql.ALL_ROWS,
         description="Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows "
-        "by default.",
+        "by default. For a sample that grows without changing, order by a hash: `SELECT * FROM "
+        "data ORDER BY md5('s1' || __row_id) LIMIT 50`.",
     )
     tasks: list[Task]
-    method: Literal["llm", "manual"] = Field(
-        "llm", description="Label with models or enter labels manually."
-    )
 
 
 class Run(BaseModel):
     id: str
-    dataset_id: str = Field(description="The dataset it makes.")
+    dataset_id: str = Field(description="The dataset it adds answers to.")
     status: Status
     config: RunRequest = Field(description="The query and tasks it was started with.")
     models: dict[str, catalog.Model] = Field(
         {}, description="The models it asks, by id, with their kinds and prices as when it started."
     )
     columns: list[str] = Field(
-        description="The output columns; manual runs use the task's column name without a model suffix."
+        description="The answer columns it writes, without their `_proba` and `_reason` columns."
     )
     costs: list[TaskModelCost] = Field(description="Per task and model, so far.")
-    row_count: int = Field(description="Rows it asks about: the rows in its scope.")
-    next_chunk: int = Field(description="The first chunk of rows not yet written.")
-    done: int = Field(description="Answers saved (or failed) so far.")
-    total: int = Field(description="Answers the run asks for.")
+    row_count: int = Field(
+        description="Rows it asks about: those the query picks that miss one of its answers."
+    )
+    done: int = Field(description="Answers asked so far, failed ones too.")
+    total: int = Field(description="Answers it asks for.")
     cost: float = Field(description="USD spent so far; cached answers are free.")
     error: str | None = Field(description="Why the run failed.")
     created_by: str | None = Field(description="The user who started it; empty locally.")
     provider_id: str | None = Field(
         description="The model provider its calls go to, kept from when it started. Empty on the "
-        "server's key, and for manual runs."
+        "server's key."
     )
     created_at: datetime
     updated_at: datetime | None
 
 
 class Estimate(BaseModel):
-    rows: int = Field(description="Rows the run would ask about.")
-    calls: int = Field(description="Model calls it would make.")
+    rows: int = Field(description="Rows the query picks.")
+    answered: int = Field(description="Answers those rows have already, which it won't ask again.")
+    calls: int = Field(description="Answers it would ask models for.")
+    missing_input: int = Field(
+        description="Answers it would skip, because a column the prompt uses is empty in the row."
+    )
+    failed_before: int = Field(
+        description="Of the answers it would ask for, those an earlier run asked and didn't get."
+    )
     cost: float = Field(
-        description="Roughly what it would cost in USD, from sample rows' token counts and the models' "
-        "prices; answers already given to the same rows in the dataset's tree would be free."
+        description="Roughly what it would cost in USD, from sample rows' token counts and the "
+        "models' prices; replies kept from earlier runs would be free."
     )
     problem: str | None = Field(description="Why it can't run as it is, and what to change.")
 
@@ -137,85 +143,103 @@ _shutdown = threading.Event()
 
 
 def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> Run:
-    """Queue a run of every task with every model on the rows the query picks, started by
-    `created_by` (a user; nobody locally). Its dataset, with the selected rows of the dataset and empty
-    answer columns, is created right away."""
-    request = _normalized(request)
-    manual = request.method == "manual"
+    """Queue a run of every task with every model on the rows the query picks, asking only for the
+    answers those rows don't have yet; started by `created_by` (a user; nobody locally)."""
     check(dataset_id, request)
-    provider_id = None if manual else model_providers.for_new_run(datasets.org_of(dataset_id))
+    provider_id = model_providers.for_new_run(datasets.org_of(dataset_id))
     models = {model: catalog.get(model) for task in request.tasks for model in task.models}
-    with sql.connect(dataset_id) as con:
-        query = sql.row_ids(con, request.sql)
-        asked = [r[0] for r in sql.execute(con, f"{query} ORDER BY {ROW_ID}").fetchall()]
-    if not asked:
+    plan = _plan(dataset_id, request, rows=True)
+    if not plan.rows:
         raise InvalidRequest("The query picks no rows.")
-
-    made_id = datasets.write_run_rows(dataset_id, asked)
-    try:
-        # An empty part gives the answer columns their types before any chunk is written.
-        datasets.write_run_part(
-            made_id, tasks.part_columns(request.tasks, manual=manual), "part-schema", {}
+    if not plan.asked:
+        raise InvalidRequest(
+            "The rows the query picks have these answers already, or miss a column the prompt uses."
         )
-        datasets.register_run_dataset(made_id, dataset_id)
-        run_id = uuid.uuid4().hex
+
+    run_id = uuid.uuid4().hex
+    asked = _asked_file(dataset_id, run_id)
+    with storage.connect() as con:
+        storage.write(
+            con,
+            f"SELECT unnest(?::BIGINT[]) AS {ROW_ID}, unnest(?::INTEGER[]) AS chunk",
+            asked,
+            [plan.asked, [i // CHUNK_ROWS for i in range(len(plan.asked))]],
+        )
+    try:
         with db.connect() as conn:
+            # One at a time per dataset, so two runs never ask for the same answers.
+            datasets.lock(conn, dataset_id)
+            for other in _active(conn, dataset_id):
+                same = _pairs(request) & _pairs(other.config)
+                if same:
+                    column, model = min(same)
+                    raise InvalidRequest(
+                        f"A run is already asking {tasks.model_slug(model)} for `{column}`: stop it, "
+                        "or wait for it to end."
+                    )
+            for task in request.tasks:
+                datasets.check_answers(dataset_id, task, list(task.models))
+                for model in task.models:
+                    datasets.add_answers(conn, dataset_id, task, model)
+            now = datetime.now(UTC).isoformat()
             conn.execute(
                 "INSERT INTO runs (id, dataset_id, status, config, models, columns, costs,"
                 " row_count, total, created_at, queued_at, created_by, provider_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)",
+                " VALUES (?, ?, 'queued', ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
-                    made_id,
-                    "manual" if manual else "queued",
+                    dataset_id,
                     request.model_dump_json(),
                     json.dumps({k: m.model_dump() for k, m in models.items()}),
-                    json.dumps(tasks.answer_columns(request.tasks, manual=manual)),
-                    len(asked),
-                    len(asked) * sum(1 if manual else len(task.models) for task in request.tasks),
-                    datetime.now(UTC).isoformat(),
-                    datetime.now(UTC).isoformat(),
+                    json.dumps([c for task in request.tasks for c in tasks.result_columns(task)]),
+                    len(plan.asked),
+                    plan.calls,
+                    now,
+                    now,
                     created_by,
                     provider_id,
                 ),
             )
     except BaseException:
-        with db.connect() as conn:
-            conn.execute("DELETE FROM datasets WHERE id = ?", (made_id,))
-        storage.delete_dataset(made_id)
+        storage.delete(asked)
         raise
     _wake.set()
     return get_run(run_id)
 
 
-def _normalized(request: RunRequest) -> RunRequest:
-    """The request as it runs: manual tasks ask no models and give no reasons."""
-    if request.method == "llm":
-        return request
-    return request.model_copy(
-        update={
-            "tasks": [t.model_copy(update={"models": [], "reason": False}) for t in request.tasks]
-        }
-    )
+def list_runs(dataset_id: str) -> list[Run]:
+    """The dataset's runs, newest first."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM runs WHERE dataset_id = ? ORDER BY created_at DESC", (dataset_id,)
+        ).fetchall()
+    return [_from_row(row) for row in rows]
+
+
+def _active(conn: db.Connection, dataset_id: str) -> list[Run]:
+    rows = conn.execute(
+        f"SELECT * FROM runs WHERE dataset_id = ? AND status IN {datasets._ACTIVE}", (dataset_id,)
+    ).fetchall()
+    return [_from_row(row) for row in rows]
+
+
+def _pairs(request: RunRequest) -> set[tuple[str, str]]:
+    """The answers a run asks for, as (column, model)."""
+    return {(task.column, model) for task in request.tasks for model in task.models}
 
 
 def check(dataset_id: str, request: RunRequest) -> None:
-    """Raise InvalidRequest, naming the task, if the run can't go as configured. Takes a
-    `_normalized` request."""
+    """Raise InvalidRequest, naming the task, if the run can't go as configured."""
     if not request.tasks:
         raise InvalidRequest("Add a task.")
     if len({t.id for t in request.tasks}) != len(request.tasks) or any(
         not t.id for t in request.tasks
     ):
         raise InvalidRequest("Each task needs a unique, nonempty id.")
-    parent = datasets.get_dataset(dataset_id)
-    if parent.run and parent.run.status == "manual":
-        raise InvalidRequest("Finish this dataset before starting another run on it.")
-    manual = request.method == "manual"
     on_server_key = model_providers.status(datasets.org_of(dataset_id)) == "server"
     for task in request.tasks:
         try:
-            tasks.check(task, manual=manual)
+            tasks.check(task)
             for model in task.models:
                 found = catalog.get(model)
                 # The server pays: only for the models it lists, not any OpenRouter has.
@@ -234,18 +258,117 @@ def check(dataset_id: str, request: RunRequest) -> None:
                     raise InvalidRequest(
                         f"Only LLMs give a reason: {tasks.model_slug(model)} is a decision model."
                     )
+            datasets.check_answers(dataset_id, task, list(task.models))
         except InvalidRequest as e:
             raise InvalidRequest(f"Task {task.column or 'without a column name'}: {e}") from e
-    columns = tasks.answer_columns(request.tasks, manual=manual)
+    columns = [c for task in request.tasks for c in tasks.result_columns(task)]
     duplicates = sorted({c for c in columns if columns.count(c) > 1})
     if duplicates:
         raise InvalidRequest(f"Two tasks write the same column: {', '.join(duplicates)}.")
-    # E.g. running the same task again on a dataset an earlier run made.
-    existing = sorted(set(columns) & {c.name for c in datasets.get_dataset(dataset_id).columns})
-    if existing:
-        raise InvalidRequest(
-            f"The dataset already has a column {', '.join(existing)}. Rename the task's result column."
+
+
+class _Plan(BaseModel):
+    rows: int = 0
+    asked: list[int] = []
+    calls: int = 0
+    answered: int = 0
+    missing_input: int = 0
+    failed_before: int = 0
+    # Answers to ask for, by task id and model.
+    by_model: dict[tuple[str, str], int] = {}
+
+
+def _plan(dataset_id: str, request: RunRequest, *, rows: bool = False) -> _Plan:
+    """What a run would ask for: per task and model, the rows the query picks that miss the
+    answer and have the prompt's inputs; with `rows`, the rows to ask about."""
+    keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
+    have = {(a.name, a.model): a for a in datasets.answer_columns(dataset_id)}
+    earlier = _ended(dataset_id)
+    expressions = ["count(*)"]
+    asks = []
+    for task in request.tasks:
+        present = (
+            " AND ".join(
+                f"t.{'.'.join(sql_ident(k) for k in path)} IS NOT NULL"
+                for path in prompts.inputs(task.template, keys)
+            )
+            or "TRUE"
         )
+        for model in task.models:
+            columns = tasks.columns(task, model)
+            if not columns:
+                continue  # An extract task without fields: `check` says so.
+            answer = columns[0][0]
+            empty = f"t.{sql_ident(answer)} IS NULL" if (task.column, model) in have else "TRUE"
+            ask = f"({empty} AND {present})"
+            asks.append(ask)
+            files = earlier.get((task.column, model), [])
+            tried = (
+                " OR ".join(
+                    f"t.{ROW_ID} IN (SELECT {ROW_ID} FROM read_parquet({sql_string(f)})"
+                    f" WHERE chunk < {n})"
+                    for f, n in files
+                )
+                if files
+                else "FALSE"
+            )
+            expressions += [
+                f"count(*) FILTER ({ask})",
+                f"count(*) FILTER (NOT ({empty}))",
+                f"count(*) FILTER ({empty} AND NOT ({present}))",
+                f"count(*) FILTER ({ask} AND ({tried}))",
+            ]
+    plan = _Plan()
+    with sql.connect(dataset_id) as con:
+        picked = f"SELECT * FROM data AS t WHERE {ROW_ID} IN ({sql.row_ids(con, request.sql)})"
+        found = sql.execute(con, f"SELECT {', '.join(expressions)} FROM ({picked}) AS t").fetchone()
+        if rows and asks:
+            plan.asked = [
+                r[0]
+                for r in sql.execute(
+                    con,
+                    f"SELECT {ROW_ID} FROM ({picked}) AS t WHERE {' OR '.join(asks)}"
+                    f" ORDER BY {ROW_ID}",
+                ).fetchall()
+            ]
+    plan.rows = found[0]
+    i = 1
+    for task in request.tasks:
+        for model in task.models:
+            if not tasks.columns(task, model):
+                continue
+            ask, answered, missing, failed = found[i : i + 4]
+            i += 4
+            plan.by_model[(task.id, model)] = ask
+            plan.calls += ask
+            plan.answered += answered
+            plan.missing_input += missing
+            plan.failed_before += failed
+    return plan
+
+
+def _ended(dataset_id: str) -> dict[tuple[str, str], list[tuple[str, int]]]:
+    """The rows ended runs asked about, as their files and how many chunks they got through, by
+    the answers they asked for."""
+    have = {(a.name, a.model) for a in datasets.answer_columns(dataset_id)}
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, config, next_chunk FROM runs WHERE dataset_id = ?"
+            f" AND status NOT IN {datasets._ACTIVE} AND next_chunk > 0",
+            (dataset_id,),
+        ).fetchall()
+    found: dict[tuple[str, str], list[tuple[str, int]]] = {}
+    for row in rows:
+        for pair in _pairs(RunRequest.model_validate_json(row["config"])):
+            if pair in have:
+                found.setdefault(pair, []).append(
+                    (_asked_file(dataset_id, row["id"]), row["next_chunk"])
+                )
+    return found
+
+
+def _asked_file(dataset_id: str, run_id: str) -> str:
+    return storage.location(dataset_id, "runs", run_id, "asked.parquet")
 
 
 # Rows sampled to estimate prompt sizes, and roughly how many tokens answers take.
@@ -258,34 +381,46 @@ _DECISION_FRAMING_TOKENS = 260
 
 
 def estimate(dataset_id: str, request: RunRequest) -> Estimate:
-    """How many rows and model calls a run would take, and roughly what it would cost."""
-    request = _normalized(request)
+    """How many answers a run would ask for, and roughly what it would cost."""
     try:
-        total = sql.count(dataset_id, request.sql)
+        check(dataset_id, request)
+        problem = None
+    except InvalidRequest as e:
+        problem = str(e)
+    try:
+        plan = _plan(dataset_id, request)
         rows = sql.query(
             dataset_id, sql.QueryRequest(sql=request.sql, limit=ESTIMATE_SAMPLE_ROWS)
         ).rows
     except InvalidRequest as e:
-        return Estimate(rows=0, calls=0, cost=0, problem=str(e))
-    calls = total * sum(len(task.models) for task in request.tasks)
-    problem = None
-    try:
-        check(dataset_id, request)
-        if total == 0:
-            raise InvalidRequest("The query picks no rows.")
-    except InvalidRequest as e:
-        problem = str(e)
-    if request.method == "manual":
-        return Estimate(rows=total, calls=0, cost=0, problem=problem)
-    if problem or not rows:
-        return Estimate(rows=total, calls=calls, cost=0, problem=problem)
+        return Estimate(
+            rows=0,
+            answered=0,
+            calls=0,
+            missing_input=0,
+            failed_before=0,
+            cost=0,
+            problem=problem or str(e),
+        )
+    found = Estimate(
+        rows=plan.rows,
+        answered=plan.answered,
+        calls=plan.calls,
+        missing_input=plan.missing_input,
+        failed_before=plan.failed_before,
+        cost=0,
+        problem=problem,
+    )
+    if not problem and plan.rows == 0:
+        found.problem = "The query picks no rows."
+    if found.problem or not rows:
+        return found
     # The cost is worth knowing before a provider is added, too.
     if model_providers.status(datasets.org_of(dataset_id)) is None:
-        problem = model_providers.NO_PROVIDER
+        found.problem = model_providers.NO_PROVIDER
 
     keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
     prices = {model: catalog.get(model) for task in request.tasks for model in task.models}
-    cost = 0.0
     for task in request.tasks:
         prompts_by_row = [prompts.render(task.template, row, keys) for row in rows]
         if task.type == "write":
@@ -311,11 +446,11 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
             ) / len(rows)
             if prices[model].kind == "decision":
                 prompt_tokens += _DECISION_FRAMING_TOKENS
-            cost += total * (
+            found.cost += plan.by_model[(task.id, model)] * (
                 prompt_tokens * prices[model].prompt_price
                 + answer_tokens * prices[model].completion_price
             )
-    return Estimate(rows=total, calls=calls, cost=cost, problem=problem)
+    return found
 
 
 def get_run(run_id: str) -> Run:
@@ -323,29 +458,11 @@ def get_run(run_id: str) -> Run:
         row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
     if row is None:
         raise NotFound(f"Run {run_id} not found")
-    run = _from_row(row)
-    if run.status == "manual":
-        # Parts are authoritative if a save stopped before updating progress.
-        run.done = manual_done(run)
-    return run
-
-
-def manual_done(run: Run) -> int:
-    """Saved answers, including false and empty text; entirely empty answers are unanswered."""
-    expressions = [
-        "count(*) FILTER (WHERE "
-        + " OR ".join(f"{sql_ident(name)} IS NOT NULL" for name, _ in tasks.manual_columns(task))
-        + ")"
-        for task in run.config.tasks
-    ]
-    with storage.connect() as con:
-        return con.execute(
-            f"SELECT {' + '.join(expressions)} FROM read_parquet({sql_string(storage.location(run.dataset_id, 'parts', '*.parquet'))})"
-        ).fetchone()[0]
+    return _from_row(row)
 
 
 def check_access(org_id: str, run_id: str) -> None:
-    """Raise NotFound unless the run makes one of the organisation's datasets."""
+    """Raise NotFound unless the run is on one of the organisation's datasets."""
     try:
         datasets.check_access(org_id, get_run(run_id).dataset_id)
     except NotFound:
@@ -353,37 +470,46 @@ def check_access(org_id: str, run_id: str) -> None:
 
 
 def stop_run(run_id: str) -> Run:
-    """Stop after the calls in flight; a queued run stops right away. Resume continues it."""
+    """Stop after the calls in flight; a queued run stops right away. Starting the same run again
+    asks for what it didn't get to."""
     run = get_run(run_id)
-    status = {"queued": "stopped", "running": "stopping"}.get(run.status)
-    if status is None:
+    if run.status == "queued":
+        with db.connect() as conn:
+            stopped = conn.execute(
+                "UPDATE runs SET status = 'stopping' WHERE id = ? AND status = 'queued'", (run_id,)
+            ).rowcount
+        if stopped:
+            _end(run_id, "stopped")
+    elif run.status == "running":
+        _set(run_id, status="stopping")
+    else:
         raise InvalidRequest(f"The run is {run.status}, not running.")
-    _set(run_id, status=status)
     return get_run(run_id)
 
 
-def resume_run(run_id: str) -> Run:
-    """Queue a stopped or failed run again, or a done one with failed answers. It first asks the
-    answers that failed again, then continues from its first unwritten chunk."""
-    run = get_run(run_id)
-    failed = any(c.failed for c in run.costs)
-    if run.status not in ("stopped", "failed") and not (run.status == "done" and failed):
-        raise InvalidRequest(f"The run is {run.status}, with nothing to resume.")
-    if run.config.method == "llm":
-        # One that can't go on (its provider deleted, say) is left as it is.
-        model_providers.for_run(datasets.org_of(run.dataset_id), run.provider_id)
-    if run.status == "done":
-        datasets.reopen_run_dataset(run.dataset_id)
-    _set(
-        run_id,
-        status="queued",
-        error=None,
-        queued_at=datetime.now(UTC).isoformat(),
-        # Its failed answers are asked again first, chunk by chunk.
-        retry_chunk=0 if failed and run.next_chunk else None,
-    )
-    _wake.set()
-    return get_run(run_id)
+def _end(run_id: str, status: str, error: str | None = None) -> None:
+    """End a run: write its parts out as one file, with its replies, then mark it."""
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT dataset_id, next_chunk FROM runs WHERE id = ?", (run_id,)
+        ).fetchone()
+    if row is None:
+        return  # Deleted with its dataset.
+    dataset_id, chunks = row["dataset_id"], row["next_chunk"]
+    if chunks:
+        parts = datasets.run_files(dataset_id, run_id, "running", chunks)
+        with storage.connect() as con:
+            storage.write(
+                con,
+                f"SELECT * FROM read_parquet([{', '.join(map(sql_string, parts))}])"
+                f" ORDER BY {ROW_ID}",
+                storage.location(dataset_id, "runs", f"{run_id}.parquet"),
+            )
+    replies.finish(dataset_id, run_id, chunks)
+    _set(run_id, status=status, error=error)
+    for part in datasets.run_files(dataset_id, run_id, "running", chunks):
+        storage.delete(part)
+    replies.delete_parts(dataset_id, run_id, chunks)
 
 
 def start_runner() -> None:
@@ -404,10 +530,11 @@ def recover_interrupted_runs(stale_after: float | None = None) -> None:
             "UPDATE runs SET status = 'queued' WHERE status = 'running' AND updated_at <= ?",
             (stale,),
         )
-        conn.execute(
-            "UPDATE runs SET status = 'stopped' WHERE status = 'stopping' AND updated_at <= ?",
-            (stale,),
-        )
+        stopping = conn.execute(
+            "SELECT id FROM runs WHERE status = 'stopping' AND updated_at <= ?", (stale,)
+        ).fetchall()
+    for row in stopping:
+        _end(row["id"], "stopped")
 
 
 def process_next() -> bool:
@@ -415,11 +542,7 @@ def process_next() -> bool:
     Several runners can share the queue: each claims a different run."""
     now = datetime.now(UTC)
     long_ago = (now - timedelta(seconds=config().run_wait_seconds)).isoformat()
-    # Chunks left, counting failed answers still to ask again.
-    left = (
-        f"(r.row_count + {CHUNK_ROWS - 1}) / {CHUNK_ROWS} - r.next_chunk"
-        " + coalesce(r.next_chunk - r.retry_chunk, 0)"
-    )
+    left = f"(r.row_count + {CHUNK_ROWS - 1}) / {CHUNK_ROWS} - r.next_chunk"
     with db.connect() as conn:
         row = conn.execute(
             "UPDATE runs SET status = 'running', updated_at = ? WHERE id = ("
@@ -461,59 +584,61 @@ def shut_down() -> None:
 
 
 def _process(run_id: str) -> None:
-    """One turn of a claimed run: one chunk of failed answers to ask again, or else the next chunk.
-    Then it waits in the queue again, or is done."""
+    """One turn of a claimed run: its next chunk. Then it waits in the queue again, or ends."""
     run = get_run(run_id)
-    retry = _retry_chunk(run_id)
-    if retry is not None and (retry >= run.next_chunk or not any(c.failed for c in run.costs)):
-        retry = None
     chunks = -(-run.row_count // CHUNK_ROWS)
     try:
         org_id = datasets.org_of(run.dataset_id)
         use = model_providers.for_run(org_id, run.provider_id)
         keys = {path: k for path, (_, k) in datasets.dataset_fields(run.dataset_id).items()}
-        if retry is not None:
-            finished = _process_chunk(run, retry, keys, org_id, use, retry=True)
-            retry += 1
-        else:
-            finished = run.next_chunk >= chunks or _process_chunk(
-                run, run.next_chunk, keys, org_id, use
-            )
-        if not finished:
+        chunk = _next_chunk(run_id)
+        if chunk < chunks and not _process_chunk(run, chunk, keys, org_id, use):
             # Stopped by its user, or deleted; or this runner is shutting down and gives it back.
-            with db.connect() as conn:
-                conn.execute(
-                    "UPDATE runs SET status = CASE WHEN status = 'stopping' THEN 'stopped'"
-                    " ELSE 'queued' END, updated_at = ? WHERE id = ?",
-                    (datetime.now(UTC).isoformat(), run_id),
-                )
+            _requeue(run_id)
             return
-        run = get_run(run_id)
-        retry = retry if retry is not None and retry < run.next_chunk else None
-        if retry is None and run.next_chunk >= chunks:
-            datasets.finish_run_dataset(run.dataset_id)
-            answers.finish(run.dataset_id)
-            _set(run_id, status="done", retry_chunk=None)
+        if _next_chunk(run_id) >= chunks:
+            _end(run_id, "done")
             metrics.RUNS_FINISHED.labels("done").inc()
             return
-        # Back in the queue, unless it was stopped meanwhile.
-        now = datetime.now(UTC).isoformat()
-        with db.connect() as conn:
-            conn.execute(
-                "UPDATE runs SET status = CASE WHEN status = 'stopping' THEN 'stopped'"
-                " ELSE 'queued' END, retry_chunk = ?, queued_at = ?, updated_at = ? WHERE id = ?",
-                (retry, now, now, run_id),
-            )
+        _requeue(run_id)
     except Exception as e:
-        _set(run_id, status="failed", error=str(e))
+        _end(run_id, "failed", str(e))
         metrics.RUNS_FINISHED.labels("failed").inc()
         raise
 
 
-def _retry_chunk(run_id: str) -> int | None:
+def _requeue(run_id: str) -> None:
+    """Put a running run back in the queue, or end it if it was stopped meanwhile."""
+    now = datetime.now(UTC).isoformat()
     with db.connect() as conn:
-        row = conn.execute("SELECT retry_chunk FROM runs WHERE id = ?", (run_id,)).fetchone()
-    return row["retry_chunk"]
+        queued = conn.execute(
+            "UPDATE runs SET status = 'queued', queued_at = ?, updated_at = ?"
+            " WHERE id = ? AND status = 'running'",
+            (now, now, run_id),
+        ).rowcount
+    if not queued and _status(run_id) == "stopping":
+        _end(run_id, "stopped")
+
+
+def _next_chunk(run_id: str) -> int:
+    with db.connect() as conn:
+        row = conn.execute("SELECT next_chunk FROM runs WHERE id = ?", (run_id,)).fetchone()
+    if row is None:
+        raise NotFound(f"Run {run_id} not found")
+    return row["next_chunk"]
+
+
+def _chunk_rows(run: Run, chunk: int) -> list[dict[str, Any]]:
+    """A chunk's rows, as `data` has them now: values and answers so far."""
+    asked = sql_string(_asked_file(run.dataset_id, run.id))
+    with storage.connect() as con:
+        datasets.attach(con, run.dataset_id)
+        rows = con.execute(
+            f"SELECT to_json(t) FROM data AS t WHERE {ROW_ID} IN"
+            f" (SELECT {ROW_ID} FROM read_parquet({asked}) WHERE chunk = ?) ORDER BY {ROW_ID}",
+            [chunk],
+        ).fetchall()
+    return [json.loads(r[0]) for r in rows]
 
 
 def _process_chunk(
@@ -522,30 +647,21 @@ def _process_chunk(
     keys: dict[str, list[str]],
     org_id: str,
     use: model_providers.Use,
-    *,
-    retry: bool = False,
 ) -> bool:
-    """Ask every task and model for the chunk's rows and write its part file, with the replies beside
-    it. A reply already paid for, in the journal or the tree's done datasets, is used instead of
-    asking.
-    With `retry`, the part is already written: only its failed answers are asked again, past the
-    replies kept, and it is written again. Returns False, writing nothing, if the run was stopped
-    meanwhile, or the runner is shutting down: calls not yet started are not made."""
-    rows = datasets.read_run_rows(run.dataset_id, offset=chunk * CHUNK_ROWS, limit=CHUNK_ROWS)
-    name = f"part-{chunk:06d}"
-    written = datasets.read_run_part(run.dataset_id, name) if retry else {}
-    # Calls in the chunks already written; a chunk being redone after a stop counts from zero.
-    per_row = sum(len(task.models) for task in run.config.tasks)
-    done_before = chunk * CHUNK_ROWS * per_row
+    """Ask every task and model for the chunk's rows that miss the answer and have the prompt's
+    inputs, and write its part file, with the replies beside it. A reply already paid for, in the
+    journal or kept by the dataset's runs, is used instead of asking. Returns False, writing nothing,
+    if the run was stopped meanwhile, or the runner is shutting down: calls not yet started are not
+    made."""
+    rows = _chunk_rows(run, chunk)
     units = [
         (row, task, model)
         for row in rows
         for task in run.config.tasks
+        if prompts.has_inputs(task.template, row, keys)
         for model in task.models
-        if not retry or _failed(written[row[ROW_ID]], task, model)
+        if row.get(tasks.columns(task, model)[0][0]) is None
     ]
-    if not units:
-        return True
     models = _models(run)
     requests = [
         model_providers.request(
@@ -558,21 +674,17 @@ def _process_chunk(
         )
         for row, task, model in units
     ]
-    request_keys = [answers.key(org_id, request) for request in requests]
+    request_keys = [replies.key(org_id, request) for request in requests]
     row_ids = [row[ROW_ID] for row in rows]
-    # A retry asks past the replies kept, but not past those paid for in it before a stop or crash.
-    found = (
-        {}
-        if retry
-        else answers.stored(
-            run.dataset_id, [model for task in run.config.tasks for model in task.models], row_ids
-        )
-    ) | answers.journaled(run.id)
+    found = replies.stored(
+        run.dataset_id, [model for task in run.config.tasks for model in task.models], row_ids
+    ) | replies.journaled(run.id)
+    done_before = get_run(run.id).done
     stopping = threading.Event()
     given: list[_Answer | None] = [None] * len(units)
-    # The replies, to write beside the part; those paid for now are journaled until it is.
-    replies: list[answers.Reply | None] = [None] * len(units)
-    paid: list[answers.Reply] = []
+    # The replies to keep, written beside the part; those paid for now are journaled until it is.
+    kept: list[replies.Reply | None] = [None] * len(units)
+    paid: list[replies.Reply] = []
     # What the answers so far cost, by task and model, until it is added to the usage.
     spent: dict[tuple[str, str], usage.Spent] = {}
     spent_lock = threading.Lock()
@@ -588,12 +700,13 @@ def _process_chunk(
             stopping.set()
             raise
         given[i] = answer
-        if data is not None:
-            replies[i] = (request_keys[i], row[ROW_ID], data)
+        # Only replies that could be read: one that couldn't is asked again next time.
+        if data is not None and answer.error is None:
+            kept[i] = (request_keys[i], row[ROW_ID], data)
         with spent_lock:
             _count(spent.setdefault((task.id, model), usage.Spent()), answer)
-            if data is not None and saved is None:
-                paid.append(replies[i])
+            if kept[i] is not None and saved is None:
+                paid.append(kept[i])
 
     def record_spent() -> None:
         """Add what was spent since the last time to the usage, and journal the replies paid for:
@@ -602,7 +715,7 @@ def _process_chunk(
             taken = dict(spent)
             spent.clear()
             journaled = list(paid)
-        answers.journal(run.id, journaled)
+        replies.journal(run.id, journaled)
         # Only once they are journaled: if that fails, the next try (or the `finally`) has them.
         with spent_lock:
             del paid[: len(journaled)]
@@ -624,10 +737,7 @@ def _process_chunk(
             while not all(f.done() for f in futures):
                 time.sleep(PROGRESS_INTERVAL_SECONDS)
                 # Saving progress also shows other runners this run still has its runner.
-                if retry:
-                    _set(run.id)
-                else:
-                    _set(run.id, done=done_before + sum(a is not None for a in given))
+                _set(run.id, done=done_before + sum(a is not None for a in given))
                 record_spent()
                 # A deleted dataset takes its run with it.
                 if _status(run.id) in ("stopping", None):
@@ -639,23 +749,16 @@ def _process_chunk(
     if any(answer is None for answer in given):
         return False
 
-    by_row: dict[int, dict[str, Any]] = {
-        row[ROW_ID]: dict(written.get(row[ROW_ID], {})) for row in rows
-    }
+    by_row: dict[int, dict[str, Any]] = {row[ROW_ID]: {} for row in rows}
+    answered: dict[tuple[str, str], int] = {}
     for (row, task, model), answer in zip(units, given):
         assert answer is not None
-        out = by_row[row[ROW_ID]]
-        failed = [f for f in out.get(datasets.FAILED) or [] if f != f"{task.id} {model}"]
         if answer.error is None:
-            out |= tasks.with_model(task, model, answer.values)
-        else:
-            failed.append(f"{task.id} {model}")
-        out[datasets.FAILED] = failed
-    answers.write_part(run.dataset_id, name, [r for r in replies if r is not None])
-    datasets.write_run_part(
-        run.dataset_id, tasks.part_columns(run.config.tasks, manual=False), name, by_row
-    )
-    costs = {(c.task_id, c.model): c for c in run.costs}
+            by_row[row[ROW_ID]] |= tasks.with_model(task, model, answer.values)
+            answered[(task.column, model)] = answered.get((task.column, model), 0) + 1
+    replies.write_part(run.dataset_id, run.id, chunk, [r for r in kept if r is not None])
+    write_part(run.dataset_id, run.id, chunk, tasks.part_columns(run.config.tasks), by_row)
+    costs = {(c.task_id, c.model): c for c in get_run(run.id).costs}
     for (_, task, model), answer in zip(units, given):
         assert answer is not None
         cost = costs.setdefault(
@@ -665,19 +768,57 @@ def _process_chunk(
             cost.cost += answer.cost
             cost.input_tokens += answer.input_tokens
             cost.output_tokens += answer.output_tokens
-        if retry:
-            cost.failed -= answer.error is None
-        else:
-            cost.failed += answer.error is not None
-    progress = {} if retry else {"next_chunk": chunk + 1, "done": done_before + len(units)}
-    _set(
-        run.id,
-        **progress,
-        costs=json.dumps([c.model_dump() for c in costs.values()]),
-        cost=sum(c.cost for c in costs.values()),
-    )
-    answers.clear_journal(run.id, row_ids)
+        cost.failed += answer.error is not None
+    with db.connect() as conn:
+        for (column, model), n in answered.items():
+            conn.execute(
+                "UPDATE answer_columns SET answered = answered + ?"
+                " WHERE dataset_id = ? AND name = ? AND model = ?",
+                (n, run.dataset_id, column, model),
+            )
+        conn.execute(
+            "UPDATE runs SET next_chunk = ?, done = ?, costs = ?, cost = ?, updated_at = ?"
+            " WHERE id = ?",
+            (
+                chunk + 1,
+                done_before + len(units),
+                json.dumps([c.model_dump() for c in costs.values()]),
+                sum(c.cost for c in costs.values()),
+                datetime.now(UTC).isoformat(),
+                run.id,
+            ),
+        )
+    if row_ids:
+        replies.clear_journal(run.id, row_ids)
     return True
+
+
+def write_part(
+    dataset_id: str,
+    run_id: str,
+    chunk: int,
+    columns: list[tuple[str, str]],
+    by_row: dict[int, dict[str, Any]],
+) -> None:
+    """Write a chunk's answers as one Parquet file: `__row_id` and the run's answer `columns` (name
+    and SQL type; empty where the model failed, or wasn't asked)."""
+    with storage.connect() as con:
+        con.execute(
+            "CREATE TABLE part ("
+            + ", ".join(
+                [f"{sql_ident(ROW_ID)} BIGINT"] + [f"{sql_ident(n)} {t}" for n, t in columns]
+            )
+            + ")"
+        )
+        if by_row:
+            con.executemany(
+                f"INSERT INTO part VALUES ({', '.join('?' for _ in range(len(columns) + 1))})",
+                [
+                    [row_id, *(values.get(n) for n, _ in columns)]
+                    for row_id, values in by_row.items()
+                ],
+            )
+        storage.write(con, "SELECT * FROM part", datasets.run_part(dataset_id, run_id, chunk))
 
 
 def _count(spent: usage.Spent, answer: _Answer) -> None:
@@ -691,19 +832,15 @@ def _count(spent: usage.Spent, answer: _Answer) -> None:
         spent.output_tokens += answer.output_tokens
 
 
-def _failed(written: dict[str, Any], task: Task, model: str) -> bool:
-    """Whether a model failed a task in a written row."""
-    return f"{task.id} {model}" in (written.get(datasets.FAILED) or [])
-
-
 class KeyProblem(Exception):
     """The provider refuses the key, or it is out of credits: every call would fail alike, so the run
-    fails with this, to be resumed once the key is fixed."""
+    fails with this. Starting it again once the key is fixed asks for what it didn't get."""
 
 
 _KEY_PROBLEMS = {
-    401: "The model provider refused the key. Change it in Settings → Providers, then resume the run",
-    402: "The model provider's key is out of credits. Add some, then resume the run",
+    401: "The model provider refused the key. Change it in Settings → Providers, then start the "
+    "run again",
+    402: "The model provider's key is out of credits. Add some, then start the run again",
 }
 
 
@@ -720,35 +857,42 @@ def _ask(
     task: Task, model: catalog.Model, request: Request, use: model_providers.Use, saved: Any = None
 ) -> tuple[_Answer, Any]:
     """One task for one row from one model, as base columns, with the reply's data (None if there
-    was no reply). `saved` is a reply already paid for, used instead of asking."""
+    was no reply). `saved` is a reply already paid for, used instead of asking unless it can't be
+    read as an answer (one kept before only readable replies were)."""
     if saved is not None:
-        answer, data = _Answer(cached=True), saved
-    else:
+        answer = _Answer(cached=True)
         try:
-            with metrics.CALLS_IN_FLIGHT.track_inprogress():
-                response = model_providers.ask(use, request, model)
-        except ProviderError as e:
-            if e.status in _KEY_PROBLEMS:
-                raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
-            return _Answer(error=str(e)), None
-        # Paid for even when the reply turns out unusable.
-        answer = _Answer(
-            cost=response.cost,
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
-        )
-        data = response.data
-        if data is None:
-            answer.error = "The model's reply couldn't be read."
-            return answer, None
+            answer.values = _read(task, model, saved)
+            return answer, saved
+        except tasks.AnswerFormatError:
+            pass
     try:
-        if model.kind == "decision":
-            answer.values = tasks.read_decision(task, data)
-        else:
-            answer.values = tasks.read_llm(task, data)
+        with metrics.CALLS_IN_FLIGHT.track_inprogress():
+            response = model_providers.ask(use, request, model)
+    except ProviderError as e:
+        if e.status in _KEY_PROBLEMS:
+            raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
+        return _Answer(error=str(e)), None
+    # Paid for even when the reply turns out unusable.
+    answer = _Answer(
+        cost=response.cost,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+    )
+    if response.data is None:
+        answer.error = "The model's reply couldn't be read."
+        return answer, None
+    try:
+        answer.values = _read(task, model, response.data)
     except tasks.AnswerFormatError as e:
         answer.error = str(e)
-    return answer, data
+    return answer, response.data
+
+
+def _read(task: Task, model: catalog.Model, data: Any) -> dict[str, Any]:
+    if model.kind == "decision":
+        return tasks.read_decision(task, data)
+    return tasks.read_llm(task, data)
 
 
 def _status(run_id: str) -> str | None:
@@ -776,7 +920,6 @@ def _from_row(row) -> Run:
         columns=json.loads(row["columns"]),
         costs=json.loads(row["costs"]),
         row_count=row["row_count"],
-        next_chunk=row["next_chunk"],
         done=row["done"],
         total=row["total"],
         cost=row["cost"],

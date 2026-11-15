@@ -260,17 +260,18 @@ def task_types() -> TaskTypes:
     )
 
 
-def check(task: Task, *, manual: bool = False) -> None:
-    """Raise InvalidRequest if the task can't be asked as configured. Whether its models can give
-    its type of answer is checked with the model catalog, in `runs.check`."""
-    if not task.template.strip():
+def check(task: Task, *, labels: bool = False) -> None:
+    """Raise InvalidRequest if the task can't be asked as configured; for `labels` people set, it
+    needs no prompt or models. Whether its models can give its type of answer is checked with the
+    model catalog, in `runs.check`."""
+    if not labels and not task.template.strip():
         raise InvalidRequest("Write the prompt.")
     if not task.column.strip():
         raise InvalidRequest("Name the result column.")
-    if not manual and not task.models:
+    if not labels and not task.models:
         raise InvalidRequest("Pick a model.")
     slugs = [model_slug(m) for m in task.models]
-    if not manual and len(set(slugs)) != len(slugs):
+    if len(set(slugs)) != len(slugs):
         raise InvalidRequest("Two of the models would get the same column name.")
     if task.type == "write":
         if task.reason:
@@ -331,17 +332,8 @@ def result_columns(task: Task) -> list[str]:
     ]
 
 
-def answer_columns(run_tasks: list[Task], *, manual: bool) -> list[str]:
-    """The answer columns a run writes for its tasks: `result_columns`, or `manual_columns` by name."""
-    if manual:
-        return [name for task in run_tasks for name, _ in manual_columns(task)]
-    return [column for task in run_tasks for column in result_columns(task)]
-
-
-def part_columns(run_tasks: list[Task], *, manual: bool) -> list[tuple[str, str]]:
+def part_columns(run_tasks: list[Task]) -> list[tuple[str, str]]:
     """Every column a run writes for its tasks, with its SQL type."""
-    if manual:
-        return [column for task in run_tasks for column in manual_columns(task)]
     return [
         column for task in run_tasks for model in task.models for column in columns(task, model)
     ]
@@ -679,8 +671,8 @@ def _describe(option: Option) -> str:
     return f'"{option.name}"' + (f" ({option.description})" if option.description else "")
 
 
-def manual_columns(task: Task) -> list[tuple[str, str]]:
-    """Manual labels have the task's names and types, without model metadata."""
+def label_columns(task: Task) -> list[tuple[str, str]]:
+    """The columns of labels people set: the task's names and types, without a model's."""
     if task.type in CLASSIFY:
         return [
             (name, "BOOLEAN" if task.type in ("yes_no", "pick_any") else "VARCHAR")
@@ -694,9 +686,10 @@ def manual_columns(task: Task) -> list[tuple[str, str]]:
     return [(task.column, "VARCHAR")]
 
 
-def read_manual(task: Task, value: Any) -> dict[str, Any]:
-    """Validate manually supplied values using the task's answer types. Null clears the answer."""
-    names = [name for name, _ in manual_columns(task)]
+def read_label(task: Task, value: Any) -> dict[str, Any]:
+    """A label people set, as the task's columns; InvalidRequest if the task can't take it. Null
+    clears the answer."""
+    names = [name for name, _ in label_columns(task)]
     if value is None:
         return dict.fromkeys(names)
     if task.type == "yes_no":

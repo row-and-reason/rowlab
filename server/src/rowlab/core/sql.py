@@ -79,10 +79,8 @@ class QueryResult(BaseModel):
 def connect(dataset_id: str) -> Iterator[duckdb.DuckDBPyConnection]:
     """A DuckDB connection with the dataset as `data` and the compare functions, that can read
     nothing else and write nothing at all."""
-    datasets.get_dataset(dataset_id)
-    source = datasets.dataset_source(dataset_id)
     with storage.connect(config().query_seconds) as con:
-        con.execute(f"CREATE VIEW data AS SELECT * FROM {source}")
+        datasets.attach(con, dataset_id)
         for macro in _MACROS:
             con.execute(macro)
         con.execute(f"SET allowed_directories = [{sql_string(storage.folder(dataset_id))}]")

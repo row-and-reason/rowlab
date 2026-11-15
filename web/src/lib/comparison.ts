@@ -1,4 +1,4 @@
-import type { Comparison, Dataset } from "@/lib/api/client";
+import type { AnswerColumn, Comparison, Dataset } from "@/lib/api/client";
 import { formatUsd } from "@/lib/format";
 import { ALL_ROWS, type WhereFilter } from "@/lib/sql";
 import type { CompareRequest } from "@/lib/use-comparison";
@@ -74,6 +74,45 @@ export function comparableColumns(columns: Dataset["columns"]): Dataset["columns
   return columns.filter((c) => c.name !== "__row_id");
 }
 
+/**
+ * The columns to pick from, in groups: each task's answers from models (newest first), labels people
+ * set, then the file's own columns; or, for a `reference`, labels and the file's columns first.
+ * Those in `leaveOut` aren't offered.
+ */
+export function columnGroups(
+  dataset: Pick<Dataset, "columns" | "answers">,
+  leaveOut: (string | null)[] = [],
+  { reference = false } = {},
+): { label: string; items: { value: string; label: string; detail?: string }[] }[] {
+  const offered = (name: string) => !leaveOut.includes(name);
+  const answered = new Set(dataset.answers.flatMap((a) => a.columns));
+  const fromModels = dataset.answers.filter((a) => a.model);
+  const tasks = [...new Set(fromModels.map((a) => a.name))];
+  const models = tasks.map((task) => ({
+    label: `${task} · models`,
+    items: fromModels
+      .filter((a) => a.name === task)
+      .flatMap((a) => a.columns)
+      .filter(offered)
+      .map((name) => ({ value: name, label: name })),
+  }));
+  const labels = {
+    label: "Labels",
+    items: dataset.answers
+      .filter((a) => !a.model)
+      .flatMap((a) => a.columns)
+      .filter(offered)
+      .map((name) => ({ value: name, label: name })),
+  };
+  const own = {
+    label: "The file's columns",
+    items: comparableColumns(dataset.columns)
+      .filter((c) => !answered.has(c.name) && offered(c.name))
+      .map((c) => ({ value: c.name, label: c.name })),
+  };
+  return reference ? [labels, own, ...models] : [...models, labels, own];
+}
+
 /** The `compare` URL value as known, de-duplicated column names. Anything malformed means none. */
 export function parseComparedColumns(
   encoded: string | null,
@@ -104,6 +143,7 @@ export type ComparisonChoice = {
   tolerance: string;
   ignoreCase: boolean;
   trimWhitespace: boolean;
+  rows: CompareRequest["rows"];
 };
 
 /**
@@ -111,7 +151,7 @@ export type ComparisonChoice = {
  * compared if it can't, and the compare request once there is something valid to compare.
  */
 export function comparisonSetup(choice: ComparisonChoice, datasetColumns: Dataset["columns"]) {
-  const { columns, reference, tolerance, ignoreCase, trimWhitespace } = choice;
+  const { columns, reference, tolerance, ignoreCase, trimWhitespace, rows } = choice;
   const compared = reference ? [...columns, reference] : columns;
   const types = compared.map((name) => datasetColumns.find((c) => c.name === name)!.type);
   const numeric =
@@ -139,17 +179,18 @@ export function comparisonSetup(choice: ComparisonChoice, datasetColumns: Datase
           ignore_case: text && ignoreCase,
           trim_whitespace: text && trimWhitespace,
           tolerance: numeric && tolerance !== "" ? Number(tolerance) : null,
+          rows,
         }
       : undefined;
   return { numeric, text, dates, mixed, problem, request };
 }
 
-/** The first task answered by several models, excluding probability/reason output columns. */
-export function modelGroup(runColumns: string[]): string[] {
+/** The answer columns of the newest task several models answered, to compare them by default. */
+export function modelGroup(answers: AnswerColumn[]): string[] {
   const groups = new Map<string, string[]>();
-  for (const column of runColumns.filter((c) => !c.endsWith("_proba") && !c.endsWith("_reason"))) {
-    const base = column.split("__")[0];
-    groups.set(base, [...(groups.get(base) ?? []), column]);
+  for (const answer of answers) {
+    if (answer.model === null) continue;
+    groups.set(answer.name, [...(groups.get(answer.name) ?? []), answer.columns[0]]);
   }
   return [...groups.values()].find((g) => g.length > 1) ?? [];
 }

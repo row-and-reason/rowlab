@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { api, type Dataset } from "@/lib/api/client";
+import { api, type DatasetSummary } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
 
 export function RenameDataset({
@@ -22,7 +22,7 @@ export function RenameDataset({
   onClose,
   onSaved,
 }: {
-  dataset: Dataset;
+  dataset: DatasetSummary;
   onClose: () => void;
   onSaved: () => void;
 }) {

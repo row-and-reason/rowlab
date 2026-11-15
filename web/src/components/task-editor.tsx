@@ -52,7 +52,7 @@ export function TaskEditor({
   runError,
   problem,
   needsProvider,
-  manual = false,
+  labels = false,
 }: {
   dataset: Dataset;
   tasks: Task[];
@@ -64,7 +64,8 @@ export function TaskEditor({
   problem: string | undefined;
   /** No model provider yet: runs can't start until an admin adds one. */
   needsProvider: boolean;
-  manual?: boolean;
+  /** A label column's task, labelled by hand: no models, and the only one. */
+  labels?: boolean;
 }) {
   const types = useTaskTypes();
   const params = useSearchParams();
@@ -92,7 +93,7 @@ export function TaskEditor({
     <div className="flex flex-col">
       {tasks.map((task) => (
         <TaskRow
-          manual={manual}
+          labels={labels}
           key={task.id}
           dataset={dataset}
           sql={sql}
@@ -106,13 +107,15 @@ export function TaskEditor({
           onDelete={() => onTasksChange(tasks.filter((t) => t.id !== task.id))}
         />
       ))}
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <Button variant="ghost" size="sm" className="text-xs" onClick={() => onAddTask()}>
-          <PlusIcon data-icon="inline-start" />
-          Add task
-        </Button>
-        {!runError && hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-      </div>
+      {!labels && (
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+          <Button variant="ghost" size="sm" className="text-xs" onClick={() => onAddTask()}>
+            <PlusIcon data-icon="inline-start" />
+            Add task
+          </Button>
+          {!runError && hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        </div>
+      )}
       {runError && (
         <Alert variant="destructive" className="mx-3 w-auto">
           <AlertDescription>
@@ -144,13 +147,13 @@ function TaskRow({
   onChange,
   onDuplicate,
   onDelete,
-  manual,
+  labels,
 }: {
   dataset: Dataset;
   sql: string;
   /** The only task, which can't be deleted. */
   only: boolean;
-  manual: boolean;
+  labels: boolean;
   task: Task;
   types: TaskTypes;
   models: Model[];
@@ -175,7 +178,7 @@ function TaskRow({
 
   // A new answer type may need other models: say so when switching to them.
   function change(changed: Task) {
-    if (manual) {
+    if (labels) {
       onChange(changed);
       return;
     }
@@ -279,7 +282,7 @@ function TaskRow({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {!manual && (
+        {!labels && (
           <Popover>
             <PopoverTrigger
               render={<Button variant="outline" size="sm" className="max-w-36 text-xs" />}
@@ -290,9 +293,8 @@ function TaskRow({
               </span>
               <ChevronDownIcon data-icon="inline-end" />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-96">
+            <PopoverContent align="end" className="w-96 p-1">
               <ModelPicker
-                id={`models-${task.id}`}
                 value={task.models}
                 llmOnly={type.llm_only}
                 onChange={(picked) => onChange({ ...task, models: picked })}
@@ -301,23 +303,25 @@ function TaskRow({
           </Popover>
         )}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" size="icon-sm" aria-label="Task actions" />}
-          >
-            <EllipsisIcon />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onDuplicate}>
-              <CopyIcon />
-              Duplicate
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" disabled={only} onClick={onDelete}>
-              <Trash2Icon />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!labels && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon-sm" aria-label="Task actions" />}
+            >
+              <EllipsisIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onDuplicate}>
+                <CopyIcon />
+                Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" disabled={only} onClick={onDelete}>
+                <Trash2Icon />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       <CollapsibleContent>
         <FieldGroup className="gap-4 px-3 pt-2 pb-4">
@@ -328,7 +332,7 @@ function TaskRow({
             onChange={(template) => onChange({ ...task, template })}
           />
           <AnswerSettings
-            manual={manual}
+            labels={labels}
             task={task}
             types={types}
             models={models}

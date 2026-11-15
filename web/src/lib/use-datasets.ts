@@ -2,14 +2,14 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { api, type Dataset } from "@/lib/api/client";
+import { api, type DatasetSummary } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
-import { isActive } from "@/lib/runs";
 
-/** The workspace's datasets: loaded on mount, polled while a run is going, and deleted from here. */
+/** The workspace's datasets, newest first: loaded on mount, polled while a run is going, and deleted
+ * from here. */
 export function useDatasets(selectedId: string | null) {
   const router = useRouter();
-  const [datasets, setDatasets] = useState<Dataset[] | null>(null);
+  const [datasets, setDatasets] = useState<DatasetSummary[] | null>(null);
 
   const load = useCallback(async () => {
     const { data, error } = await api.GET("/v1/datasets");
@@ -22,15 +22,15 @@ export function useDatasets(selectedId: string | null) {
     load();
   }, [load]);
 
-  // While a run is going, keep its progress and its dataset's rows current.
-  const anyRunning = datasets?.some((d) => d.run && isActive(d.run)) ?? false;
+  // While a run is going, keep its run indicator current.
+  const anyRunning = datasets?.some((d) => d.active_runs > 0) ?? false;
   useEffect(() => {
     if (!anyRunning) return;
-    const timer = setInterval(load, 1000);
+    const timer = setInterval(load, 2000);
     return () => clearInterval(timer);
   }, [anyRunning, load]);
 
-  async function remove(dataset: Dataset) {
+  async function remove(dataset: DatasetSummary) {
     const { error } = await api.DELETE("/v1/datasets/{dataset_id}", {
       params: { path: { dataset_id: dataset.id } },
     });

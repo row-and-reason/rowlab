@@ -1,23 +1,17 @@
 "use client";
 
-import { Columns3Icon, GitCompareArrowsIcon, SlidersHorizontalIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  Columns3Icon,
+  GitCompareArrowsIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ComparisonResults } from "@/components/comparison-results";
+import { PickList } from "@/components/pick-list";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxValue,
-  useComboboxAnchor,
-} from "@/components/ui/combobox";
 import {
   Empty,
   EmptyDescription,
@@ -29,21 +23,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import type { Dataset } from "@/lib/api/client";
-import { comparableColumns, comparisonSetup, type InspectRows } from "@/lib/comparison";
-import { columnLabel, formatNumber } from "@/lib/format";
+import { columnGroups, comparisonSetup, type InspectRows } from "@/lib/comparison";
+import { columnLabel } from "@/lib/format";
 import { useComparison, type ComparisonActions } from "@/lib/use-comparison";
-import { useComparisonUrl, useRunDefaultColumns, useSameColumns } from "@/lib/use-comparison-url";
+import { useComparisonUrl, useDefaultColumns, useSameColumns } from "@/lib/use-comparison-url";
 
-const NO_REFERENCE = "none";
+// Not a column name: a column can be called "none".
+const NO_REFERENCE = "\u0000none";
 
 /** Compare the whole dataset. URL-backed setup survives reloads and trips to the underlying rows. */
 export function CompareView({
@@ -60,6 +48,7 @@ export function CompareView({
 }) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [referenceOpen, setReferenceOpen] = useState(false);
   useEffect(() => {
     actionsRef.current = {
       ...actionsRef.current,
@@ -70,21 +59,19 @@ export function CompareView({
       actionsRef.current = { ...actionsRef.current, rules: undefined, columns: undefined };
     };
   }, [actionsRef]);
-  const anchor = useComboboxAnchor();
   const datasetColumns = useSameColumns(dataset.columns);
-  const choices = comparableColumns(datasetColumns);
-  const { columns, reference, tolerance, ignoreCase, trimWhitespace, change, urlChanged } =
+  const { columns, reference, tolerance, ignoreCase, trimWhitespace, rows, change, urlChanged } =
     useComparisonUrl(datasetColumns);
   const { numeric, text, dates, mixed, problem, request } = useMemo(
     () =>
       comparisonSetup(
-        { columns, reference, tolerance, ignoreCase, trimWhitespace },
+        { columns, reference, tolerance, ignoreCase, trimWhitespace, rows },
         datasetColumns,
       ),
-    [columns, reference, tolerance, ignoreCase, trimWhitespace, datasetColumns],
+    [columns, reference, tolerance, ignoreCase, trimWhitespace, rows, datasetColumns],
   );
   const result = useComparison(dataset.id, request, version);
-  useRunDefaultColumns(dataset.run?.id);
+  useDefaultColumns(dataset.answers);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -94,72 +81,53 @@ export function CompareView({
             <Columns3Icon data-icon="inline-start" /> Columns
             {columns.length ? ` · ${columns.length}` : "…"}
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-80">
-            <Label htmlFor="compare-columns">Compared columns</Label>
-            <p className="text-xs text-muted-foreground">
+          <PopoverContent align="start" className="w-80 p-1">
+            <PickList
+              groups={columnGroups(dataset, [reference])}
+              picked={columns}
+              onPick={(name) =>
+                change({
+                  columns: columns.includes(name)
+                    ? columns.filter((c) => c !== name)
+                    : [...columns, name],
+                })
+              }
+              placeholder="Find a column…"
+              empty="No matching columns."
+            />
+            <p className="px-2 pb-1 text-xs text-muted-foreground">
               Pick two columns, or one and a reference.
             </p>
-            <Combobox
-              multiple
-              items={choices.filter((c) => c.name !== reference).map((c) => c.name)}
-              value={columns}
-              onValueChange={(picked: string[], details) => {
-                if (details.reason !== "escape-key") change({ columns: picked });
-              }}
-              itemToStringLabel={columnLabel}
-            >
-              <ComboboxChips ref={anchor}>
-                <ComboboxValue>
-                  {(picked: string[]) => (
-                    <>
-                      {picked.map((name) => (
-                        <ComboboxChip key={name}>{columnLabel(name)}</ComboboxChip>
-                      ))}
-                      <ComboboxChipsInput id="compare-columns" placeholder="Find a column…" />
-                    </>
-                  )}
-                </ComboboxValue>
-              </ComboboxChips>
-              <ComboboxContent anchor={anchor}>
-                <ComboboxEmpty>No matching columns.</ComboboxEmpty>
-                <ComboboxList>
-                  {(name: string) => (
-                    <ComboboxItem key={name} value={name}>
-                      {columnLabel(name)}
-                    </ComboboxItem>
-                  )}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
           </PopoverContent>
         </Popover>
-        <Label htmlFor="compare-reference" className="text-xs">
-          Reference
-        </Label>
-        <Select
-          items={[
-            { value: NO_REFERENCE, label: "None" },
-            ...choices
-              .filter((c) => !columns.includes(c.name))
-              .map((c) => ({ value: c.name, label: columnLabel(c.name) })),
-          ]}
-          value={reference ?? NO_REFERENCE}
-          onValueChange={(value) => change({ reference: value === NO_REFERENCE ? null : value })}
-        >
-          <SelectTrigger id="compare-reference" size="sm" className="max-w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_REFERENCE}>None</SelectItem>
-            {choices
-              .filter((c) => !columns.includes(c.name))
-              .map((c) => (
-                <SelectItem key={c.name} value={c.name}>
-                  {columnLabel(c.name)}
-                </SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
+        <Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
+          <PopoverTrigger
+            render={<Button variant="outline" size="sm" className="max-w-56 text-xs" />}
+          >
+            <span className="truncate">
+              {reference ? `Reference · ${columnLabel(reference)}` : "No reference"}
+            </span>
+            <ChevronDownIcon data-icon="inline-end" />
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-80 p-1">
+            <PickList
+              groups={[
+                { label: "", items: [{ value: NO_REFERENCE, label: "No reference" }] },
+                ...columnGroups(dataset, columns, { reference: true }),
+              ]}
+              picked={[reference ?? NO_REFERENCE]}
+              onPick={(name) => {
+                change({ reference: name === NO_REFERENCE ? null : name });
+                setReferenceOpen(false);
+              }}
+              placeholder="Find a column…"
+              empty="No matching columns."
+            />
+            <p className="px-2 pb-1 text-xs text-muted-foreground">
+              Labels you trust, to measure the compared columns against.
+            </p>
+          </PopoverContent>
+        </Popover>
         <Popover open={rulesOpen} onOpenChange={setRulesOpen}>
           <PopoverTrigger render={<Button variant="outline" size="sm" className="text-xs" />}>
             <SlidersHorizontalIcon />{" "}
@@ -170,8 +138,20 @@ export function CompareView({
                     .filter(Boolean)
                     .join(" · ")
                 : "Exact match"}
+            {rows === "pairwise" && " · Pairwise rows"}
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72 space-y-4">
+            <Label className="flex items-center gap-2">
+              <Checkbox
+                checked={rows === "common"}
+                onCheckedChange={(v) => change({ rows: v ? "common" : "pairwise" })}
+              />
+              Only rows every column has
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              So each column is measured on the same rows. Off, each pair uses the rows both of its
+              columns have.
+            </p>
             <span className="text-sm font-medium">Match rules</span>
             {text ? (
               <>
@@ -226,9 +206,7 @@ export function CompareView({
             )}
           </PopoverContent>
         </Popover>
-        <span className="ml-auto text-xs text-muted-foreground">
-          All {formatNumber(dataset.row_count)} rows
-        </span>
+
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {problem ? (
@@ -272,6 +250,7 @@ export function CompareView({
               dataset={dataset}
               version={version}
               comparison={result.data}
+              rows={rows}
               onFilter={(filters, selectedColumns) => {
                 // A shortcut can arrive in the same event turn as a rule or selection change.
                 if (urlChanged()) return;

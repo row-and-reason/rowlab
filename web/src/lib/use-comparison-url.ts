@@ -1,14 +1,14 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { api, type Column } from "@/lib/api/client";
+import type { AnswerColumn, Column } from "@/lib/api/client";
 import { comparableColumns, modelGroup, parseComparedColumns } from "@/lib/comparison";
 
 /**
  * The dataset's columns, as the same array for as long as their names and types stay the same. The
- * dataset list is polled during runs, which gives new arrays each second; a comparison must not be
+ * dataset is polled during runs, which gives new arrays each second; a comparison must not be
  * asked again for that.
  */
 export function useSameColumns(columns: Column[]): Column[] {
@@ -45,6 +45,7 @@ export function useComparisonUrl(datasetColumns: Column[]) {
     tolerance?: string;
     ignore_case?: boolean;
     trim_whitespace?: boolean;
+    rows?: "common" | "pairwise";
   }) {
     const query = new URLSearchParams(window.location.search);
     if (next.columns) {
@@ -65,6 +66,10 @@ export function useComparisonUrl(datasetColumns: Column[]) {
         else query.delete(key);
       }
     }
+    if (next.rows) {
+      if (next.rows === "pairwise") query.set("rows", "pairwise");
+      else query.delete("rows");
+    }
     window.history.replaceState(null, "", `/?${query}`);
   }
 
@@ -74,39 +79,23 @@ export function useComparisonUrl(datasetColumns: Column[]) {
     tolerance: params.get("tolerance") ?? "",
     ignoreCase: params.get("ignore_case") === "true",
     trimWhitespace: params.get("trim_whitespace") === "true",
+    rows: params.get("rows") === "pairwise" ? ("pairwise" as const) : ("common" as const),
     change,
     // Whether the address changed since this render, e.g. by a rule change in the same event turn.
     urlChanged: () => params.toString() !== new URLSearchParams(window.location.search).toString(),
   };
 }
 
-/** Pre-select the run's model group when the URL doesn't choose columns yet. */
-export function useRunDefaultColumns(runId: string | undefined) {
+/** Pre-select the newest task several models answered when the URL doesn't choose columns yet. */
+export function useDefaultColumns(answers: AnswerColumn[]) {
   const router = useRouter();
   const params = useSearchParams();
-  // Defaults from a run must not overwrite a selection made while that request was pending.
-  const latestParams = useRef(params);
+  const group = JSON.stringify(modelGroup(answers));
+  const chosen = params.has("compare");
   useEffect(() => {
-    latestParams.current = params;
-  }, [params]);
-  useEffect(() => {
-    if (!runId) return;
-    let current = true;
-    api
-      .GET("/v1/runs/{run_id}", { params: { path: { run_id: runId } } })
-      .then(({ data }) => {
-        if (!current || !data || latestParams.current.has("compare")) return;
-        const group = modelGroup(data.columns);
-        if (!group.length) return;
-        const query = new URLSearchParams(latestParams.current);
-        query.set("compare", JSON.stringify(group));
-        router.replace(`/?${query}`, { scroll: false });
-      })
-      .catch(() => {
-        /* Manual selection remains available if run defaults cannot load. */
-      });
-    return () => {
-      current = false;
-    };
-  }, [runId, router]);
+    if (chosen || group === "[]") return;
+    const query = new URLSearchParams(window.location.search);
+    query.set("compare", group);
+    router.replace(`/?${query}`, { scroll: false });
+  }, [chosen, group, router]);
 }

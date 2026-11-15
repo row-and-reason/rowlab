@@ -90,7 +90,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Datasets */
+        /**
+         * List Datasets
+         * @description The organisation's datasets, newest first. `GET /v1/datasets/{id}` has their columns.
+         */
         get: operations["listDatasets"];
         put?: never;
         /**
@@ -112,7 +115,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Dataset */
+        /**
+         * Get Dataset
+         * @description A dataset with every column of `data`, and what its answer columns are: the task they
+         *     answer, the model or labels, how many rows have an answer, and what they cost.
+         */
         get: operations["getDataset"];
         put?: never;
         post?: never;
@@ -122,6 +129,50 @@ export interface paths {
         head?: never;
         /** Rename Dataset */
         patch: operations["renameDataset"];
+        trace?: never;
+    };
+    "/v1/datasets/{dataset_id}/labels/{column}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Labels
+         * @description Set, change or clear labels people give, in a column named `column`: on any rows, at any
+         *     time, before or after models are asked. The first labels in a column come with the task they
+         *     answer, which makes them typed columns of `data` to compare models with. A batch is saved whole
+         *     or not at all.
+         */
+        put: operations["setLabels"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/datasets/{dataset_id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Answers
+         * @description Delete a task's answers from a model, or its labels. Model replies are kept, so asking the
+         *     same again is free. A run still asking for them must be stopped first.
+         */
+        delete: operations["deleteAnswers"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/datasets/{dataset_id}/profile": {
@@ -178,7 +229,8 @@ export interface paths {
          * @description How often two or more columns give the same value in each row: several models' answers,
          *     a model against labels someone already has, or any columns at all. With a `reference`, also
          *     each column's accuracy against it. Every count comes with the filter for its rows, to use in a
-         *     query's WHERE clause: to see them (`query`) or to ask about them again (`runs`).
+         *     query's WHERE clause: to see them (`query`) or to ask about them again (`runs`). Every statistic
+         *     uses the rows where all the columns have a value, unless `rows` is `pairwise`.
          */
         post: operations["compareColumns"];
         delete?: never;
@@ -216,8 +268,8 @@ export interface paths {
         };
         /**
          * Download Dataset
-         * @description Download the dataset as a CSV, JSONL or Parquet file, named after it. Nested values are JSON
-         *     text in CSV. A dataset still being made can't be exported until its run is done.
+         * @description Download the dataset as a CSV, JSONL or Parquet file, named after it, with the answers it has
+         *     so far. Nested values are JSON text in CSV.
          */
         get: operations["downloadDataset"];
         put?: never;
@@ -410,19 +462,22 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Runs
+         * @description The dataset's runs, newest first.
+         */
+        get: operations["listRuns"];
         put?: never;
         /**
          * Create Run
-         * @description Queue a run of every task with every model on the rows in the scope (all rows if none is
-         *     given). It makes a new dataset (`dataset_id`), created right away with only the selected rows;
-         *     the answer columns fill in as the run works through them in the background: poll
-         *     `GET /v1/runs/{id}` for its progress. Answers already given to the same rows, by a run in the
-         *     same dataset tree, are free: they are reused.
+         * @description Queue a run of every task with every model on the rows the query picks (all rows by
+         *     default). It adds each task's answers to the dataset as columns, `<column>__<model>`, which fill
+         *     in as the run works through the rows in the background: poll `GET /v1/runs/{id}`.
          *
-         *     With `method: "manual"` no model is asked and no provider key is needed: the run waits for
-         *     answers (`PUT /v1/runs/{id}/tasks/{task_id}/answers`) in columns named after the tasks, without
-         *     model suffixes, until `POST /v1/runs/{id}/finish`.
+         *     It asks only for answers the dataset doesn't have yet, and skips rows missing a value the prompt
+         *     uses. So a run on all rows after a try on a few pays only for the rest, and starting a run
+         *     again after a stop or a failure asks only what is still missing. A column name keeps its
+         *     question: a different prompt, options or answer type under a name in use is refused.
          *
          *     A task needs only its `template` and `type`; the result column and models default to ones that
          *     suit the type (see `GET /v1/utils/task-types`).
@@ -445,7 +500,7 @@ export interface paths {
         put?: never;
         /**
          * Estimate Run
-         * @description What `POST /v1/datasets/{id}/runs` with the same body would take and roughly cost, and why
+         * @description What `POST /v1/datasets/{id}/runs` with the same body would ask for and roughly cost, and why
          *     it can't run as it is, if so. Nothing is asked.
          */
         post: operations["estimateRun"];
@@ -483,72 +538,10 @@ export interface paths {
         put?: never;
         /**
          * Stop Run
-         * @description Stop after the calls in flight. The chunk in progress is redone on resume, for free.
+         * @description Stop after the calls in flight. Starting the same run again asks for what it didn't get to;
+         *     answers it paid for are free.
          */
         post: operations["stopRun"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/runs/{run_id}/resume": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Resume Run
-         * @description Continue a stopped or failed run, or a done one with failed answers: its failed answers are
-         *     asked again first, then it continues from its first unwritten chunk.
-         */
-        post: operations["resumeRun"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/runs/{run_id}/tasks/{task_id}/answers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Save Manual Answers
-         * @description Set labels on an open manual run. Null clears a label. Batches may span several saved parts;
-         *     retry an interrupted batch with the same values. Concurrent edits use the last saved value.
-         */
-        put: operations["saveManualAnswers"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/runs/{run_id}/finish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Finish Manual Run
-         * @description Finish manual labeling and freeze the output dataset. Unanswered cells stay null.
-         *     Repeating this call returns the completed run. Labels can no longer be changed.
-         */
-        post: operations["finishManualRun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -727,20 +720,38 @@ export interface components {
             /** Host */
             host: string;
         };
-        /** Answer */
-        Answer: {
-            /** Row Id */
-            row_id: number;
+        /**
+         * AnswerColumn
+         * @description Answers to one task from one model, or labels people set for one task.
+         */
+        AnswerColumn: {
             /**
-             * Value
-             * @description The label; null clears it. Pick any takes option names; extract takes an object keyed by field name.
+             * Name
+             * @description The task's column, e.g. `fallacy`.
              */
-            value: unknown;
-        };
-        /** Answers */
-        Answers: {
-            /** Answers */
-            answers: components["schemas"]["Answer"][];
+            name: string;
+            /**
+             * Model
+             * @description The model that answers; empty for labels people set.
+             */
+            model: string | null;
+            /** @description The question its answers are to. */
+            task: components["schemas"]["Task-Output"];
+            /**
+             * Columns
+             * @description Its columns in `data`, e.g. `fallacy__jev-1.14` and `fallacy__jev-1.14_proba`.
+             */
+            columns: string[];
+            /**
+             * Answered
+             * @description Rows with an answer.
+             */
+            answered: number;
+            /**
+             * Cost
+             * @description USD runs spent on it; cached answers are free.
+             */
+            cost: number;
         };
         /** ApiKey */
         ApiKey: {
@@ -916,20 +927,16 @@ export interface components {
         ColumnCost: {
             /** Column */
             column: string;
-            /** Run Id */
-            run_id: string;
-            /** Task Id */
-            task_id: string;
             /** Model */
             model: string;
             /**
              * Usd
-             * @description What the run spent on this task and model, for all its rows; cached answers are free. Columns of one task and model share it.
+             * @description What runs spent on this task and model, for all the dataset's rows; cached answers are free. Columns of one task and model share it.
              */
             usd: number;
             /**
              * Answered
-             * @description The run's rows with an answer from the model.
+             * @description The dataset's rows with an answer from the model.
              */
             answered: number;
             /**
@@ -937,6 +944,21 @@ export interface components {
              * @description USD per 1,000 answered rows. Answered rows include cached ones, which cost nothing, so this can look cheaper than a fresh run would be.
              */
             usd_per_1k_rows: number | null;
+        };
+        /** ColumnCoverage */
+        ColumnCoverage: {
+            /** Column */
+            column: string;
+            /**
+             * Answered
+             * @description Rows the query returns where the column has a value.
+             */
+            answered: number;
+            /**
+             * Left Out
+             * @description Of those, rows left out because another column compared is empty there; always 0 with `rows` `pairwise`.
+             */
+            left_out: number;
         };
         /** ColumnProfile */
         ColumnProfile: {
@@ -990,6 +1012,13 @@ export interface components {
              * @default SELECT * FROM data
              */
             sql: string;
+            /**
+             * Rows
+             * @description `common`: every statistic uses the same rows, those where every column compared has a value, so each column is measured on the same rows. `pairwise`: each statistic uses the rows where its own columns have a value.
+             * @default common
+             * @enum {string}
+             */
+            rows: "common" | "pairwise";
         };
         /** Comparison */
         Comparison: {
@@ -1002,10 +1031,20 @@ export interface components {
             values_completeness: components["schemas"]["Completeness"];
             crosstab_completeness: components["schemas"]["Completeness"] | null;
             /**
+             * Scope Rows
+             * @description Rows the query returns.
+             */
+            scope_rows: number;
+            /**
              * Rows
-             * @description Rows compared: those the query returns.
+             * @description Rows compared: with `rows` `common`, those where every column has a value; otherwise all the query returns.
              */
             rows: number;
+            /**
+             * Coverage
+             * @description How many rows each column has a value in, and how many of them were left out.
+             */
+            coverage: components["schemas"]["ColumnCoverage"][];
             /**
              * Columns
              * @description The columns compared, with the reference last.
@@ -1034,7 +1073,7 @@ export interface components {
             reference: components["schemas"]["ReferenceAccuracy"][] | null;
             /**
              * Costs
-             * @description For each column a model wrote in a run, what it cost. Uploaded and manual columns have none.
+             * @description For each column a model wrote, what it cost. The file's columns and labels have none.
              */
             costs: components["schemas"]["ColumnCost"][];
         };
@@ -1116,60 +1155,97 @@ export interface components {
             source: string;
             /** Row Count */
             row_count: number;
-            /** Size Bytes */
+            /**
+             * Size Bytes
+             * @description Of its file; answers are kept beside it.
+             */
             size_bytes: number;
-            /** Columns */
-            columns: components["schemas"]["Column"][];
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
             /**
-             * Parent Id
-             * @description The dataset it was made from by a run.
+             * Answer Columns
+             * @description Tasks with answers from a model, or labels.
              */
-            parent_id: string | null;
+            answer_columns: number;
             /**
-             * Branch
-             * @description Its place in the tree, e.g. `1.2`: the 2nd made from the 1st made from a file. Empty for a dataset added from a file.
+             * Active Runs
+             * @description Runs queued or going.
              */
-            branch: string | null;
-            /** @description The run that makes it; its rows fill in as it goes. */
-            run: components["schemas"]["DatasetRun"] | null;
+            active_runs: number;
+            /**
+             * Active Done
+             * @description Answers those runs have asked so far.
+             */
+            active_done: number;
+            /**
+             * Active Total
+             * @description Answers those runs ask for, in all.
+             */
+            active_total: number;
+            /**
+             * Last Run Status
+             * @description How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.
+             */
+            last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
+            /**
+             * Columns
+             * @description Every column of `data`: `__row_id`, the answer columns, newest first, then the file's own.
+             */
+            columns: components["schemas"]["Column"][];
+            /**
+             * Answers
+             * @description What its answer columns are, newest first.
+             */
+            answers: components["schemas"]["AnswerColumn"][];
         };
-        /**
-         * DatasetRun
-         * @description The run that makes a dataset.
-         */
-        DatasetRun: {
+        /** DatasetSummary */
+        DatasetSummary: {
             /** Id */
             id: string;
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
+            /** Row Count */
+            row_count: number;
             /**
-             * Status
-             * @enum {string}
+             * Size Bytes
+             * @description Of its file; answers are kept beside it.
              */
-            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed" | "manual";
+            size_bytes: number;
             /**
-             * Failed
-             * @description Answers that failed, which resuming asks again.
+             * Created At
+             * Format: date-time
              */
-            failed: number;
+            created_at: string;
             /**
-             * Done
-             * @description Answers saved so far.
+             * Answer Columns
+             * @description Tasks with answers from a model, or labels.
              */
-            done: number;
+            answer_columns: number;
             /**
-             * Total
-             * @description Answers the run asks for.
+             * Active Runs
+             * @description Runs queued or going.
              */
-            total: number;
+            active_runs: number;
             /**
-             * Error
-             * @description Why the run failed.
+             * Active Done
+             * @description Answers those runs have asked so far.
              */
-            error: string | null;
+            active_done: number;
+            /**
+             * Active Total
+             * @description Answers those runs ask for, in all.
+             */
+            active_total: number;
+            /**
+             * Last Run Status
+             * @description How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.
+             */
+            last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
         };
         /** Day */
         Day: {
@@ -1204,17 +1280,32 @@ export interface components {
         Estimate: {
             /**
              * Rows
-             * @description Rows the run would ask about.
+             * @description Rows the query picks.
              */
             rows: number;
             /**
+             * Answered
+             * @description Answers those rows have already, which it won't ask again.
+             */
+            answered: number;
+            /**
              * Calls
-             * @description Model calls it would make.
+             * @description Answers it would ask models for.
              */
             calls: number;
             /**
+             * Missing Input
+             * @description Answers it would skip, because a column the prompt uses is empty in the row.
+             */
+            missing_input: number;
+            /**
+             * Failed Before
+             * @description Of the answers it would ask for, those an earlier run asked and didn't get.
+             */
+            failed_before: number;
+            /**
              * Cost
-             * @description Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already given to the same rows in the dataset's tree would be free.
+             * @description Roughly what it would cost in USD, from sample rows' token counts and the models' prices; replies kept from earlier runs would be free.
              */
             cost: number;
             /**
@@ -1379,6 +1470,16 @@ export interface components {
              * @enum {string}
              */
             role: "verifier" | "member" | "admin";
+        };
+        /** Label */
+        Label: {
+            /** Row Id */
+            row_id: number;
+            /**
+             * Value
+             * @description The label; null clears it. Yes/no takes true or false, pick one and scale an option's name, pick any a list of names, write text, extract an object keyed by field name.
+             */
+            value: unknown;
         };
         /** Member */
         Member: {
@@ -1756,14 +1857,14 @@ export interface components {
             id: string;
             /**
              * Dataset Id
-             * @description The dataset it makes.
+             * @description The dataset it adds answers to.
              */
             dataset_id: string;
             /**
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed" | "manual";
+            status: "queued" | "running" | "stopping" | "stopped" | "done" | "failed";
             /** @description The query and tasks it was started with. */
             config: components["schemas"]["RunRequest-Output"];
             /**
@@ -1776,7 +1877,7 @@ export interface components {
             };
             /**
              * Columns
-             * @description The output columns; manual runs use the task's column name without a model suffix.
+             * @description The answer columns it writes, without their `_proba` and `_reason` columns.
              */
             columns: string[];
             /**
@@ -1786,22 +1887,17 @@ export interface components {
             costs: components["schemas"]["TaskModelCost"][];
             /**
              * Row Count
-             * @description Rows it asks about: the rows in its scope.
+             * @description Rows it asks about: those the query picks that miss one of its answers.
              */
             row_count: number;
             /**
-             * Next Chunk
-             * @description The first chunk of rows not yet written.
-             */
-            next_chunk: number;
-            /**
              * Done
-             * @description Answers saved (or failed) so far.
+             * @description Answers asked so far, failed ones too.
              */
             done: number;
             /**
              * Total
-             * @description Answers the run asks for.
+             * @description Answers it asks for.
              */
             total: number;
             /**
@@ -1821,7 +1917,7 @@ export interface components {
             created_by: string | null;
             /**
              * Provider Id
-             * @description The model provider its calls go to, kept from when it started. Empty on the server's key, and for manual runs.
+             * @description The model provider its calls go to, kept from when it started. Empty on the server's key.
              */
             provider_id: string | null;
             /**
@@ -1839,19 +1935,12 @@ export interface components {
         "RunRequest-Input": {
             /**
              * Sql
-             * @description Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.
+             * @description Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default. For a sample that grows without changing, order by a hash: `SELECT * FROM data ORDER BY md5('s1' || __row_id) LIMIT 50`.
              * @default SELECT * FROM data
              */
             sql: string;
             /** Tasks */
             tasks: components["schemas"]["Task-Input"][];
-            /**
-             * Method
-             * @description Label with models or enter labels manually.
-             * @default llm
-             * @enum {string}
-             */
-            method: "llm" | "manual";
         };
         /**
          * RunRequest
@@ -1860,19 +1949,19 @@ export interface components {
         "RunRequest-Output": {
             /**
              * Sql
-             * @description Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.
+             * @description Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default. For a sample that grows without changing, order by a hash: `SELECT * FROM data ORDER BY md5('s1' || __row_id) LIMIT 50`.
              * @default SELECT * FROM data
              */
             sql: string;
             /** Tasks */
             tasks: components["schemas"]["Task-Output"][];
-            /**
-             * Method
-             * @description Label with models or enter labels manually.
-             * @default llm
-             * @enum {string}
-             */
-            method: "llm" | "manual";
+        };
+        /** SetLabels */
+        SetLabels: {
+            /** @description The question the labels answer: needed with the first labels in a column, and otherwise the same as then. Its `column` is the column's name; it asks no models. */
+            task?: components["schemas"]["Task-Input"] | null;
+            /** Labels */
+            labels: components["schemas"]["Label"][];
         };
         /** Settings */
         Settings: {
@@ -2040,7 +2129,7 @@ export interface components {
             output_tokens: number;
             /**
              * Failed
-             * @description Rows without an answer.
+             * @description Answers that failed; starting the run again asks them again.
              */
             failed: number;
         };
@@ -2434,7 +2523,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Dataset"][];
+                    "application/json": components["schemas"]["DatasetSummary"][];
                 };
             };
         };
@@ -2555,6 +2644,76 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Dataset"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                column: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLabels"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnswerColumn"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteAnswers: {
+        parameters: {
+            query: {
+                /** @description The task's column, e.g. `fallacy`. */
+                column: string;
+                /** @description The model, e.g. `typesafe/jev-1.14`; none for labels. */
+                model?: string | null;
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -3134,6 +3293,37 @@ export interface operations {
             };
         };
     };
+    listRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     createRun: {
         parameters: {
             query?: never;
@@ -3236,104 +3426,6 @@ export interface operations {
         };
     };
     stopRun: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Run"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    resumeRun: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Run"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    saveManualAnswers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Answers"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Run"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    finishManualRun: {
         parameters: {
             query?: never;
             header?: never;

@@ -1,10 +1,13 @@
 """Datasets: files ingested once into Parquet with a stable `__row_id`, then explored with DuckDB.
 
-A run makes a new dataset: the selected rows of the parent, with the run's answer columns added.
-While the run is under way, that dataset is read from its rows (`rows.parquet`, a copy of the selected
-source rows) joined with the answers written so far (`parts/*.parquet`, one file per chunk);
-`asked.parquet` lists the rows the run asks about. When the run finishes, the two are written out once as
-`data.parquet`, like any other dataset.
+A dataset is the rows of one file, and the answer columns runs and people add to it. Its file
+(`data.parquet`) is never changed. Each run writes its answers to files of its own (`runs/`, see
+`runs`); labels people set are kept in the database (see `labels`). Queries see all of it as one table,
+`data`: the file's rows joined with every run's answers and the labels, by `__row_id` (`attach`).
+
+`answer_columns` records each task and model a dataset has answers from, and each labelled task, with
+the question it answers. A name keeps its meaning: asking a different question under a name in use is
+refused, and asking the same one again adds to the same columns.
 """
 
 import gzip
@@ -24,14 +27,13 @@ import duckdb
 import duckdb.sqltypes
 from pydantic import BaseModel, Field
 
-from rowlab.core import connections, db, network, storage
+from rowlab.core import connections, db, network, storage, tasks
 from rowlab.core.config import config
 from rowlab.core.errors import InvalidRequest, NotFound
 from rowlab.core.storage import sql_ident, sql_string
+from rowlab.core.tasks import Task
 
 ROW_ID = "__row_id"
-# In a run's part files: which answers failed, so they can be asked again. Not part of the dataset.
-FAILED = "__failed"
 
 Format = Literal["csv", "json", "jsonl", "parquet"]
 
@@ -54,33 +56,44 @@ class Column(BaseModel):
     type: str
 
 
-class DatasetRun(BaseModel):
-    """The run that makes a dataset."""
+class AnswerColumn(BaseModel):
+    """Answers to one task from one model, or labels people set for one task."""
 
-    id: str
-    status: Literal["queued", "running", "stopping", "stopped", "done", "failed", "manual"]
-    failed: int = Field(description="Answers that failed, which resuming asks again.")
-    done: int = Field(description="Answers saved so far.")
-    total: int = Field(description="Answers the run asks for.")
-    error: str | None = Field(description="Why the run failed.")
+    name: str = Field(description="The task's column, e.g. `fallacy`.")
+    model: str | None = Field(description="The model that answers; empty for labels people set.")
+    task: Task = Field(description="The question its answers are to.")
+    columns: list[str] = Field(
+        description="Its columns in `data`, e.g. `fallacy__jev-1.14` and `fallacy__jev-1.14_proba`."
+    )
+    answered: int = Field(description="Rows with an answer.")
+    cost: float = Field(description="USD runs spent on it; cached answers are free.")
 
 
-class Dataset(BaseModel):
+class DatasetSummary(BaseModel):
     id: str
     name: str
     source: str
     row_count: int
-    size_bytes: int
-    columns: list[Column]
+    size_bytes: int = Field(description="Of its file; answers are kept beside it.")
     created_at: datetime
-    parent_id: str | None = Field(description="The dataset it was made from by a run.")
-    branch: str | None = Field(
-        description="Its place in the tree, e.g. `1.2`: the 2nd made from the 1st made from a file. "
-        "Empty for a dataset added from a file."
+    answer_columns: int = Field(description="Tasks with answers from a model, or labels.")
+    active_runs: int = Field(description="Runs queued or going.")
+    active_done: int = Field(description="Answers those runs have asked so far.")
+    active_total: int = Field(description="Answers those runs ask for, in all.")
+    last_run_status: (
+        Literal["queued", "running", "stopping", "stopped", "done", "failed"] | None
+    ) = Field(
+        description="How its newest run stands: `failed` or `stopped` until a run is started "
+        "again. Empty before any run."
     )
-    run: DatasetRun | None = Field(
-        description="The run that makes it; its rows fill in as it goes."
+
+
+class Dataset(DatasetSummary):
+    columns: list[Column] = Field(
+        description="Every column of `data`: `__row_id`, the answer columns, newest first, then the "
+        "file's own."
     )
+    answers: list[AnswerColumn] = Field(description="What its answer columns are, newest first.")
 
 
 class ColumnProfile(BaseModel):
@@ -290,151 +303,23 @@ def rename_dataset(dataset_id: str, request: RenameDataset) -> Dataset:
     return get_dataset(dataset_id)
 
 
-def write_run_rows(parent_id: str, asked: list[int]) -> str:
-    """Start the dataset a run makes: copy the selected parent rows independently,
-    and list the ones the run asks about. Returns its id; it is recorded once the run's first (empty)
-    part is written."""
-    dataset_id = uuid.uuid4().hex
-    storage.prepare(dataset_id)
-    try:
-        with storage.connect() as con:
-            storage.write(
-                con,
-                f"SELECT * FROM {dataset_source(parent_id)} WHERE {ROW_ID} IN (SELECT unnest(?::BIGINT[]))",
-                storage.location(dataset_id, "rows.parquet"),
-                [asked],
-            )
-            storage.write(
-                con,
-                f"SELECT unnest(?::BIGINT[]) AS {ROW_ID}",
-                storage.location(dataset_id, "asked.parquet"),
-                [asked],
-            )
-    except BaseException:
-        storage.delete_dataset(dataset_id)
-        raise
-    return dataset_id
-
-
-def register_run_dataset(dataset_id: str, parent_id: str) -> Dataset:
-    """Record the dataset a run makes, once its rows and first (empty) part are written. It is named
-    after its branch, numbered like an outline: `titanic__1` for the first made from `titanic`,
-    `titanic__1.2` for the second made from `titanic__1`. Branch numbers are never reused;
-    display names can be changed independently."""
-    parent = get_dataset(parent_id)
-    with db.connect() as conn:
-        made = conn.execute(
-            "UPDATE datasets SET made = made + 1 WHERE id = ? RETURNING made", (parent_id,)
-        ).fetchone()["made"]
-    branch = f"{parent.branch}.{made}" if parent.branch else str(made)
-    base = parent.name.removesuffix(f"__{parent.branch}") if parent.branch else parent.name
-    return _register(
-        dataset_id,
-        org_id=org_of(parent_id),
-        name=f"{base}__{branch}",
-        source=f"Made from {parent.name}",
-        parent_id=parent_id,
-        branch=branch,
-    )
-
-
-def finish_run_dataset(dataset_id: str) -> None:
-    """Write a run's dataset out as one Parquet file, once every chunk is written. Its run's files
-    stay, so failed answers can be asked again later (see `reopen_run_dataset`)."""
-    data = storage.location(dataset_id, "data.parquet")
-    with storage.connect() as con:
-        storage.write(con, f"SELECT * FROM {dataset_source(dataset_id)} ORDER BY {ROW_ID}", data)
-    with db.connect() as conn:
-        conn.execute(
-            "UPDATE datasets SET size_bytes = ? WHERE id = ?", (storage.size(data), dataset_id)
-        )
-
-
-def reopen_run_dataset(dataset_id: str) -> None:
-    """Read a finished run's dataset from its run's files again, while the run asks its failed
-    answers again; `finish_run_dataset` writes it out once more."""
-    storage.delete(storage.location(dataset_id, "data.parquet"))
-
-
-def write_run_part(
-    dataset_id: str, columns: list[tuple[str, str]], name: str, by_row: dict[int, dict[str, Any]]
-) -> None:
-    """Write a run's answers as one Parquet file: `__row_id`, the answer `columns` (name and SQL
-    type; empty where the model failed), and `__failed`, which models failed which tasks, as
-    `<task id> <model>`. Written to a temporary name first, so a part is complete or absent."""
-    columns = [*columns, (FAILED, "VARCHAR[]")]
-    with storage.connect() as con:
-        con.execute(
-            "CREATE TABLE part ("
-            + ", ".join(
-                [f"{sql_ident(ROW_ID)} BIGINT"] + [f"{sql_ident(n)} {t}" for n, t in columns]
-            )
-            + ")"
-        )
-        if by_row:
-            con.executemany(
-                f"INSERT INTO part VALUES ({', '.join('?' for _ in range(len(columns) + 1))})",
-                [
-                    [row_id, *(values.get(n) for n, _ in columns)]
-                    for row_id, values in by_row.items()
-                ],
-            )
-        storage.write(
-            con, "SELECT * FROM part", storage.location(dataset_id, "parts", f"{name}.parquet")
-        )
-
-
-def read_run_part(dataset_id: str, name: str) -> dict[int, dict[str, Any]]:
-    """The answers in one part a run wrote, by `__row_id`."""
-    part = sql_string(storage.location(dataset_id, "parts", f"{name}.parquet"))
-    with storage.connect() as con:
-        rows = con.execute(f"SELECT to_json(t) FROM read_parquet({part}) AS t").fetchall()
-    answers = {}
-    for (data,) in rows:
-        row = json.loads(data)
-        answers[row.pop(ROW_ID)] = row
-    return answers
-
-
-def read_run_rows(dataset_id: str, *, offset: int, limit: int) -> list[dict[str, Any]]:
-    """The rows a run asks about, by `__row_id`, without their answers."""
-    rows_file = sql_string(storage.location(dataset_id, "rows.parquet"))
-    asked_file = sql_string(storage.location(dataset_id, "asked.parquet"))
-    with storage.connect() as con:
-        rows = con.execute(
-            f"SELECT to_json(t) FROM read_parquet({rows_file}) AS t "
-            f"SEMI JOIN read_parquet({asked_file}) AS a USING ({ROW_ID}) ORDER BY {ROW_ID} "
-            "LIMIT ? OFFSET ?",
-            [limit, offset],
-        ).fetchall()
-    return [json.loads(r[0]) for r in rows]
-
-
-def _register(
-    dataset_id: str,
-    *,
-    org_id: str,
-    name: str,
-    source: str,
-    parent_id: str | None = None,
-    branch: str | None = None,
-) -> Dataset:
-    """Record a dataset whose files have been written, in its parent's tree or as a new tree's root."""
+def _register(dataset_id: str, *, org_id: str, name: str, source: str) -> Dataset:
+    """Record a dataset whose file has been written."""
     file = storage.location(dataset_id, "data.parquet")
-    if not storage.exists(file):
-        file = storage.location(dataset_id, "rows.parquet")
     with storage.connect() as con:
-        source_sql = dataset_source(dataset_id)
         columns = [
             Column(name=r[0], type=r[1])
-            for r in con.execute(f"DESCRIBE SELECT * FROM {source_sql}").fetchall()
+            for r in con.execute(
+                f"DESCRIBE SELECT * FROM read_parquet({sql_string(file)})"
+            ).fetchall()
         ]
-        row_count = con.execute(f"SELECT count(*) FROM {source_sql}").fetchone()[0]
+        row_count = con.execute(
+            f"SELECT count(*) FROM read_parquet({sql_string(file)})"
+        ).fetchone()[0]
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO datasets (id, org_id, name, source, row_count, size_bytes, columns,"
-            " created_at, parent_id, branch, root_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
-            " coalesce((SELECT root_id FROM datasets WHERE id = ?), ?))",
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 dataset_id,
                 org_id,
@@ -444,38 +329,49 @@ def _register(
                 storage.size(file),
                 json.dumps([c.model_dump() for c in columns]),
                 datetime.now(UTC).isoformat(),
-                parent_id,
-                branch,
-                parent_id,
-                dataset_id,
             ),
         )
     return get_dataset(dataset_id)
 
 
-# Datasets with the run that makes them, if any.
-_SELECT = """
-SELECT d.*, r.id AS run_id, r.status AS run_status, r.done AS run_done, r.total AS run_total,
-    r.costs AS run_costs, r.error AS run_error
-FROM datasets d LEFT JOIN runs r ON r.dataset_id = d.id
-"""
-
-
-def list_datasets(org_id: str) -> list[Dataset]:
+def list_datasets(org_id: str) -> list[DatasetSummary]:
     """The organisation's datasets, newest first."""
     with db.connect() as conn:
         rows = conn.execute(
-            f"{_SELECT} WHERE d.org_id = ? ORDER BY d.created_at DESC", (org_id,)
+            f"SELECT d.*, {_SUMMARY} FROM datasets d WHERE d.org_id = ? ORDER BY d.created_at DESC",
+            (org_id,),
         ).fetchall()
-    return [_from_row(row) for row in rows]
+    return [DatasetSummary(**row) for row in rows]
 
 
 def get_dataset(dataset_id: str) -> Dataset:
     with db.connect() as conn:
-        row = conn.execute(f"{_SELECT} WHERE d.id = ?", (dataset_id,)).fetchone()
+        row = conn.execute(
+            f"SELECT d.*, {_SUMMARY} FROM datasets d WHERE d.id = ?", (dataset_id,)
+        ).fetchone()
     if row is None:
         raise NotFound(f"Dataset {dataset_id} not found")
-    return _from_row(row)
+    with storage.connect() as con:
+        attach(con, dataset_id)
+        columns = [Column(name=r[0], type=r[1]) for r in con.execute("DESCRIBE data").fetchall()]
+    return Dataset(**{**row, "columns": columns}, answers=answer_columns(dataset_id))
+
+
+# Statuses of a run that still has work to do, and as SQL.
+ACTIVE = ("queued", "running", "stopping")
+_ACTIVE = "('queued', 'running', 'stopping')"
+
+# What a dataset's summary says of its answers and runs, for `SELECT d.*, … FROM datasets d`.
+_SUMMARY = f"""
+    (SELECT count(*) FROM answer_columns a WHERE a.dataset_id = d.id) AS answer_columns,
+    (SELECT count(*) FROM runs r WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_runs,
+    (SELECT coalesce(sum(r.done), 0) FROM runs r
+        WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_done,
+    (SELECT coalesce(sum(r.total), 0) FROM runs r
+        WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_total,
+    (SELECT r.status FROM runs r WHERE r.dataset_id = d.id
+        ORDER BY r.created_at DESC LIMIT 1) AS last_run_status
+"""
 
 
 def org_of(dataset_id: str) -> str:
@@ -494,11 +390,263 @@ def check_access(org_id: str, dataset_id: str) -> None:
 
 
 def delete_dataset(dataset_id: str) -> None:
-    """Delete a dataset with the run that makes it. Datasets made from it stay."""
+    """Delete a dataset with its answers and runs. A run under way stops at its next check."""
     get_dataset(dataset_id)
     with db.connect() as conn:
         conn.execute("DELETE FROM datasets WHERE id = ?", (dataset_id,))
     storage.delete_dataset(dataset_id)
+
+
+# Answer columns
+
+
+def answer_columns(dataset_id: str) -> list[AnswerColumn]:
+    """What the dataset's answer columns are, newest first, with how many rows have an answer and
+    what runs spent on them."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT a.name, a.model, a.task, a.answered, a.created_at,"
+            " (SELECT count(*) FROM labels l WHERE l.dataset_id = a.dataset_id AND l.name = a.name"
+            "  AND a.model = '') AS labelled"
+            " FROM answer_columns a WHERE a.dataset_id = ? ORDER BY a.created_at DESC, a.name, a.model",
+            (dataset_id,),
+        ).fetchall()
+        runs = conn.execute(
+            "SELECT config, costs, created_at FROM runs WHERE dataset_id = ?", (dataset_id,)
+        ).fetchall()
+    found = []
+    for row in rows:
+        task = Task.model_validate_json(row["task"])
+        model = row["model"] or None
+        cost = 0.0
+        for run in runs:
+            if run["created_at"] < row["created_at"]:
+                continue  # From before the column was deleted and asked anew.
+            columns = {t["id"]: t["column"] for t in json.loads(run["config"])["tasks"]}
+            cost += sum(
+                c["cost"]
+                for c in json.loads(run["costs"])
+                if columns.get(c["task_id"]) == row["name"] and c["model"] == model
+            )
+        answer = AnswerColumn(
+            name=row["name"],
+            model=model,
+            task=task,
+            columns=[],
+            answered=row["labelled"] if model is None else row["answered"],
+            cost=cost,
+        )
+        answer.columns = [name for name, _ in _columns(answer)]
+        found.append(answer)
+    return found
+
+
+def _columns(answer: AnswerColumn) -> list[tuple[str, str]]:
+    """An answer column's columns in `data`, with their SQL types."""
+    if answer.model is None:
+        return tasks.label_columns(answer.task)
+    return tasks.columns(answer.task, answer.model)
+
+
+def definition(task: Task) -> dict[str, Any]:
+    """What a task asks, without what doesn't change its answers' meaning: its id, models and preset."""
+    return task.model_dump(mode="json", exclude={"id", "models", "preset"})
+
+
+def check_answers(dataset_id: str, task: Task, models: list[str | None]) -> None:
+    """Raise InvalidRequest unless the task's answers from `models` (None for labels) can go in the
+    dataset: a name in use answers the same question, and new columns don't take a name in use."""
+    existing = {(a.name, a.model): a for a in answer_columns(dataset_id)}
+    taken = {c["name"] for c in _own_columns(dataset_id)}
+    for answer in existing.values():
+        taken |= set(answer.columns)
+    for model in models:
+        found = existing.get((task.column, model))
+        if found is not None:
+            if definition(found.task) != definition(task):
+                who = f"from {tasks.model_slug(model)}" if model else "set by people"
+                raise InvalidRequest(
+                    f"The dataset already has answers {who} in `{task.column}`, to a different "
+                    f"question. Name the column differently, e.g. `{_free(task.column, existing)}`."
+                )
+            continue
+        new = AnswerColumn(name=task.column, model=model, task=task, columns=[], answered=0, cost=0)
+        clash = sorted({name for name, _ in _columns(new)} & taken)
+        if clash:
+            raise InvalidRequest(
+                f"The dataset already has a column {', '.join(clash)}. Name the task's column "
+                "differently."
+            )
+
+
+def _free(name: str, existing: dict) -> str:
+    """A name like `name` that no answer column has."""
+    names = {n for n, _ in existing}
+    n = 2
+    while f"{name}_{n}" in names:
+        n += 1
+    return f"{name}_{n}"
+
+
+def add_answers(conn: db.Connection, dataset_id: str, task: Task, model: str | None) -> None:
+    """Record the task's answers from `model` (None for labels), unless the dataset has them: in
+    the transaction that starts the run or saves the labels. `check_answers` first."""
+    conn.execute(
+        "INSERT INTO answer_columns (dataset_id, name, model, task, created_at)"
+        " VALUES (?, ?, ?, ?, ?) ON CONFLICT (dataset_id, name, model) DO NOTHING",
+        (
+            dataset_id,
+            task.column,
+            model or "",
+            task.model_copy(update={"models": []}).model_dump_json(),
+            datetime.now(UTC).isoformat(),
+        ),
+    )
+
+
+def delete_answers(dataset_id: str, name: str, model: str | None) -> None:
+    """Delete a task's answers from a model, or its labels. Model replies are kept, so asking the
+    same again is free. A run still asking for them must be stopped first."""
+    with db.connect() as conn:
+        lock(conn, dataset_id)
+        found = conn.execute(
+            "SELECT 1 FROM answer_columns WHERE dataset_id = ? AND name = ? AND model = ?",
+            (dataset_id, name, model or ""),
+        ).fetchone()
+        if found is None:
+            raise NotFound(f"No answers in `{name}`" + (f" from {model}" if model else "") + ".")
+        if model is not None:
+            for run in conn.execute(
+                f"SELECT config FROM runs WHERE dataset_id = ? AND status IN {_ACTIVE}",
+                (dataset_id,),
+            ).fetchall():
+                if any(
+                    t["column"] == name and model in t["models"]
+                    for t in json.loads(run["config"])["tasks"]
+                ):
+                    raise InvalidRequest("A run is still asking for these answers. Stop it first.")
+        conn.execute(
+            "DELETE FROM answer_columns WHERE dataset_id = ? AND name = ? AND model = ?",
+            (dataset_id, name, model or ""),
+        )
+        if model is None:
+            conn.execute("DELETE FROM labels WHERE dataset_id = ? AND name = ?", (dataset_id, name))
+
+
+def lock(conn: db.Connection, dataset_id: str) -> None:
+    """Hold the dataset's row until the transaction ends, so starting runs and saving labels go one
+    at a time per dataset."""
+    if conn.execute("UPDATE datasets SET name = name WHERE id = ?", (dataset_id,)).rowcount == 0:
+        raise NotFound(f"Dataset {dataset_id} not found")
+
+
+def _own_columns(dataset_id: str) -> list[dict[str, str]]:
+    with db.connect() as conn:
+        row = conn.execute("SELECT columns FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+    if row is None:
+        raise NotFound(f"Dataset {dataset_id} not found")
+    return json.loads(row["columns"])
+
+
+# The table `data`
+
+
+def run_files(dataset_id: str, run_id: str, status: str, chunks: int) -> list[str]:
+    """The files a run has written its answers to: one per chunk while it goes, then one."""
+    if not chunks:
+        return []
+    if status in ACTIVE:
+        return [run_part(dataset_id, run_id, k) for k in range(chunks)]
+    return [storage.location(dataset_id, "runs", f"{run_id}.parquet")]
+
+
+def run_part(dataset_id: str, run_id: str, chunk: int) -> str:
+    return storage.location(dataset_id, "runs", run_id, f"part-{chunk:06d}.parquet")
+
+
+def attach(con: duckdb.DuckDBPyConnection, dataset_id: str) -> None:
+    """Make the dataset the view `data` on a DuckDB connection: its file's rows, each answer column
+    from the runs that wrote it (a run only writes cells that were empty, so they never overlap),
+    and labels people set, loaded into a temporary table. The answer columns come right after
+    `__row_id`, newest first."""
+    _own_columns(dataset_id)  # Raises NotFound.
+    answers = answer_columns(dataset_id)
+    with db.connect() as conn:
+        runs = conn.execute(
+            "SELECT id, status, next_chunk, config, created_at FROM runs WHERE dataset_id = ?"
+            " ORDER BY created_at",
+            (dataset_id,),
+        ).fetchall()
+        labels = conn.execute(
+            "SELECT name, row_id, value FROM labels WHERE dataset_id = ?", (dataset_id,)
+        ).fetchall()
+        created = {
+            (r["name"], r["model"] or None): r["created_at"]
+            for r in conn.execute(
+                "SELECT name, model, created_at FROM answer_columns WHERE dataset_id = ?",
+                (dataset_id,),
+            ).fetchall()
+        }
+
+    joins = []
+    writers: dict[str, list[str]] = {}  # A column's runs, by their alias.
+    for i, run in enumerate(runs):
+        files = run_files(dataset_id, run["id"], run["status"], run["next_chunk"])
+        if not files:
+            continue
+        alias = f"r{i}"
+        joins.append(
+            f"LEFT JOIN read_parquet([{', '.join(map(sql_string, files))}]) AS {alias}"
+            f" USING ({ROW_ID})"
+        )
+        for task in json.loads(run["config"])["tasks"]:
+            task = Task.model_validate(task)
+            for model in task.models:
+                since = created.get((task.column, model))
+                # Answers deleted since are left out.
+                if since is not None and run["created_at"] >= since:
+                    for name, _ in tasks.columns(task, model):
+                        writers.setdefault(name, []).append(alias)
+
+    by_label: dict[str, list] = {}
+    for row in labels:
+        by_label.setdefault(row["name"], []).append(row)
+    select = [f"d.{ROW_ID}"]
+    for n, answer in enumerate(answers):
+        if answer.model is None:
+            table = f"labels_{n}"
+            columns = tasks.label_columns(answer.task)
+            con.execute(
+                f"CREATE TEMPORARY TABLE {table} ({ROW_ID} BIGINT, "
+                + ", ".join(f"{sql_ident(c)} {t}" for c, t in columns)
+                + ")"
+            )
+            values = [
+                [row["row_id"], *tasks.read_label(answer.task, json.loads(row["value"])).values()]
+                for row in by_label.get(answer.name, [])
+            ]
+            if values:
+                con.executemany(
+                    f"INSERT INTO {table} VALUES ({', '.join('?' * (len(columns) + 1))})", values
+                )
+            joins.append(f"LEFT JOIN {table} USING ({ROW_ID})")
+            select += [f"{table}.{sql_ident(c)}" for c, _ in columns]
+            continue
+        for name, type_ in _columns(answer):
+            found = [f"{alias}.{sql_ident(name)}" for alias in writers.get(name, [])]
+            value = (
+                found[0]
+                if len(found) == 1
+                else f"coalesce({', '.join(found)})"
+                if found
+                else f"NULL::{type_}"
+            )
+            select.append(f"{value} AS {sql_ident(name)}")
+    data = sql_string(storage.location(dataset_id, "data.parquet"))
+    con.execute(
+        f"CREATE VIEW data AS SELECT {', '.join(select)}, d.* EXCLUDE ({ROW_ID})"
+        f" FROM read_parquet({data}) AS d {' '.join(joins)}"
+    )
 
 
 def dataset_fields(dataset_id: str) -> dict[str, tuple[str, list[str]]]:
@@ -508,7 +656,8 @@ def dataset_fields(dataset_id: str) -> dict[str, tuple[str, list[str]]]:
     e.g. `["actor", "login"]`. Keys may contain dots themselves; the path is only for display.
     """
     with storage.connect() as con:
-        relation = con.sql(f"SELECT * EXCLUDE ({ROW_ID}) FROM {dataset_source(dataset_id)}")
+        attach(con, dataset_id)
+        relation = con.sql(f"SELECT * EXCLUDE ({ROW_ID}) FROM data")
         columns = list(zip(relation.columns, relation.types))
     fields: dict[str, tuple[str, list[str]]] = {}
 
@@ -532,7 +681,8 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
         for path, (_, keys) in dataset_fields(dataset_id).items()
     )
     with storage.connect() as con:
-        rows = con.execute(f"SUMMARIZE SELECT {select} FROM {dataset_source(dataset_id)} AS t")
+        attach(con, dataset_id)
+        rows = con.execute(f"SUMMARIZE SELECT {select} FROM data AS t")
         summary = [dict(zip([d[0] for d in rows.description], r)) for r in rows.fetchall()]
     return [
         ColumnProfile(
@@ -546,38 +696,3 @@ def profile_dataset(dataset_id: str) -> list[ColumnProfile]:
         )
         for s in summary
     ]
-
-
-def _from_row(row: dict[str, Any]) -> Dataset:
-    run = None
-    if row["run_id"]:
-        run = DatasetRun(
-            id=row["run_id"],
-            status=row["run_status"],
-            done=row["run_done"],
-            total=row["run_total"],
-            failed=sum(cost["failed"] for cost in json.loads(row["run_costs"])),
-            error=row["run_error"],
-        )
-    return Dataset(**{**row, "columns": json.loads(row["columns"]), "run": run})
-
-
-def dataset_source(dataset_id: str, *, unfinished: bool = False) -> str:
-    """A DuckDB table expression for a dataset's rows, including one a run is still making. A run's
-    answer columns come right after `__row_id`, so the newest answers are first."""
-    data = storage.location(dataset_id, "data.parquet")
-    if not unfinished:
-        with db.connect() as conn:
-            run = conn.execute(
-                "SELECT status FROM runs WHERE dataset_id = ?", (dataset_id,)
-            ).fetchone()
-        unfinished = bool(run and run["status"] == "manual")
-    if not unfinished and storage.exists(data):
-        return f"read_parquet({sql_string(data)})"
-    rows = sql_string(storage.location(dataset_id, "rows.parquet"))
-    parts = sql_string(storage.location(dataset_id, "parts", "*.parquet"))
-    return (
-        f"(SELECT {ROW_ID}, a.* EXCLUDE ({ROW_ID}, {FAILED}), r.* EXCLUDE ({ROW_ID}) "
-        f"FROM read_parquet({rows}) AS r "
-        f"LEFT JOIN read_parquet({parts}) AS a USING ({ROW_ID}))"
-    )

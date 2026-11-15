@@ -5,7 +5,7 @@ description: One skill for labeling, measuring quality and running at scale with
 
 The MCP tools describe what rowlab can do. The
 [Rowlab skill](https://github.com/row-and-reason/agent-skills/tree/main/skills/rowlab)
-teaches an agent how to use them: define a task, label manually or with models, compare
+teaches an agent how to use them: define a task, pilot it on a sample, add people's labels, compare
 quality, choose a model, run at scale and export the result.
 
 ```sh
@@ -21,11 +21,10 @@ inputs, distinguish model agreement from accuracy, evaluate representative sampl
 and stay within the authorized scope and budget. Exact tool arguments come from the
 connected server rather than a second copy of the API documentation.
 
-For manual labeling, the agent starts a manual run, presents rows or receives labels,
-saves answers with `run_answers`, then locks the completed output with `run_finish`.
-Manual execution does not imply human authorship: the agent submits labels supplied by
-the user or explicitly authorized for it to produce. This workflow requires a server
-that exposes those tools.
+For labels people give, the agent sets them with `labels_set`, before or after models run, as
+the models' task or as a judgement of a model's answer. Setting labels does not imply human
+authorship: the agent submits labels supplied by the user or explicitly authorized for it to
+produce.
 
 If you installed the earlier separate Rowlab skills, remove those installed copies after
 installing `rowlab` to avoid competing instructions.

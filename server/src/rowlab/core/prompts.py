@@ -118,6 +118,17 @@ def render(template: str, row: dict[str, Any], keys: dict[str, list[str]]) -> st
     return PLACEHOLDER.sub(lambda m: to_text(_lookup(row, keys.get(m.group(1)))), template)
 
 
+def inputs(template: str, keys: dict[str, list[str]]) -> list[list[str]]:
+    """The keys of each column the template uses, of those the dataset has."""
+    return [keys[path] for path in dict.fromkeys(PLACEHOLDER.findall(template)) if path in keys]
+
+
+def has_inputs(template: str, row: dict[str, Any], keys: dict[str, list[str]]) -> bool:
+    """Whether the row has a value in every column the template uses. A run skips a row that
+    doesn't: e.g. one whose earlier answer, used as input, failed."""
+    return all(_lookup(row, k) is not None for k in inputs(template, keys))
+
+
 def to_text(value: Any) -> str:
     """How a value appears in a prompt: text as is, everything else as compact JSON."""
     if value is None:

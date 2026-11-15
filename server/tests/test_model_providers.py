@@ -71,14 +71,14 @@ def test_one_provider_is_active_and_a_run_keeps_the_one_it_started_with(client, 
     # The next run goes to the gateway, with its prefix before the model's id.
     fake.calls.clear()
     fake.urls.clear()
-    finished = run(client, job)
+    finished = run(client, {**job, "tasks": [{**LLM_TASK, "column": "again"}]})
     assert finished["status"] == "done"
     assert finished["provider_id"] == gateway["id"]
     posts = [(u, c[3]) for u, c in zip(fake.urls, fake.calls, strict=True) if c[0] == "POST"]
     assert {u for u, _ in posts} == {"https://litellm.example.com/v1/chat/completions"}
     assert {body["model"] for _, body in posts} == {"openrouter/x/llm"}
     # Its columns are named after rowlab's model id, prefix or not.
-    assert "negative__llm" in finished["columns"]
+    assert "again__llm" in finished["columns"]
 
 
 def test_without_a_cost_in_the_reply_it_is_worked_out_from_prices(client, dataset, fake):
@@ -218,19 +218,6 @@ def test_a_base_url_that_isnt_an_api_is_refused_on_save(client, monkeypatch):
     response = add(client, **LITELLM)
     assert response.status_code == 400
     assert "wasn't JSON" in response.json()["detail"]
-
-
-def test_a_run_whose_provider_was_deleted_cant_be_resumed(client, dataset, fake):
-    provider = add(client, type="openrouter", api_key="sk-good").json()
-    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
-    created = start(client, job)
-    client.post(f"/v1/runs/{created['id']}/stop")
-    client.delete(f"/v1/settings/providers/{provider['id']}")
-    add(client, **LITELLM)
-    response = client.post(f"/v1/runs/{created['id']}/resume")
-    assert response.status_code == 400
-    assert "was deleted" in response.json()["detail"]
-    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "stopped"
 
 
 def test_a_litellm_decision_reply_missing_its_probabilities_fails_its_answer(

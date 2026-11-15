@@ -9,7 +9,16 @@ from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from ._models import Comparison, Dataset, Estimate, Model, Run, TaskInput
+from ._models import (
+    AnswerColumn,
+    Comparison,
+    Dataset,
+    DatasetSummary,
+    Estimate,
+    Model,
+    Run,
+    TaskInput,
+)
 
 if TYPE_CHECKING:
     import polars
@@ -17,9 +26,9 @@ if TYPE_CHECKING:
     from .client import Client
 
 # A run with one of these statuses won't change by itself.
-INACTIVE = {"done", "failed", "stopped", "manual"}
-# The most answers `PUT /v1/runs/{id}/tasks/{task_id}/answers` takes at once.
-ANSWERS_PER_REQUEST = 1000
+INACTIVE = {"done", "failed", "stopped"}
+# The most labels `PUT /v1/datasets/{id}/labels/{column}` takes at once.
+LABELS_PER_REQUEST = 1000
 
 
 def _polars():
@@ -52,12 +61,13 @@ def _file(data: Any, name: str | None) -> tuple[str, bytes]:
     raise TypeError("Upload a DataFrame, a file path or bytes.")
 
 
-def _run_request(tasks: tuple[TaskInput, ...], sql: str | None, method: str) -> dict:
+def _task(task: TaskInput) -> dict:
     # Only what the caller set: the server picks the column and models that suit each task's type.
-    body: dict = {
-        "tasks": [task.model_dump(mode="json", exclude_unset=True) for task in tasks],
-        "method": method,
-    }
+    return task.model_dump(mode="json", exclude_unset=True)
+
+
+def _run_request(tasks: tuple[TaskInput, ...], sql: str | None) -> dict:
+    body: dict = {"tasks": [_task(task) for task in tasks]}
     if sql is not None:
         body["sql"] = sql
     return body
@@ -75,7 +85,13 @@ class DatasetsResource:
             "POST", "v1/datasets", Dataset, files={"file": (filename, content)}
         )
 
+    def list(self) -> list[DatasetSummary]:
+        """The organisation's datasets, newest first; `get` one for its columns and answers."""
+        return self._client._request("GET", "v1/datasets", list[DatasetSummary])
+
     def get(self, id: str) -> Dataset:
+        """The dataset with every column of `data`, and what its answer columns are: the task, the
+        model or labels, how many rows have an answer and what they cost."""
         return self._client._request("GET", f"v1/datasets/{id}", Dataset)
 
     def export(
@@ -112,17 +128,53 @@ class DatasetsResource:
         ignore_case: bool = False,
         trim_whitespace: bool = False,
         sql: str | None = None,
+        rows: Literal["common", "pairwise"] = "common",
     ) -> Comparison:
-        """How often the columns agree, and with a `reference`, each one's accuracy against it."""
+        """How often the columns agree, and with a `reference`, each one's accuracy against it. By
+        default every statistic uses the rows where all the columns have a value; with
+        `rows="pairwise"`, each uses the rows where its own columns do."""
         body: dict = {
             "columns": columns,
             "ignore_case": ignore_case,
             "trim_whitespace": trim_whitespace,
+            "rows": rows,
         }
         for key, value in {"reference": reference, "tolerance": tolerance, "sql": sql}.items():
             if value is not None:
                 body[key] = value
         return self._client._request("POST", f"v1/datasets/{id}/compare", Comparison, json=body)
+
+    def set_labels(
+        self,
+        id: str,
+        column: str,
+        labels: Mapping[int, Any],
+        *,
+        task: TaskInput | None = None,
+    ) -> AnswerColumn:
+        """Set, change or clear labels in `column`, by `__row_id`; `None` clears one. The first
+        labels in a column need the `task` they answer, which makes them a typed column to compare
+        models against. Each 1,000 labels are saved whole or not at all."""
+        items = [{"row_id": row_id, "value": value} for row_id, value in labels.items()]
+        if not items:
+            raise ValueError("Give at least one label.")
+        body: dict = {}
+        if task is not None:
+            body["task"] = _task(task)
+        for start in range(0, len(items), LABELS_PER_REQUEST):
+            body["labels"] = items[start : start + LABELS_PER_REQUEST]
+            answers = self._client._request(
+                "PUT", f"v1/datasets/{id}/labels/{column}", AnswerColumn, json=body
+            )
+        return answers
+
+    def delete_answers(self, id: str, column: str, *, model: str | None = None) -> None:
+        """Delete a task's answers from `model`, or without one, its labels. Model replies are
+        kept, so asking the same again is free. Stop a run still asking for them first."""
+        params = {"column": column}
+        if model is not None:
+            params["model"] = model
+        self._client._content("DELETE", f"v1/datasets/{id}/answers", params=params)
 
 
 class RunsResource:
@@ -134,47 +186,43 @@ class RunsResource:
         dataset_id: str,
         *tasks: TaskInput,
         sql: str | None = None,
-        method: Literal["llm", "manual"] = "llm",
     ) -> Estimate:
         """What `create` with the same arguments would take and roughly cost. Nothing is asked."""
         return self._client._request(
             "POST",
             f"v1/datasets/{dataset_id}/estimate",
             Estimate,
-            json=_run_request(tasks, sql, method),
+            json=_run_request(tasks, sql),
         )
 
-    def create(
-        self,
-        dataset_id: str,
-        *tasks: TaskInput,
-        sql: str | None = None,
-        method: Literal["llm", "manual"] = "llm",
-    ) -> Run:
+    def create(self, dataset_id: str, *tasks: TaskInput, sql: str | None = None) -> Run:
         """Start a run of every task with every model on the rows `sql` picks (all by default). It
-        makes a new dataset, `run.dataset_id`, whose answer columns fill in as it goes; `wait` for
-        it. A manual run waits for `save_answers` and `finish` instead."""
+        adds the answers to the dataset as columns, `<column>__<model>`, which fill in as it goes;
+        `wait` for it. It asks only for answers the dataset doesn't have yet: a run on all rows
+        after a try on a few pays only for the rest, and creating the same run again after a stop
+        or a failure asks only what is still missing."""
         return self._client._request(
             "POST",
             f"v1/datasets/{dataset_id}/runs",
             Run,
-            json=_run_request(tasks, sql, method),
+            json=_run_request(tasks, sql),
         )
+
+    def list(self, dataset_id: str) -> list[Run]:
+        """The dataset's runs, newest first."""
+        return self._client._request("GET", f"v1/datasets/{dataset_id}/runs", list[Run])
 
     def get(self, id: str) -> Run:
         return self._client._request("GET", f"v1/runs/{id}", Run)
 
     def stop(self, id: str) -> Run:
+        """Stop after the calls in flight. `create` the same run again to ask what it didn't get
+        to; answers it paid for are free."""
         return self._client._request("POST", f"v1/runs/{id}/stop", Run)
 
-    def resume(self, id: str) -> Run:
-        """Continue a stopped or failed run, or ask a done run's failed answers again."""
-        return self._client._request("POST", f"v1/runs/{id}/resume", Run)
-
     def wait(self, id: str, *, interval: float = 2.0, timeout: float | None = None) -> Run:
-        """The run once it's done, failed, stopped or waiting for manual answers. It doesn't raise
-        when the run failed: check `run.status`, and `run.costs[i].failed` for rows without an
-        answer. Raises `TimeoutError` after `timeout` seconds; the run carries on regardless."""
+        """The run once it's done, failed or stopped. It doesn't raise when the run failed: check
+        `run.status`, and `run.costs[i].failed` for rows without an answer. Raises `TimeoutError` after `timeout` seconds; the run carries on regardless."""
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             run = self.get(id)
@@ -187,25 +235,6 @@ class RunsResource:
             if left <= 0:
                 raise TimeoutError(f"Run {id} is still {run.status} after {timeout} seconds.")
             time.sleep(min(interval, left))
-
-    def save_answers(self, id: str, task_id: str, answers: Mapping[int, Any]) -> Run:
-        """Set labels on a manual run, by `__row_id`; `None` clears one. `task_id` is
-        `run.config.tasks[i].id`."""
-        items = [{"row_id": row_id, "value": value} for row_id, value in answers.items()]
-        if not items:
-            return self.get(id)
-        for start in range(0, len(items), ANSWERS_PER_REQUEST):
-            run = self._client._request(
-                "PUT",
-                f"v1/runs/{id}/tasks/{task_id}/answers",
-                Run,
-                json={"answers": items[start : start + ANSWERS_PER_REQUEST]},
-            )
-        return run
-
-    def finish(self, id: str) -> Run:
-        """Finish a manual run and freeze its dataset; labels can't change after."""
-        return self._client._request("POST", f"v1/runs/{id}/finish", Run)
 
 
 class ModelsResource:

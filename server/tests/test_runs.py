@@ -4,7 +4,7 @@ import time
 import pytest
 from helpers import NEGATIVE, run, start, stored, stored_datasets
 
-from rowlab.core import db, runs
+from rowlab.core import db, runs, storage
 from rowlab.core.config import config
 from rowlab.core.providers import model_api
 
@@ -61,47 +61,48 @@ def test_run_answers_each_row(client, job, api_key, fake):
     }
 
 
-def test_a_run_makes_a_dataset_of_selected_rows_that_fills_in_as_it_goes(
-    client, dataset, job, api_key, data_dir
-):
+def test_a_run_adds_answer_columns_that_fill_in_as_it_goes(client, dataset, job, api_key):
     job = update(job, sql="SELECT * FROM data WHERE stars = 1")
     created = start(client, job)
-    made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
-    assert (made["name"], made["source"]) == ("reviews__1", "Made from reviews")
-    assert made["branch"] == "1"
-    assert made["parent_id"] == dataset["id"]
-    assert made["run"] == {
-        "id": created["id"],
-        "status": "queued",
-        "done": 0,
-        "failed": 0,
-        "total": 2,
-        "error": None,
-    }
-    assert [c["name"] for c in made["columns"]] == [
+    # The answers go in the dataset itself, which shows its new columns straight away.
+    assert created["dataset_id"] == dataset["id"]
+    assert (created["status"], created["row_count"], created["total"]) == ("queued", 2, 2)
+    listed = client.get("/v1/datasets").json()
+    assert [
+        (d["id"], d["answer_columns"], d["active_runs"], d["active_done"], d["active_total"])
+        for d in listed
+    ] == [(dataset["id"], 1, 1, 0, 2)]
+    assert listed[0]["last_run_status"] == "queued"
+    found = client.get(f"/v1/datasets/{dataset['id']}").json()
+    assert [c["name"] for c in found["columns"]] == [
         "__row_id",
         "negative__jev-1.14",
         "negative__jev-1.14_proba",
         "review",
         "stars",
     ]
-    # Only selected rows are copied, keeping their original row IDs.
-    assert (made["row_count"], created["row_count"]) == (2, 2)
-    # It is listed first, as the newest dataset, before a single answer is in.
-    assert client.get("/v1/datasets").json()[0]["id"] == made["id"]
-    assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [None] * 2
+    answer = found["answers"][0]
+    assert (answer["name"], answer["model"], answer["answered"]) == (
+        "negative",
+        "typesafe/jev-1.14",
+        0,
+    )
+    assert answer["columns"] == ["negative__jev-1.14", "negative__jev-1.14_proba"]
+    assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [None] * 3
 
     while runs.process_next():
         pass
     assert [(i, r["negative__jev-1.14"]) for i, r in rows(client, created).items()] == [
         (0, True),
+        (1, None),
         (2, True),
     ]
-    done = client.get(f"/v1/datasets/{made['id']}").json()
-    assert done["run"]["status"] == "done"
-    assert done["columns"] == made["columns"]
-    # Once done it is one Parquet file, like any other dataset.
-    assert stored(made["id"], "data.parquet")
+    done = client.get(f"/v1/datasets/{dataset['id']}").json()
+    assert (done["active_runs"], done["active_total"], done["last_run_status"]) == (0, 0, "done")
+    assert done["answers"][0]["answered"] == 2
+    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "done"
+    # Its file is untouched; the run's answers are one file of its own.
+    assert stored(dataset["id"], "runs", f"{created['id']}.parquet")
 
 
 def test_run_runs_every_task_with_every_model(client, job, api_key):
@@ -131,21 +132,14 @@ def test_run_runs_every_task_with_every_model(client, job, api_key):
     assert (jev["input_tokens"], jev["output_tokens"]) == (300, 3)
 
 
-def test_runs_go_in_chunks_and_never_pay_twice(client, job, api_key, fake, monkeypatch):
+def test_runs_go_in_chunks_and_ask_only_what_is_missing(client, job, api_key, fake, monkeypatch):
     monkeypatch.setattr(runs, "CHUNK_ROWS", 2)
     first = run(client, job)
-    assert first["next_chunk"] == 2
-    paid = len(fake.calls)
-    again = run(client, job)
-    assert len(fake.calls) == paid
-    assert again["cost"] == 0
-    assert [
-        {k: v for k, v in r.items() if k.startswith("negative")}
-        for r in rows(client, again).values()
-    ] == [
-        {k: v for k, v in r.items() if k.startswith("negative")}
-        for r in rows(client, first).values()
-    ]
+    assert (first["status"], first["done"]) == ("done", 3)
+    before = rows(client, first)
+    # The same run again has nothing to ask.
+    assert "already" in start(client, job)["detail"]
+    assert rows(client, first) == before
 
 
 def test_run_asks_about_the_rows_the_query_picks(client, job, api_key):
@@ -169,7 +163,7 @@ def test_run_reports_failed_rows(client, job, api_key):
     assert finished["costs"][0]["failed"] == 3
 
 
-def test_a_key_out_of_credits_fails_the_run_until_resumed(client, job, api_key):
+def test_a_key_out_of_credits_fails_the_run_until_started_again(client, job, api_key):
     created = start(client, update(job, tasks=[{**NEGATIVE, "template": "no credits"}]))
     with pytest.raises(runs.KeyProblem):
         runs.process_next()
@@ -177,46 +171,48 @@ def test_a_key_out_of_credits_fails_the_run_until_resumed(client, job, api_key):
     assert failed["status"] == "failed"
     assert failed["error"].startswith("The model provider's key is out of credits.")
     assert "HTTP 402: Insufficient credits" in failed["error"]
-    made = client.get(f"/v1/datasets/{created['dataset_id']}").json()
-    assert made["run"]["error"] == failed["error"]
-    assert client.post(f"/v1/runs/{created['id']}/resume").json()["status"] == "queued"
+    assert "start the run again" in failed["error"]
+    # The datasets list says so, until a run is started again.
+    assert client.get("/v1/datasets").json()[0]["last_run_status"] == "failed"
+    assert (
+        start(client, update(job, tasks=[{**NEGATIVE, "template": "no credits"}]))["status"]
+        == "queued"
+    )
 
 
-def test_resuming_a_done_run_asks_its_failed_answers_again(client, job, api_key, fake):
+def test_starting_a_run_again_asks_only_the_answers_that_failed(client, job, api_key, fake):
     fake.flaky = {"Is this review negative? Love it"}
     finished = run(client, job)
     assert (finished["status"], finished["costs"][0]["failed"]) == ("done", 1)
     assert rows(client, finished)[1]["negative__jev-1.14"] is None
-    made = client.get(f"/v1/datasets/{finished['dataset_id']}").json()
-    assert made["run"]["failed"] == 1
+    preview = client.post(f"/v1/datasets/{finished['dataset_id']}/estimate", json=job).json()
+    assert (preview["answered"], preview["calls"], preview["failed_before"]) == (2, 1, 1)
 
-    assert client.post(f"/v1/runs/{finished['id']}/resume").json()["status"] == "queued"
     asked = len(fake.calls)
-    while runs.process_next():
-        pass
-    again = client.get(f"/v1/runs/{finished['id']}").json()
-    assert (again["status"], again["costs"][0]["failed"]) == ("done", 0)
+    again = run(client, job)
+    assert (again["status"], again["total"], again["costs"][0]["failed"]) == ("done", 1, 0)
     assert rows(client, again)[1]["negative__jev-1.14"] is False
     # Only the failed answer was asked again.
     assert len(fake.calls) == asked + 1
-    # Nothing failed now, so there is nothing to resume.
-    assert client.post(f"/v1/runs/{finished['id']}/resume").status_code == 400
+    # Nothing is missing now, so there is nothing to start.
+    assert "already" in start(client, job)["detail"]
 
 
-def test_a_stopped_run_resumes_where_it_was(client, job, api_key, monkeypatch):
+def test_a_stopped_run_started_again_asks_for_what_it_didnt_get_to(
+    client, job, api_key, fake, monkeypatch
+):
     monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
     created = start(client, job)
+    assert runs.process_next()  # The first chunk.
     stopped = client.post(f"/v1/runs/{created['id']}/stop").json()
     assert stopped["status"] == "stopped"
     assert runs.process_next() is False
+    assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [True, None, None]
 
-    resumed = client.post(f"/v1/runs/{created['id']}/resume").json()
-    assert resumed["status"] == "queued"
-    while runs.process_next():
-        pass
-    finished = client.get(f"/v1/runs/{created['id']}").json()
-    assert (finished["status"], finished["next_chunk"]) == ("done", 3)
-    assert client.post(f"/v1/runs/{created['id']}/resume").status_code == 400
+    again = run(client, job)
+    assert (again["status"], again["row_count"]) == ("done", 2)
+    assert None not in [r["negative__jev-1.14"] for r in rows(client, created).values()]
+    assert len([c for c in fake.calls if c[1] == "/alpha/decisions"]) == 3
 
 
 def test_a_run_killed_mid_way_completes_after_a_restart_without_paying_twice(
@@ -229,7 +225,7 @@ def test_a_run_killed_mid_way_completes_after_a_restart_without_paying_twice(
     with pytest.raises(KeyboardInterrupt):
         runs.process_next()
     cut_off = client.get(f"/v1/runs/{created['id']}").json()
-    assert (cut_off["status"], cut_off["next_chunk"]) == ("running", 1)
+    assert (cut_off["status"], cut_off["done"]) == ("running", 1)
 
     # The server starts again: the run is queued and continues from its first unwritten chunk.
     runs.recover_interrupted_runs(stale_after=0)
@@ -250,50 +246,39 @@ def test_a_run_killed_mid_way_completes_after_a_restart_without_paying_twice(
     assert finished["cost"] == pytest.approx(0.003)
 
 
-def test_made_datasets_are_named_after_their_place_in_the_tree(client, dataset, job, api_key):
-    first = run(client, job)
-    second = run(client, update(job, sql="SELECT * FROM data LIMIT 1"))
-    # Made from the first made dataset, it is numbered under it.
-    made = update(job, dataset_id=first["dataset_id"], tasks=[{**NEGATIVE, "column": "again"}])
-    third = run(client, made)
-    names = [
-        client.get(f"/v1/datasets/{r['dataset_id']}").json()["name"] for r in (first, second, third)
+def test_a_try_on_a_few_rows_then_all_rows_makes_one_column(client, dataset, job, api_key, fake):
+    few = run(client, update(job, sql="SELECT * FROM data ORDER BY md5('s' || __row_id) LIMIT 1"))
+    assert (few["row_count"], few["dataset_id"]) == (1, dataset["id"])
+    everything = run(client, job)
+    assert everything["row_count"] == 2
+    found = client.get(f"/v1/datasets/{dataset['id']}").json()
+    assert [(a["name"], a["answered"]) for a in found["answers"]] == [("negative", 3)]
+    assert None not in [r["negative__jev-1.14"] for r in rows(client, everything).values()]
+    assert len([c for c in fake.calls if c[1] == "/alpha/decisions"]) == 3
+    assert [r["id"] for r in client.get(f"/v1/datasets/{dataset['id']}/runs").json()] == [
+        everything["id"],
+        few["id"],
     ]
-    assert names == ["reviews__1", "reviews__2", "reviews__1.1"]
-    # A deleted dataset's number isn't given out again.
-    client.delete(f"/v1/datasets/{second['dataset_id']}")
-    fourth = run(client, update(job, sql="SELECT * FROM data LIMIT 2"))
-    assert client.get(f"/v1/datasets/{fourth['dataset_id']}").json()["name"] == "reviews__3"
-    assert (first["row_count"], second["row_count"]) == (3, 1)
-    assert client.get(f"/v1/runs/{fourth['id']}").json()["config"]["sql"] == (
-        "SELECT * FROM data LIMIT 2"
-    )
 
 
-def test_a_run_goes_with_the_dataset_it_makes(client, dataset, job, api_key, data_dir):
+def test_a_run_goes_with_its_dataset(client, dataset, job, api_key, data_dir):
     finished = run(client, job)
-    # Deleting the parent keeps what was made from it: its rows were copied.
     client.delete(f"/v1/datasets/{dataset['id']}")
-    made = client.get(f"/v1/datasets/{finished['dataset_id']}").json()
-    assert made["row_count"] == 3
-    assert client.get(f"/v1/runs/{finished['id']}").status_code == 200
-
-    client.delete(f"/v1/datasets/{made['id']}")
     assert client.get(f"/v1/runs/{finished['id']}").status_code == 404
-    assert made["id"] not in stored_datasets()
+    assert dataset["id"] not in stored_datasets()
 
 
-def test_a_dataset_still_being_made_cannot_be_exported_yet(client, job, api_key):
-    created = start(client, job)
+def test_a_dataset_exports_with_the_answers_it_has_so_far(client, job, api_key):
+    created = start(client, update(job, sql="SELECT * FROM data LIMIT 1"))
     export = f"/v1/datasets/{created['dataset_id']}/export"
-    waiting = client.get(export, params={"format": "csv"})
-    assert waiting.status_code == 400
-    assert "still being made" in waiting.json()["detail"]
+    lines = client.get(export, params={"format": "csv"}).text.splitlines()
+    assert lines[0] == "negative__jev-1.14,negative__jev-1.14_proba,review,stars"
+    assert lines[1] == ",,Terrible product,1"
     while runs.process_next():
         pass
     lines = client.get(export, params={"format": "csv"}).text.splitlines()
-    assert lines[0] == "negative__jev-1.14,negative__jev-1.14_proba,review,stars"
     assert lines[1] == "true,0.9,Terrible product,1"
+    assert lines[2] == ",,Love it,5"
 
 
 def test_extract_writes_a_typed_column_per_field(client, dataset, api_key):
@@ -418,12 +403,26 @@ def test_run_explains_what_is_missing(client, job):
     )
 
 
-def test_a_run_on_a_dataset_a_run_made_needs_new_column_names(client, job, api_key):
-    finished = run(client, job)
-    again = run(client, update(job, dataset_id=finished["dataset_id"]))
-    assert again["detail"] == (
-        "The dataset already has a column negative__jev-1.14. Rename the task's result column."
+def test_a_column_name_keeps_its_question(client, job, api_key):
+    run(client, job)
+    changed = {**NEGATIVE, "template": "Is this review angry? {{review}}"}
+    refused = start(client, update(job, tasks=[changed]))
+    assert refused["detail"] == (
+        "Task negative: The dataset already has answers from jev-1.14 in `negative`, to a "
+        "different question. Name the column differently, e.g. `negative_2`."
     )
+    # Under a new name it goes beside the first, to compare.
+    assert run(client, update(job, tasks=[{**changed, "column": "negative_2"}]))["status"] == "done"
+
+
+def test_one_run_at_a_time_asks_for_the_same_answers(client, job, api_key):
+    first = start(client, job)
+    refused = start(client, update(job, sql="SELECT * FROM data LIMIT 1"))
+    assert refused["detail"] == (
+        "A run is already asking jev-1.14 for `negative`: stop it, or wait for it to end."
+    )
+    client.post(f"/v1/runs/{first['id']}/stop")
+    assert start(client, update(job, sql="SELECT * FROM data LIMIT 1"))["status"] == "queued"
 
 
 def test_only_runs_whose_runner_went_quiet_are_taken_back(client, job, api_key, monkeypatch):
@@ -440,7 +439,9 @@ def test_only_runs_whose_runner_went_quiet_are_taken_back(client, job, api_key, 
 
 def test_each_queued_run_is_claimed_once(client, job, api_key, monkeypatch):
     first = start(client, job)
-    second = start(client, update(job, sql="SELECT * FROM data LIMIT 1"))
+    second = start(
+        client, update(job, sql="SELECT * FROM data LIMIT 1", tasks=[{**NEGATIVE, "column": "b"}])
+    )
     claimed = []
     monkeypatch.setattr(runs, "_process", claimed.append)
     while runs.process_next():
@@ -455,7 +456,13 @@ def test_runners_claiming_at_once_never_take_the_same_run(client, job, api_key, 
     import time
 
     created = [
-        start(client, update(job, sql=f"SELECT * FROM data LIMIT {n}"))["id"] for n in (1, 2, 3)
+        start(
+            client,
+            update(
+                job, sql=f"SELECT * FROM data LIMIT {n}", tasks=[{**NEGATIVE, "column": f"n{n}"}]
+            ),
+        )["id"]
+        for n in (1, 2, 3)
     ]
     claimed = []
     monkeypatch.setattr(runs, "_process", lambda run_id: (claimed.append(run_id), time.sleep(0.2)))
@@ -487,7 +494,9 @@ def test_the_run_with_least_left_goes_next(client, job, api_key, monkeypatch):
     monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
     taken = turns(monkeypatch)
     big = start(client, job)["id"]  # three chunks
-    small = start(client, update(job, sql="SELECT * FROM data LIMIT 1"))["id"]  # one
+    small = start(
+        client, update(job, sql="SELECT * FROM data LIMIT 1", tasks=[{**NEGATIVE, "column": "b"}])
+    )["id"]  # one
     while runs.process_next():
         pass
     # A try on a few rows is done at once, though it came second; a run gives up its turn per chunk.
@@ -501,7 +510,9 @@ def test_a_run_waiting_long_goes_first(client, job, api_key, monkeypatch):
     config.cache_clear()
     taken = turns(monkeypatch)
     big = start(client, job)["id"]
-    small = start(client, update(job, sql="SELECT * FROM data LIMIT 1"))["id"]
+    small = start(
+        client, update(job, sql="SELECT * FROM data LIMIT 1", tasks=[{**NEGATIVE, "column": "b"}])
+    )["id"]
     runs.process_next()
     # Both have waited long: the one waiting longest goes first, however much it has left.
     assert taken == [big]
@@ -511,7 +522,12 @@ def test_a_run_waiting_long_goes_first(client, job, api_key, monkeypatch):
 
 def test_an_organisation_can_have_any_number_of_runs_going(client, job, api_key, monkeypatch):
     for n in range(1, 4):
-        start(client, update(job, sql=f"SELECT * FROM data LIMIT {n}"))
+        start(
+            client,
+            update(
+                job, sql=f"SELECT * FROM data LIMIT {n}", tasks=[{**NEGATIVE, "column": f"n{n}"}]
+            ),
+        )
     claimed = []
     monkeypatch.setattr(runs, "_process", claimed.append)  # stays running
     # Models are paid for by the organisation's own key, so nothing makes its runs wait.
@@ -531,32 +547,31 @@ def test_a_run_on_all_rows_after_a_try_on_a_few_pays_only_for_the_rest(client, j
     assert len(_paid_calls(fake)) == 2
     assert done["cost"] == pytest.approx(0.002)
     # The replies are kept with the dataset; the database keeps none once the run is done.
-    assert stored(done["dataset_id"], "answers.parquet")
+    assert stored(done["dataset_id"], "replies", f"{done['id']}.parquet")
     with db.connect() as conn:
         assert conn.execute("SELECT count(*) AS n FROM answer_journal").fetchone()["n"] == 0
 
 
-def test_answers_are_reused_in_their_tree_until_their_datasets_are_deleted(
-    client, job, api_key, fake
-):
+def test_replies_are_kept_when_answers_are_deleted(client, dataset, job, api_key, fake):
     first = run(client, job)
     fake.calls.clear()
-    # The same question again, on the dataset the first run made.
-    again = run(
-        client,
-        update(job, dataset_id=first["dataset_id"], tasks=[{**NEGATIVE, "column": "again"}]),
-    )
+    # The same question under another name is answered from the replies kept.
+    again = run(client, update(job, tasks=[{**NEGATIVE, "column": "again"}]))
     assert again["status"] == "done"
     assert _paid_calls(fake) == []
-    # Each dataset keeps the replies it used: with the first one gone, the second still has them.
-    assert client.delete(f"/v1/datasets/{first['dataset_id']}").status_code == 204
-    run(client, job)
+    # Deleting a try's answers keeps its replies, so asking the same again is free.
+    deleted = client.delete(
+        f"/v1/datasets/{dataset['id']}/answers",
+        params={"column": "negative", "model": "typesafe/jev-1.14"},
+    )
+    assert deleted.status_code == 204
+    found = client.get(f"/v1/datasets/{dataset['id']}").json()
+    assert [a["name"] for a in found["answers"]] == ["again"]
+    assert "negative__jev-1.14" not in [c["name"] for c in found["columns"]]
+    asked_anew = run(client, job)
+    assert asked_anew["total"] == 3
     assert _paid_calls(fake) == []
-    for made in client.get("/v1/datasets").json():
-        if made["parent_id"]:
-            assert client.delete(f"/v1/datasets/{made['id']}").status_code == 204
-    run(client, job)
-    assert len(_paid_calls(fake)) == 3
+    assert rows(client, first)[0]["negative__jev-1.14"] is True
 
 
 def test_a_dataset_added_again_is_a_new_tree_and_asked_again(client, job, api_key, fake, tmp_path):
@@ -584,12 +599,12 @@ def _paid_for(fake, prompt):
     return [c for c in _paid_calls(fake) if c[3]["state"] == prompt]
 
 
-def test_a_retry_cut_off_mid_way_keeps_what_it_paid_for(client, job, api_key, fake):
+def test_a_run_again_cut_off_mid_way_keeps_what_it_paid_for(client, job, api_key, fake):
     love, broke = "Is this review negative? Love it", "Is this review negative? Broke after a day"
     fake.flaky = {love, broke}
     finished = run(client, job)
     assert finished["costs"][0]["failed"] == 2
-    client.post(f"/v1/runs/{finished['id']}/resume")
+    again = start(client, job)
     fake.calls.clear()
     fake.crash_on = broke
     with pytest.raises(KeyboardInterrupt):
@@ -597,7 +612,7 @@ def test_a_retry_cut_off_mid_way_keeps_what_it_paid_for(client, job, api_key, fa
     runs.recover_interrupted_runs(stale_after=0)
     while runs.process_next():
         pass
-    assert client.get(f"/v1/runs/{finished['id']}").json()["costs"][0]["failed"] == 0
+    assert client.get(f"/v1/runs/{again['id']}").json()["costs"][0]["failed"] == 0
     assert len(_paid_for(fake, love)) == 1
     with db.connect() as conn:
         assert conn.execute("SELECT count(*) AS n FROM answer_journal").fetchone()["n"] == 0
@@ -606,15 +621,15 @@ def test_a_retry_cut_off_mid_way_keeps_what_it_paid_for(client, job, api_key, fa
 def test_replies_stay_to_be_journaled_when_journaling_fails_once(
     client, job, api_key, fake, monkeypatch
 ):
-    from rowlab.core import answers
+    from rowlab.core import replies
 
-    journal, failed = answers.journal, []
+    journal, failed = replies.journal, []
 
-    def flaky_journal(run_id, replies):
-        if replies and not failed:
+    def flaky_journal(run_id, kept):
+        if kept and not failed:
             failed.append(True)
             raise RuntimeError("database away")
-        journal(run_id, replies)
+        journal(run_id, kept)
 
     def slow(method, path, *, api_key, body=None):
         # One slow call, so the others are journaled while it is under way.
@@ -622,20 +637,39 @@ def test_replies_stay_to_be_journaled_when_journaling_fails_once(
             time.sleep(0.3)
         return fake(method, path, api_key=api_key, body=body)
 
-    monkeypatch.setattr(answers, "journal", flaky_journal)
+    monkeypatch.setattr(replies, "journal", flaky_journal)
     monkeypatch.setattr(model_api, "_request", slow)
     created = start(client, job)
     with pytest.raises(RuntimeError):
         runs.process_next()
-    # The `finally` journaled what the failed try didn't.
+    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "failed"
+    # The `finally` journaled what the failed try didn't, and the ended run keeps all three.
     with db.connect() as conn:
-        assert conn.execute("SELECT count(*) AS n FROM answer_journal").fetchone()["n"] == 3
+        assert conn.execute("SELECT count(*) AS n FROM answer_journal").fetchone()["n"] == 0
+    assert stored(created["dataset_id"], "replies", f"{created['id']}.parquet")
     fake.calls.clear()
-    client.post(f"/v1/runs/{created['id']}/resume")
-    while runs.process_next():
-        pass
-    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "done"
+    # Started again, the journaled replies of the failed run are used: nothing is paid twice.
+    monkeypatch.setattr(model_api, "_request", fake)
+    assert run(client, job)["status"] == "done"
     assert _paid_calls(fake) == []
+
+
+def test_a_kept_reply_that_cant_be_read_is_asked_again(client, dataset, job, api_key, fake):
+    # Replies kept before only readable ones were (moved in from the old layout) can be unusable.
+    first = run(client, job)
+    kept = storage.location(dataset["id"], "replies", f"{first['id']}.parquet")
+    with storage.connect() as con:
+        storage.write(
+            con, f"SELECT __row_id, key, '{{}}' AS data FROM read_parquet('{kept}')", kept
+        )
+    client.delete(
+        f"/v1/datasets/{dataset['id']}/answers",
+        params={"column": "negative", "model": "typesafe/jev-1.14"},
+    )
+    fake.calls.clear()
+    again = run(client, job)
+    assert (again["status"], again["costs"][0]["failed"]) == ("done", 0)
+    assert len(_paid_calls(fake)) == 3
 
 
 def test_an_unusable_reply_from_the_cache_counts_as_failed_not_cached():
@@ -667,7 +701,7 @@ def test_a_runner_shutting_down_gives_its_run_back_without_paying_twice(
     created = start(client, job)
     runs.run_forever()  # Returns once the call in flight is done.
     given_back = client.get(f"/v1/runs/{created['id']}").json()
-    assert (given_back["status"], given_back["next_chunk"]) == ("queued", 0)
+    assert (given_back["status"], given_back["done"]) == ("queued", 1)
     assert len(_paid_calls(fake)) == 1
 
     # The next runner takes it straight away, and pays only for the rest.

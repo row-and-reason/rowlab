@@ -17,7 +17,8 @@ def job(client):
 
 def test_usage_adds_up_what_runs_asked(client, job, api_key, fake):
     run(client, job)
-    run(client, job)
+    # The same question again, under another name: answered from the replies kept.
+    run(client, {**job, "tasks": [{**NEGATIVE, "column": "again"}]})
     used = client.get("/v1/settings/usage").json()
     assert used["scope"] == "organisation"
     # Two runs of the same three rows: the second is answered from the cache, for free.

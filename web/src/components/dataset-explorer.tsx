@@ -8,6 +8,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   SearchIcon,
+  Trash2Icon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -15,6 +16,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   Empty,
   EmptyDescription,
@@ -32,7 +39,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Dataset, Row } from "@/lib/api/client";
+import { answerLabel } from "@/components/delete-answers";
+import type { AnswerColumn, Dataset, Row } from "@/lib/api/client";
 import { columnLabel, formatCell, formatNumber } from "@/lib/format";
 import type { View } from "@/lib/sql";
 import { useDatasetRows } from "@/lib/use-dataset-rows";
@@ -54,7 +62,7 @@ const emptyRows: Row[] = [];
  * A dataset's rows, as the view picks them: search, filters, sort and limit, which become `sql`, or SQL
  * written directly. The rows shown here are exactly the rows the next run asks about. Paging is the
  * table's own. `version` changes when the rows themselves do, e.g. as a run fills in its answers, so
- * the page is fetched again.
+ * the page is fetched again. An answer column's header menu deletes its answers (`onDeleteAnswers`).
  */
 export function DatasetExplorer({
   dataset,
@@ -66,6 +74,7 @@ export function DatasetExplorer({
   onCount,
   onPickRow,
   selectedPosition,
+  onDeleteAnswers,
 }: {
   dataset: Dataset;
   view: View;
@@ -76,6 +85,7 @@ export function DatasetExplorer({
   onCount?: (count: number) => void;
   onPickRow?: (position: number) => void;
   selectedPosition?: number;
+  onDeleteAnswers?: (answer: AnswerColumn) => void;
 }) {
   const { search, filters } = view;
   const custom = view.sql !== null;
@@ -270,6 +280,7 @@ export function DatasetExplorer({
               <TableRow key={group.id}>
                 {group.headers.map((header) => {
                   const column = shownColumns.find((c) => c.name === header.id);
+                  const answer = dataset.answers.find((a) => a.columns.includes(header.id));
                   const SortIcon =
                     sort?.column !== header.id
                       ? ArrowUpDownIcon
@@ -283,23 +294,40 @@ export function DatasetExplorer({
                       draggable={header.id !== ROW_ID}
                       onDragStart={(e) => e.dataTransfer.setData("text/plain", `{{${header.id}}}`)}
                     >
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        className="-ml-2 text-muted-foreground"
-                        title={column?.type}
-                        // Custom SQL sorts itself.
-                        disabled={custom}
-                        onClick={() => toggleSort(header.id)}
-                      >
-                        {columnLabel(header.id)}
-                        <SortIcon
-                          data-icon="inline-end"
-                          className={
-                            sort?.column !== header.id ? "text-muted-foreground" : undefined
+                      <ContextMenu disabled={!answer || !onDeleteAnswers}>
+                        <ContextMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              className="-ml-2 text-muted-foreground"
+                              title={column?.type}
+                              // Custom SQL sorts itself.
+                              disabled={custom}
+                              onClick={() => toggleSort(header.id)}
+                            />
                           }
-                        />
-                      </Button>
+                        >
+                          {columnLabel(header.id)}
+                          <SortIcon
+                            data-icon="inline-end"
+                            className={
+                              sort?.column !== header.id ? "text-muted-foreground" : undefined
+                            }
+                          />
+                        </ContextMenuTrigger>
+                        {answer && (
+                          <ContextMenuContent>
+                            <ContextMenuItem
+                              variant="destructive"
+                              onClick={() => onDeleteAnswers?.(answer)}
+                            >
+                              <Trash2Icon />
+                              Delete {answerLabel(answer)}…
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        )}
+                      </ContextMenu>
                     </TableHead>
                   );
                 })}

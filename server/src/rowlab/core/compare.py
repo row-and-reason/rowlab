@@ -6,12 +6,17 @@ says how often each other column matches it (its accuracy, if the reference is r
 comes with SQL for its rows (`where`), to add to a query's WHERE clause: to look at them, or to ask
 about them again.
 
+Every statistic is measured on the same rows: those where every column compared has a value (`rows`
+`pairwise` measures each on the rows its own columns have values in). Answers are often sparse, a
+model asked about a sample or labels on a few rows, so the result leads with how many rows each column
+has a value in, and how many were left out.
+
 Lists count as the same when they hold the same items; with a tolerance, numbers and dates count as the
 same when they are no further apart. Empty values never count as a disagreement.
 
 Beyond raw agreement: Cohen's κ for each pair and Krippendorff's α across all the columns correct for
 the agreement chance alone would give; rates come with Wilson 95% intervals; a column's `_proba`
-column is checked against the reference (calibration); and columns a run wrote come with what they cost.
+column is checked against the reference (calibration); and columns models wrote come with what they cost.
 """
 
 import itertools
@@ -21,8 +26,8 @@ from typing import Any, Literal
 import duckdb
 from pydantic import BaseModel, Field
 
-from rowlab.core import datasets, runs, sql, tasks
-from rowlab.core.errors import InvalidRequest, NotFound
+from rowlab.core import datasets, sql
+from rowlab.core.errors import InvalidRequest
 from rowlab.core.storage import sql_ident, sql_string
 
 # Bound display summaries; confusion cells prioritize differing values, then frequency.
@@ -71,6 +76,12 @@ class CompareRequest(BaseModel):
         description="Trim ASCII space, tab, newline, carriage return, form feed and vertical tab in VARCHAR columns. Empty strings remain answers.",
     )
     sql: str = Field(sql.ALL_ROWS, description="The rows to compare: a SELECT over `data`.")
+    rows: Literal["common", "pairwise"] = Field(
+        "common",
+        description="`common`: every statistic uses the same rows, those where every column "
+        "compared has a value, so each column is measured on the same rows. `pairwise`: each "
+        "statistic uses the rows where its own columns have a value.",
+    )
 
 
 class Rows(BaseModel):
@@ -240,17 +251,24 @@ class ReferenceAccuracy(BaseModel):
 
 class ColumnCost(BaseModel):
     column: str
-    run_id: str
-    task_id: str
     model: str
     usd: float = Field(
-        description="What the run spent on this task and model, for all its rows; cached answers are "
-        "free. Columns of one task and model share it."
+        description="What runs spent on this task and model, for all the dataset's rows; cached "
+        "answers are free. Columns of one task and model share it."
     )
-    answered: int = Field(description="The run's rows with an answer from the model.")
+    answered: int = Field(description="The dataset's rows with an answer from the model.")
     usd_per_1k_rows: float | None = Field(
         description="USD per 1,000 answered rows. Answered rows include cached ones, which cost "
         "nothing, so this can look cheaper than a fresh run would be."
+    )
+
+
+class ColumnCoverage(BaseModel):
+    column: str
+    answered: int = Field(description="Rows the query returns where the column has a value.")
+    left_out: int = Field(
+        description="Of those, rows left out because another column compared is empty there; "
+        "always 0 with `rows` `pairwise`."
     )
 
 
@@ -260,7 +278,14 @@ class Comparison(BaseModel):
     tolerance: float | None
     values_completeness: Completeness
     crosstab_completeness: Completeness | None
-    rows: int = Field(description="Rows compared: those the query returns.")
+    scope_rows: int = Field(description="Rows the query returns.")
+    rows: int = Field(
+        description="Rows compared: with `rows` `common`, those where every column has a value; "
+        "otherwise all the query returns."
+    )
+    coverage: list[ColumnCoverage] = Field(
+        description="How many rows each column has a value in, and how many of them were left out."
+    )
     columns: list[str] = Field(description="The columns compared, with the reference last.")
     agreement: Agreement
     pairs: list[Pair] = Field(description="Every two of the columns.")
@@ -274,8 +299,8 @@ class Comparison(BaseModel):
         description="With a reference: how often each other column matches it."
     )
     costs: list[ColumnCost] = Field(
-        description="For each column a model wrote in a run, what it cost. Uploaded and manual "
-        "columns have none."
+        description="For each column a model wrote, what it cost. The file's columns and labels "
+        "have none."
     )
 
 
@@ -305,7 +330,24 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
             and not all(types[c] == "DATE" for c in columns)
         ):
             raise InvalidRequest("Compare dates with dates, not with numbers.")
-        source = f"FROM ({query}) AS t"
+        every = " AND ".join(f"{sql_ident(c)} IS NOT NULL" for c in columns)
+        found = sql.execute(
+            con,
+            f"SELECT count(*), count(*) FILTER ({every}), "
+            + ", ".join(f"count({sql_ident(c)})" for c in columns)
+            + f" FROM ({query}) AS t",
+        ).fetchone()
+        scope_rows, common = found[0], found[1]
+        common_rows = request.rows == "common"
+        coverage = [
+            ColumnCoverage(column=c, answered=n, left_out=n - common if common_rows else 0)
+            for c, n in zip(columns, found[2:])
+        ]
+        source = (
+            f"FROM (SELECT * FROM ({query}) WHERE {every}) AS t"
+            if common_rows
+            else f"FROM ({query}) AS t"
+        )
 
         def one(expressions: list[str]) -> tuple:
             return sql.execute(con, f"SELECT {', '.join(expressions)} {source}").fetchone()
@@ -373,8 +415,12 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
                 for va, vb, count in cells
             ]
 
-        sources = _column_sources(dataset_id)
-        costs = [cost for c in columns if c in sources and (cost := _cost(c, *sources[c]))]
+        sources = {
+            column: answer
+            for answer in datasets.answer_columns(dataset_id)
+            for column in answer.columns
+        }
+        costs = [_cost(c, sources[c]) for c in columns if c in sources and sources[c].model]
         alpha, alpha_level = _alpha(con, columns, same, source, sources)
 
         reference = None
@@ -391,7 +437,9 @@ def compare(dataset_id: str, request: CompareRequest) -> Comparison:
         tolerance=request.tolerance,
         values_completeness=values_completeness,
         crosstab_completeness=crosstab_completeness,
+        scope_rows=scope_rows,
         rows=rows,
+        coverage=coverage,
         columns=columns,
         agreement=Agreement(
             all_agree=Rows(rows=all_agree, where=same.agree(columns)),
@@ -644,7 +692,7 @@ def _kappa(con, a: str, b: str, same: _Same, source: str) -> float | None:
 
 
 def _alpha(
-    con, columns: list[str], same: _Same, source: str, sources: dict[str, tuple]
+    con, columns: list[str], same: _Same, source: str, sources: dict[str, datasets.AnswerColumn]
 ) -> tuple[float | None, Literal["nominal", "ordinal", "interval"]]:
     """Krippendorff's α across the columns, over the rows with two or more values."""
     kinds = [same.types[c] for c in columns]
@@ -681,7 +729,7 @@ def _alpha(
     level: Literal["nominal", "ordinal"] = "nominal"
     rank = {}
     for column in columns:
-        task = sources[column][1] if column in sources else None
+        task = sources[column].task if column in sources else None
         if task and task.type == "scale":
             levels = ", ".join(same.normalize(sql_string(o.name)) for o in task.options)
             names = sql.execute(con, f"SELECT [{levels}]").fetchone()[0]
@@ -778,41 +826,15 @@ def _calibration(con, column: str, reference: str, same: _Same, source: str) -> 
     )
 
 
-def _column_sources(dataset_id: str) -> dict[str, tuple[runs.Run, tasks.Task, str]]:
-    """The run, task and model that wrote each column of a dataset, from its own run and its
-    ancestors' (a made dataset keeps the columns of the one it was made from)."""
-    sources: dict[str, tuple[runs.Run, tasks.Task, str]] = {}
-    next_id: str | None = dataset_id
-    while next_id:
-        try:
-            dataset = datasets.get_dataset(next_id)
-            run = dataset.run and runs.get_run(dataset.run.id)
-        except NotFound:
-            break  # An ancestor was deleted; the datasets made from it stay.
-        if run:
-            for task in run.config.tasks:
-                for model in task.models:
-                    for _, column, _ in tasks._column_map(task, model):
-                        # The nearest run wins.
-                        sources.setdefault(column, (run, task, model))
-        next_id = dataset.parent_id
-    return sources
-
-
-def _cost(column: str, run: runs.Run, task: tasks.Task, model: str) -> ColumnCost | None:
-    """What a run spent on a column's task and model, once it has done a chunk of rows."""
-    spent = next((c for c in run.costs if c.task_id == task.id and c.model == model), None)
-    if spent is None:
-        return None
-    answered = min(run.next_chunk * runs.CHUNK_ROWS, run.row_count) - spent.failed
+def _cost(column: str, answer: datasets.AnswerColumn) -> ColumnCost:
+    """What runs spent on a column's task and model."""
+    assert answer.model is not None
     return ColumnCost(
         column=column,
-        run_id=run.id,
-        task_id=task.id,
-        model=model,
-        usd=spent.cost,
-        answered=answered,
-        usd_per_1k_rows=spent.cost * 1000 / answered if answered else None,
+        model=answer.model,
+        usd=answer.cost,
+        answered=answer.answered,
+        usd_per_1k_rows=answer.cost * 1000 / answer.answered if answer.answered else None,
     )
 
 
