@@ -21,13 +21,13 @@ from fastmcp.server.dependencies import get_access_token
 from pydantic import BaseModel, Field
 
 from rowlab import __version__
-from rowlab.core import auth, catalog, compare, datasets, exports, links, manual, prompts, runs
+from rowlab.core import auth, catalog, compare, datasets, exports, labels, links, prompts, runs
 from rowlab.core import sql as sql_core
 from rowlab.core import tasks as tasks_core
 from rowlab.core.auth import Me, Role
 from rowlab.core.compare import Comparison
 from rowlab.core.config import config
-from rowlab.core.datasets import ColumnProfile, Dataset
+from rowlab.core.datasets import AnswerColumn, ColumnProfile, Dataset, DatasetSummary
 from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
 from rowlab.core.exports import ExportFormat, ExportRequest, ExportResult
 from rowlab.core.links import Link
@@ -38,21 +38,25 @@ from rowlab.core.sql import ALL_ROWS, QueryRequest, QueryResult
 from rowlab.core.tasks import Task, TaskTypes
 
 INSTRUCTIONS = (
-    "rowlab labels tabular data with AI: it asks a question of every row of a dataset and writes "
-    "the answers as new columns. A run never changes a dataset; it makes a new one, with the selected rows "
-    "of the original and the answer columns added, named after its place in the tree (reviews__1, "
-    "reviews__1.2). Rows are picked with one DuckDB SELECT over the table `data`; the same SQL "
-    "views, runs on and exports. Work in this order: read the dataset (dataset_get), run on a few "
-    "rows (LIMIT 20) with run_preview then run_start, look at the answers with sql_query, adjust "
-    "the prompt or model, then run on all rows. To pick a model, run two or three on the same rows "
-    "and columns_compare their columns, against labels you trust if there are any. Runs cost money "
-    "and take time: tell the user the estimate before a run on all rows, and don't start another "
-    "run on the same rows unless something changed. Failed answers can be asked again with "
-    "run_resume; a changed prompt, options or model is a new run on the source dataset. For "
-    "manual labeling, run_start(method=manual), run_answers, then run_finish use the same task "
-    "definitions and dataset outputs; no model is called. A file on your machine goes in with "
-    "dataset_upload and comes out with dataset_download, through curl. The API does the same "
-    "work, for scripts."
+    "rowlab asks a question of every row of a dataset with AI models, and lets you compare their "
+    "answers with each other and with labels people trust. A dataset is the rows of one file; runs "
+    "and people add answer columns to it, and the file's own columns never change. A model's "
+    "answers go in `<column>__<model>` (e.g. `fallacy__jev-1.14`); labels people set go in a column "
+    "named for them (e.g. `gold`). Answer columns are often sparse: empty means not asked. Rows are "
+    "picked with one DuckDB SELECT over the table `data`; the same SQL views, runs on, compares and "
+    "exports. Work in this order: read the dataset (dataset_get), pick a sample with a stable order "
+    "(`ORDER BY md5('s1' || __row_id) LIMIT 50`: a bigger sample keeps the smaller), run_preview, "
+    "then run_start; look at the answers with sql_query and columns_compare them, with each other "
+    "and with labels from the file or set by people; adjust the prompt or model; then run_start "
+    "the same tasks on all rows: only the answers still missing are asked and paid for. A changed "
+    "prompt, options or answer type needs a new column name; put variants side by side as tasks "
+    "of one run. To start a stopped or failed run again, start it again: it asks what is missing. "
+    "Runs cost money and take time: tell the user the estimate before a run on many rows. People's "
+    "labels go in with labels_set, before or after models run, on any rows: the same task the "
+    "models do, or a judgement of a model's answer (e.g. a yes/no task 'is fallacy__jev-1.14 "
+    "right?'). Only set labels the user gives or explicitly asks you to produce. A file on your "
+    "machine goes in with dataset_upload and comes out with dataset_download, through curl. The API "
+    "and the Python SDK do the same work, for scripts."
 )
 
 DatasetId = Annotated[str, Field(description="A dataset's id, from datasets_list.")]
@@ -157,9 +161,9 @@ def create_server() -> FastMCP:
         return mcp.tool(call)
 
     @tool
-    def datasets_list() -> list[Dataset]:
-        """Every dataset: rows, columns, what it was made from (parent_id, branch) and the run making
-        it, if any. The starting point: find the dataset to work on, or see what a run made."""
+    def datasets_list() -> list[DatasetSummary]:
+        """Every dataset: its name, rows, how many answer columns it has and runs going. The starting
+        point: find the dataset to work on, then dataset_get it for its columns."""
         return datasets.list_datasets(_me().org.id)
 
     @tool
@@ -169,8 +173,9 @@ def create_server() -> FastMCP:
             bool, Field(description="Also profile every column (slower on big datasets).")
         ] = False,
     ) -> DatasetDetail:
-        """One dataset in full: columns with types, source, lineage and run. Read it before writing
-        SQL or a prompt, so column names and types are right; profile it to know the values."""
+        """One dataset in full: every column with its type, and its answer columns: the task each
+        answers, the model or labels, how many rows have an answer and what it cost. Read it before
+        writing SQL or a prompt, so column names and types are right; profile it to know the values."""
         me = _me()
         datasets.check_access(me.org.id, dataset_id)
         dataset = datasets.get_dataset(dataset_id)
@@ -206,16 +211,14 @@ def create_server() -> FastMCP:
 
     @tool
     def dataset_rename(dataset_id: DatasetId, name: str) -> Dataset:
-        """Give a dataset a descriptive display name. Its id, data and lineage stay the same;
-        descendants keep their own names. Use this to distinguish imports and experiments."""
+        """Give a dataset a descriptive display name. Its id and data stay the same."""
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
         return datasets.rename_dataset(dataset_id, datasets.RenameDataset(name=name))
 
     @tool
     def dataset_delete(dataset_id: DatasetId) -> None:
-        """Delete a dataset and the run that made it; datasets made from it stay. Use it to clean
-        up tries the user no longer needs, when they ask."""
+        """Delete a dataset with all its answers and runs, when the user asks."""
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
         datasets.delete_dataset(dataset_id)
@@ -258,6 +261,13 @@ def create_server() -> FastMCP:
             bool, Field(description="Trim surrounding ASCII whitespace in text columns.")
         ] = False,
         sql: Sql = ALL_ROWS,
+        rows: Annotated[
+            Literal["common", "pairwise"],
+            Field(
+                description="common: every statistic on the rows where all the columns have a "
+                "value, so they are measured alike. pairwise: each on its own columns' rows."
+            ),
+        ] = "common",
         detail: Annotated[
             Literal["summary", "full"],
             Field(
@@ -266,8 +276,10 @@ def create_server() -> FastMCP:
         ] = "summary",
     ) -> Comparison | dict[str, Any]:
         """How often columns give the same value per row: models against each other, or against
-        labels you trust, with each column's accuracy. Use it to pick a model or judge quality;
-        request detail="full" for every count's `where` clause and full distributions."""
+        labels you trust, with each column's accuracy and Wilson intervals. It says first how many
+        rows each column has a value in, and how many were left out: read that before the numbers.
+        Use it to pick a model or judge quality; request detail="full" for every count's `where`
+        clause and full distributions."""
         me = _me()
         datasets.check_access(me.org.id, dataset_id)
         request = compare.CompareRequest(
@@ -277,6 +289,7 @@ def create_server() -> FastMCP:
             ignore_case=ignore_case,
             trim_whitespace=trim_whitespace,
             sql=sql,
+            rows=rows,
         )
         result = compare.compare(dataset_id, request)
         return result if detail == "full" else compare.compact_comparison(result)
@@ -286,15 +299,14 @@ def create_server() -> FastMCP:
         dataset_id: DatasetId,
         tasks: Annotated[list[Task], Field(description="As for run_start.")],
         sql: Sql = ALL_ROWS,
-        method: Literal["llm", "manual"] = "llm",
     ) -> RunPreview:
-        """What a run would do before it does: rows, calls, rough cost in USD, the prompt rendered
-        for a few rows with warnings, and what stops it running. Catches a bad prompt or a
-        surprise cost before money is spent: call it before every run_start, and tell the user the
-        cost before a run on all rows."""
+        """What a run would do before it does: rows, answers it would ask for and those it has
+        already, rough cost in USD, the prompt rendered for a few rows with warnings, and what
+        stops it running. Catches a bad prompt or a surprise cost before money is spent: call it
+        before every run_start, and tell the user the cost before a run on many rows."""
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
-        request = RunRequest(sql=sql, tasks=tasks, method=method)
+        request = RunRequest(sql=sql, tasks=tasks)
         rendered = [
             prompts.render_dataset(dataset_id, RenderRequest(template=t.template, sql=sql, limit=2))
             for t in tasks
@@ -314,45 +326,69 @@ def create_server() -> FastMCP:
         ],
         sql: Sql = ALL_ROWS,
         wait_seconds: WaitSeconds = 0,
-        method: Literal["llm", "manual"] = "llm",
     ) -> Run:
-        """Ask every task of every model about the rows the SQL picks, making a new dataset with
-        the answer columns added (`dataset_id` in the result). Start on a few rows (LIMIT 20),
-        look, then run on all; the same prompt and model on a row already answered is free,
-        anything changed is paid for. Small runs finish within `wait_seconds`; poll the rest with
-        run_get.
-
-        With method=manual no model is asked and no provider key is needed: fill the run's columns
-        with run_answers, then lock the output with run_finish."""
+        """Ask every task of every model about the rows the SQL picks, adding the answers to the
+        dataset as columns `<column>__<model>`. Only answers the dataset doesn't have are asked,
+        so start on a sample, look, then run the same tasks on all rows and pay only for the rest;
+        to start a stopped or failed run again, start it again. Rows missing a value the prompt
+        uses are skipped. Small runs finish within `wait_seconds`; poll the rest with run_get."""
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
         run = runs.create_run(
-            dataset_id,
-            RunRequest(sql=sql, tasks=tasks, method=method),
-            me.user.id if me.user else None,
+            dataset_id, RunRequest(sql=sql, tasks=tasks), me.user.id if me.user else None
         )
         return _wait(run, wait_seconds)
 
     @tool
-    def run_answers(run_id: str, task_id: str, answers: list[manual.Answer]) -> Run:
-        """Set labels for a task in an open manual run. Null clears; yes/no uses boolean, pick one
-        and scale use an option name, pick any uses a list of names, write uses text, extract uses
-        an object keyed by field name. No model is called. Only submit labels the user supplies
-        or explicitly asks you to produce. A batch interrupted between parts can be retried with
-        the same values. Last saved value wins. Read labels with sql_query on the run's dataset.
-        """
-        me = _me("member")
-        runs.check_access(me.org.id, run_id)
-        return manual.save(run_id, task_id, manual.Answers(answers=answers))
+    def runs_list(dataset_id: DatasetId) -> list[Run]:
+        """The dataset's runs, newest first: what each asked, its status, progress and cost."""
+        me = _me()
+        datasets.check_access(me.org.id, dataset_id)
+        return runs.list_runs(dataset_id)
 
     @tool
-    def run_finish(run_id: str) -> Run:
-        """Finish a manual run and lock its output dataset. Unanswered cells remain null.
-        Repeating this call is safe; finished labels cannot be edited.
-        """
+    def labels_set(
+        dataset_id: DatasetId,
+        column: Annotated[str, Field(description="The labels' column, e.g. `gold`.")],
+        labels_: Annotated[
+            list[labels.Label],
+            Field(alias="labels", description="Rows and their labels; a null label clears it."),
+        ],
+        task: Annotated[
+            Task | None,
+            Field(
+                description="The question the labels answer: needed with a column's first labels, "
+                "e.g. the same task the models do, or a yes/no judgement of a model's answer."
+            ),
+        ] = None,
+    ) -> AnswerColumn:
+        """Set labels people give, on any rows, before or after models are asked: yes/no takes
+        true or false, pick one and scale an option's name, pick any a list of names, write text,
+        extract an object keyed by field name. No model is called. Only set labels the user gives
+        or explicitly asks you to produce. Read them with sql_query; compare models with them with
+        columns_compare."""
         me = _me("member")
-        runs.check_access(me.org.id, run_id)
-        return manual.finish(run_id)
+        datasets.check_access(me.org.id, dataset_id)
+        return labels.set_labels(
+            dataset_id,
+            column,
+            labels.SetLabels(task=task, labels=labels_),
+            me.user.id if me.user else None,
+        )
+
+    @tool
+    def answers_delete(
+        dataset_id: DatasetId,
+        column: Annotated[str, Field(description="The task's column, e.g. `fallacy`.")],
+        model: Annotated[
+            str | None, Field(description="The model, e.g. `typesafe/jev-1.14`; none for labels.")
+        ] = None,
+    ) -> None:
+        """Delete a task's answers from one model, or a column of labels, when the user asks: e.g.
+        a try they no longer want. Model replies are kept, so asking the same again is free."""
+        me = _me("member")
+        datasets.check_access(me.org.id, dataset_id)
+        datasets.delete_answers(dataset_id, column, model)
 
     @tool
     def run_get(run_id: str, wait_seconds: WaitSeconds = 0) -> Run:
@@ -364,20 +400,11 @@ def create_server() -> FastMCP:
 
     @tool
     def run_stop(run_id: str) -> Run:
-        """Stop a run after the calls in flight, e.g. when the first answers look wrong. run_resume
-        continues it later, for free."""
+        """Stop a run after the calls in flight, e.g. when the first answers look wrong. Starting
+        it again later asks for what it didn't get to; what it paid for stays free."""
         me = _me("member")
         runs.check_access(me.org.id, run_id)
         return runs.stop_run(run_id)
-
-    @tool
-    def run_resume(run_id: str, wait_seconds: WaitSeconds = 0) -> Run:
-        """Continue a stopped or failed run, or ask a done run's failed answers again: what was
-        answered stays answered, the rest is paid for. For a changed prompt, options or model,
-        start a new run on the source dataset instead; a run's tasks are frozen."""
-        me = _me("member")
-        runs.check_access(me.org.id, run_id)
-        return _wait(runs.resume_run(run_id), wait_seconds)
 
     @tool
     def dataset_export(
@@ -461,7 +488,7 @@ def create_server() -> FastMCP:
 def _wait(run: Run, seconds: int) -> Run:
     """The run as it stands once done, or after `seconds`."""
     until = time.monotonic() + seconds
-    while run.status in runs.ACTIVE and time.monotonic() < until:
+    while run.status in datasets.ACTIVE and time.monotonic() < until:
         time.sleep(0.5)
         run = runs.get_run(run.id)
     return run

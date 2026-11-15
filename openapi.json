@@ -242,6 +242,7 @@
           "datasets"
         ],
         "summary": "List Datasets",
+        "description": "The organisation's datasets, newest first. `GET /v1/datasets/{id}` has their columns.",
         "operationId": "listDatasets",
         "responses": {
           "200": {
@@ -250,7 +251,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Dataset"
+                    "$ref": "#/components/schemas/DatasetSummary"
                   },
                   "type": "array",
                   "title": "Response Listdatasets"
@@ -322,6 +323,7 @@
           "datasets"
         ],
         "summary": "Get Dataset",
+        "description": "A dataset with every column of `data`, and what its answer columns are: the task they\nanswer, the model or labels, how many rows have an answer, and what they cost.",
         "operationId": "getDataset",
         "security": [
           {
@@ -465,6 +467,149 @@
         }
       }
     },
+    "/v1/datasets/{dataset_id}/labels/{column}": {
+      "put": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Set Labels",
+        "description": "Set, change or clear labels people give, in a column named `column`: on any rows, at any\ntime, before or after models are asked. The first labels in a column come with the task they\nanswer, which makes them typed columns of `data` to compare models with. A batch is saved whole\nor not at all.",
+        "operationId": "setLabels",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          },
+          {
+            "name": "column",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Column"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetLabels"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerColumn"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/datasets/{dataset_id}/answers": {
+      "delete": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Delete Answers",
+        "description": "Delete a task's answers from a model, or its labels. Model replies are kept, so asking the\nsame again is free. A run still asking for them must be stopped first.",
+        "operationId": "deleteAnswers",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          },
+          {
+            "name": "column",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The task's column, e.g. `fallacy`.",
+              "title": "Column"
+            },
+            "description": "The task's column, e.g. `fallacy`."
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The model, e.g. `typesafe/jev-1.14`; none for labels.",
+              "title": "Model"
+            },
+            "description": "The model, e.g. `typesafe/jev-1.14`; none for labels."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/datasets/{dataset_id}/profile": {
       "get": {
         "tags": [
@@ -586,7 +731,7 @@
           "datasets"
         ],
         "summary": "Compare Columns",
-        "description": "How often two or more columns give the same value in each row: several models' answers,\na model against labels someone already has, or any columns at all. With a `reference`, also\neach column's accuracy against it. Every count comes with the filter for its rows, to use in a\nquery's WHERE clause: to see them (`query`) or to ask about them again (`runs`).",
+        "description": "How often two or more columns give the same value in each row: several models' answers,\na model against labels someone already has, or any columns at all. With a `reference`, also\neach column's accuracy against it. Every count comes with the filter for its rows, to use in a\nquery's WHERE clause: to see them (`query`) or to ask about them again (`runs`). Every statistic\nuses the rows where all the columns have a value, unless `rows` is `pairwise`.",
         "operationId": "compareColumns",
         "security": [
           {
@@ -708,7 +853,7 @@
           "datasets"
         ],
         "summary": "Download Dataset",
-        "description": "Download the dataset as a CSV, JSONL or Parquet file, named after it. Nested values are JSON\ntext in CSV. A dataset still being made can't be exported until its run is done.",
+        "description": "Download the dataset as a CSV, JSONL or Parquet file, named after it, with the answers it has\nso far. Nested values are JSON text in CSV.",
         "operationId": "downloadDataset",
         "security": [
           {
@@ -1407,7 +1552,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Queue a run of every task with every model on the rows in the scope (all rows if none is\ngiven). It makes a new dataset (`dataset_id`), created right away with only the selected rows;\nthe answer columns fill in as the run works through them in the background: poll\n`GET /v1/runs/{id}` for its progress. Answers already given to the same rows, by a run in the\nsame dataset tree, are free: they are reused.\n\nWith `method: \"manual\"` no model is asked and no provider key is needed: the run waits for\nanswers (`PUT /v1/runs/{id}/tasks/{task_id}/answers`) in columns named after the tasks, without\nmodel suffixes, until `POST /v1/runs/{id}/finish`.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
+        "description": "Queue a run of every task with every model on the rows the query picks (all rows by\ndefault). It adds each task's answers to the dataset as columns, `<column>__<model>`, which fill\nin as the run works through the rows in the background: poll `GET /v1/runs/{id}`.\n\nIt asks only for answers the dataset doesn't have yet, and skips rows missing a value the prompt\nuses. So a run on all rows after a try on a few pays only for the rest, and starting a run\nagain after a stop or a failure asks only what is still missing. A column name keeps its\nquestion: a different prompt, options or answer type under a name in use is refused.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
         "operationId": "createRun",
         "security": [
           {
@@ -1460,6 +1605,59 @@
             }
           }
         }
+      },
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List Runs",
+        "description": "The dataset's runs, newest first.",
+        "operationId": "listRuns",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Run"
+                  },
+                  "title": "Response Listruns"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/datasets/{dataset_id}/estimate": {
@@ -1468,7 +1666,7 @@
           "runs"
         ],
         "summary": "Estimate Run",
-        "description": "What `POST /v1/datasets/{id}/runs` with the same body would take and roughly cost, and why\nit can't run as it is, if so. Nothing is asked.",
+        "description": "What `POST /v1/datasets/{id}/runs` with the same body would ask for and roughly cost, and why\nit can't run as it is, if so. Nothing is asked.",
         "operationId": "estimateRun",
         "security": [
           {
@@ -1579,180 +1777,8 @@
           "runs"
         ],
         "summary": "Stop Run",
-        "description": "Stop after the calls in flight. The chunk in progress is redone on resume, for free.",
+        "description": "Stop after the calls in flight. Starting the same run again asks for what it didn't get to;\nanswers it paid for are free.",
         "operationId": "stopRun",
-        "security": [
-          {
-            "HTTPBearer": []
-          },
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "run_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Run Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Run"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/runs/{run_id}/resume": {
-      "post": {
-        "tags": [
-          "runs"
-        ],
-        "summary": "Resume Run",
-        "description": "Continue a stopped or failed run, or a done one with failed answers: its failed answers are\nasked again first, then it continues from its first unwritten chunk.",
-        "operationId": "resumeRun",
-        "security": [
-          {
-            "HTTPBearer": []
-          },
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "run_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Run Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Run"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/runs/{run_id}/tasks/{task_id}/answers": {
-      "put": {
-        "tags": [
-          "runs"
-        ],
-        "summary": "Save Manual Answers",
-        "description": "Set labels on an open manual run. Null clears a label. Batches may span several saved parts;\nretry an interrupted batch with the same values. Concurrent edits use the last saved value.",
-        "operationId": "saveManualAnswers",
-        "security": [
-          {
-            "HTTPBearer": []
-          },
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "run_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Run Id"
-            }
-          },
-          {
-            "name": "task_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Task Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Answers"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Run"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/runs/{run_id}/finish": {
-      "post": {
-        "tags": [
-          "runs"
-        ],
-        "summary": "Finish Manual Run",
-        "description": "Finish manual labeling and freeze the output dataset. Unanswered cells stay null.\nRepeating this call returns the completed run. Labels can no longer be changed.",
-        "operationId": "finishManualRun",
         "security": [
           {
             "HTTPBearer": []
@@ -2173,45 +2199,59 @@
         "title": "Analytics",
         "description": "The PostHog project the web app sends product analytics to; `phc_` tokens are public."
       },
-      "Answer": {
+      "AnswerColumn": {
         "properties": {
-          "row_id": {
-            "type": "integer",
-            "maximum": 9.223372036854776e+18,
-            "minimum": 0.0,
-            "title": "Row Id"
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "The task's column, e.g. `fallacy`."
           },
-          "value": {
-            "title": "Value",
-            "description": "The label; null clears it. Pick any takes option names; extract takes an object keyed by field name."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "row_id",
-          "value"
-        ],
-        "title": "Answer"
-      },
-      "Answers": {
-        "properties": {
-          "answers": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "The model that answers; empty for labels people set."
+          },
+          "task": {
+            "$ref": "#/components/schemas/Task-Output",
+            "description": "The question its answers are to."
+          },
+          "columns": {
             "items": {
-              "$ref": "#/components/schemas/Answer"
+              "type": "string"
             },
             "type": "array",
-            "maxItems": 1000,
-            "minItems": 1,
-            "title": "Answers"
+            "title": "Columns",
+            "description": "Its columns in `data`, e.g. `fallacy__jev-1.14` and `fallacy__jev-1.14_proba`."
+          },
+          "answered": {
+            "type": "integer",
+            "title": "Answered",
+            "description": "Rows with an answer."
+          },
+          "cost": {
+            "type": "number",
+            "title": "Cost",
+            "description": "USD runs spent on it; cached answers are free."
           }
         },
-        "additionalProperties": false,
         "type": "object",
         "required": [
-          "answers"
+          "name",
+          "model",
+          "task",
+          "columns",
+          "answered",
+          "cost"
         ],
-        "title": "Answers"
+        "title": "AnswerColumn",
+        "description": "Answers to one task from one model, or labels people set for one task."
       },
       "ApiKey": {
         "properties": {
@@ -2586,14 +2626,6 @@
             "type": "string",
             "title": "Column"
           },
-          "run_id": {
-            "type": "string",
-            "title": "Run Id"
-          },
-          "task_id": {
-            "type": "string",
-            "title": "Task Id"
-          },
           "model": {
             "type": "string",
             "title": "Model"
@@ -2601,12 +2633,12 @@
           "usd": {
             "type": "number",
             "title": "Usd",
-            "description": "What the run spent on this task and model, for all its rows; cached answers are free. Columns of one task and model share it."
+            "description": "What runs spent on this task and model, for all the dataset's rows; cached answers are free. Columns of one task and model share it."
           },
           "answered": {
             "type": "integer",
             "title": "Answered",
-            "description": "The run's rows with an answer from the model."
+            "description": "The dataset's rows with an answer from the model."
           },
           "usd_per_1k_rows": {
             "anyOf": [
@@ -2624,14 +2656,37 @@
         "type": "object",
         "required": [
           "column",
-          "run_id",
-          "task_id",
           "model",
           "usd",
           "answered",
           "usd_per_1k_rows"
         ],
         "title": "ColumnCost"
+      },
+      "ColumnCoverage": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
+          "answered": {
+            "type": "integer",
+            "title": "Answered",
+            "description": "Rows the query returns where the column has a value."
+          },
+          "left_out": {
+            "type": "integer",
+            "title": "Left Out",
+            "description": "Of those, rows left out because another column compared is empty there; always 0 with `rows` `pairwise`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "column",
+          "answered",
+          "left_out"
+        ],
+        "title": "ColumnCoverage"
       },
       "ColumnProfile": {
         "properties": {
@@ -2763,6 +2818,16 @@
             "title": "Sql",
             "description": "The rows to compare: a SELECT over `data`.",
             "default": "SELECT * FROM data"
+          },
+          "rows": {
+            "type": "string",
+            "enum": [
+              "common",
+              "pairwise"
+            ],
+            "title": "Rows",
+            "description": "`common`: every statistic uses the same rows, those where every column compared has a value, so each column is measured on the same rows. `pairwise`: each statistic uses the rows where its own columns have a value.",
+            "default": "common"
           }
         },
         "type": "object",
@@ -2805,10 +2870,23 @@
               }
             ]
           },
+          "scope_rows": {
+            "type": "integer",
+            "title": "Scope Rows",
+            "description": "Rows the query returns."
+          },
           "rows": {
             "type": "integer",
             "title": "Rows",
-            "description": "Rows compared: those the query returns."
+            "description": "Rows compared: with `rows` `common`, those where every column has a value; otherwise all the query returns."
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnCoverage"
+            },
+            "type": "array",
+            "title": "Coverage",
+            "description": "How many rows each column has a value in, and how many of them were left out."
           },
           "columns": {
             "items": {
@@ -2873,7 +2951,7 @@
             },
             "type": "array",
             "title": "Costs",
-            "description": "For each column a model wrote in a run, what it cost. Uploaded and manual columns have none."
+            "description": "For each column a model wrote, what it cost. The file's columns and labels have none."
           }
         },
         "type": "object",
@@ -2883,7 +2961,9 @@
           "tolerance",
           "values_completeness",
           "crosstab_completeness",
+          "scope_rows",
           "rows",
+          "coverage",
           "columns",
           "agreement",
           "pairs",
@@ -3053,54 +3133,39 @@
           },
           "size_bytes": {
             "type": "integer",
-            "title": "Size Bytes"
-          },
-          "columns": {
-            "items": {
-              "$ref": "#/components/schemas/Column"
-            },
-            "type": "array",
-            "title": "Columns"
+            "title": "Size Bytes",
+            "description": "Of its file; answers are kept beside it."
           },
           "created_at": {
             "type": "string",
             "format": "date-time",
             "title": "Created At"
           },
-          "parent_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parent Id",
-            "description": "The dataset it was made from by a run."
+          "answer_columns": {
+            "type": "integer",
+            "title": "Answer Columns",
+            "description": "Tasks with answers from a model, or labels."
           },
-          "branch": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Branch",
-            "description": "Its place in the tree, e.g. `1.2`: the 2nd made from the 1st made from a file. Empty for a dataset added from a file."
+          "active_runs": {
+            "type": "integer",
+            "title": "Active Runs",
+            "description": "Runs queued or going."
           },
-          "run": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DatasetRun"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The run that makes it; its rows fill in as it goes."
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/Column"
+            },
+            "type": "array",
+            "title": "Columns",
+            "description": "Every column of `data`: `__row_id`, the answer columns, newest first, then the file's own."
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerColumn"
+            },
+            "type": "array",
+            "title": "Answers",
+            "description": "What its answer columns are, newest first."
           }
         },
         "type": "object",
@@ -3110,72 +3175,65 @@
           "source",
           "row_count",
           "size_bytes",
-          "columns",
           "created_at",
-          "parent_id",
-          "branch",
-          "run"
+          "answer_columns",
+          "active_runs",
+          "columns",
+          "answers"
         ],
         "title": "Dataset"
       },
-      "DatasetRun": {
+      "DatasetSummary": {
         "properties": {
           "id": {
             "type": "string",
             "title": "Id"
           },
-          "status": {
+          "name": {
             "type": "string",
-            "enum": [
-              "queued",
-              "running",
-              "stopping",
-              "stopped",
-              "done",
-              "failed",
-              "manual"
-            ],
-            "title": "Status"
+            "title": "Name"
           },
-          "failed": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "row_count": {
             "type": "integer",
-            "title": "Failed",
-            "description": "Answers that failed, which resuming asks again."
+            "title": "Row Count"
           },
-          "done": {
+          "size_bytes": {
             "type": "integer",
-            "title": "Done",
-            "description": "Answers saved so far."
+            "title": "Size Bytes",
+            "description": "Of its file; answers are kept beside it."
           },
-          "total": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "answer_columns": {
             "type": "integer",
-            "title": "Total",
-            "description": "Answers the run asks for."
+            "title": "Answer Columns",
+            "description": "Tasks with answers from a model, or labels."
           },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error",
-            "description": "Why the run failed."
+          "active_runs": {
+            "type": "integer",
+            "title": "Active Runs",
+            "description": "Runs queued or going."
           }
         },
         "type": "object",
         "required": [
           "id",
-          "status",
-          "failed",
-          "done",
-          "total",
-          "error"
+          "name",
+          "source",
+          "row_count",
+          "size_bytes",
+          "created_at",
+          "answer_columns",
+          "active_runs"
         ],
-        "title": "DatasetRun",
-        "description": "The run that makes a dataset."
+        "title": "DatasetSummary"
       },
       "Day": {
         "properties": {
@@ -3229,17 +3287,32 @@
           "rows": {
             "type": "integer",
             "title": "Rows",
-            "description": "Rows the run would ask about."
+            "description": "Rows the query picks."
+          },
+          "answered": {
+            "type": "integer",
+            "title": "Answered",
+            "description": "Answers those rows have already, which it won't ask again."
           },
           "calls": {
             "type": "integer",
             "title": "Calls",
-            "description": "Model calls it would make."
+            "description": "Answers it would ask models for."
+          },
+          "missing_input": {
+            "type": "integer",
+            "title": "Missing Input",
+            "description": "Answers it would skip, because a column the prompt uses is empty in the row."
+          },
+          "failed_before": {
+            "type": "integer",
+            "title": "Failed Before",
+            "description": "Of the answers it would ask for, those an earlier run asked and didn't get."
           },
           "cost": {
             "type": "number",
             "title": "Cost",
-            "description": "Roughly what it would cost in USD, from sample rows' token counts and the models' prices; answers already given to the same rows in the dataset's tree would be free."
+            "description": "Roughly what it would cost in USD, from sample rows' token counts and the models' prices; replies kept from earlier runs would be free."
           },
           "problem": {
             "anyOf": [
@@ -3257,7 +3330,10 @@
         "type": "object",
         "required": [
           "rows",
+          "answered",
           "calls",
+          "missing_input",
+          "failed_before",
           "cost",
           "problem"
         ],
@@ -3600,6 +3676,27 @@
           "email"
         ],
         "title": "InviteRequest"
+      },
+      "Label": {
+        "properties": {
+          "row_id": {
+            "type": "integer",
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Row Id"
+          },
+          "value": {
+            "title": "Value",
+            "description": "The label; null clears it. Yes/no takes true or false, pick one and scale an option's name, pick any a list of names, write text, extract an object keyed by field name."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "row_id",
+          "value"
+        ],
+        "title": "Label"
       },
       "Member": {
         "properties": {
@@ -4424,7 +4521,7 @@
           "dataset_id": {
             "type": "string",
             "title": "Dataset Id",
-            "description": "The dataset it makes."
+            "description": "The dataset it adds answers to."
           },
           "status": {
             "type": "string",
@@ -4434,8 +4531,7 @@
               "stopping",
               "stopped",
               "done",
-              "failed",
-              "manual"
+              "failed"
             ],
             "title": "Status"
           },
@@ -4449,7 +4545,7 @@
             },
             "type": "array",
             "title": "Columns",
-            "description": "The output columns; manual runs use the task's column name without a model suffix."
+            "description": "The answer columns it writes, without their `_proba` and `_reason` columns."
           },
           "costs": {
             "items": {
@@ -4462,22 +4558,17 @@
           "row_count": {
             "type": "integer",
             "title": "Row Count",
-            "description": "Rows it asks about: the rows in its scope."
-          },
-          "next_chunk": {
-            "type": "integer",
-            "title": "Next Chunk",
-            "description": "The first chunk of rows not yet written."
+            "description": "Rows it asks about: those the query picks that miss one of its answers."
           },
           "done": {
             "type": "integer",
             "title": "Done",
-            "description": "Answers saved (or failed) so far."
+            "description": "Answers asked so far, failed ones too."
           },
           "total": {
             "type": "integer",
             "title": "Total",
-            "description": "Answers the run asks for."
+            "description": "Answers it asks for."
           },
           "cost": {
             "type": "number",
@@ -4518,7 +4609,7 @@
               }
             ],
             "title": "Provider Id",
-            "description": "The model provider its calls go to, kept from when it started. Empty on the server's key, and for manual runs."
+            "description": "The model provider its calls go to, kept from when it started. Empty on the server's key."
           },
           "created_at": {
             "type": "string",
@@ -4547,7 +4638,6 @@
           "columns",
           "costs",
           "row_count",
-          "next_chunk",
           "done",
           "total",
           "cost",
@@ -4564,7 +4654,7 @@
           "sql": {
             "type": "string",
             "title": "Sql",
-            "description": "Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.",
+            "description": "Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default. For a sample that grows without changing, order by a hash: `SELECT * FROM data ORDER BY md5('s1' || __row_id) LIMIT 50`.",
             "default": "SELECT * FROM data"
           },
           "tasks": {
@@ -4573,16 +4663,6 @@
             },
             "type": "array",
             "title": "Tasks"
-          },
-          "method": {
-            "type": "string",
-            "enum": [
-              "llm",
-              "manual"
-            ],
-            "title": "Method",
-            "description": "Label with models or enter labels manually.",
-            "default": "llm"
           }
         },
         "type": "object",
@@ -4597,7 +4677,7 @@
           "sql": {
             "type": "string",
             "title": "Sql",
-            "description": "Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default.",
+            "description": "Which rows to ask about: a SELECT over `data` returning `__row_id`; all rows by default. For a sample that grows without changing, order by a hash: `SELECT * FROM data ORDER BY md5('s1' || __row_id) LIMIT 50`.",
             "default": "SELECT * FROM data"
           },
           "tasks": {
@@ -4606,16 +4686,6 @@
             },
             "type": "array",
             "title": "Tasks"
-          },
-          "method": {
-            "type": "string",
-            "enum": [
-              "llm",
-              "manual"
-            ],
-            "title": "Method",
-            "description": "Label with models or enter labels manually.",
-            "default": "llm"
           }
         },
         "type": "object",
@@ -4624,6 +4694,36 @@
         ],
         "title": "RunRequest",
         "description": "What to run: the tasks, on the rows a query picks."
+      },
+      "SetLabels": {
+        "properties": {
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Task-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The question the labels answer: needed with the first labels in a column, and otherwise the same as then. Its `column` is the column's name; it asks no models."
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/Label"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Labels"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "labels"
+        ],
+        "title": "SetLabels"
       },
       "Settings": {
         "properties": {
@@ -4900,7 +5000,7 @@
           "failed": {
             "type": "integer",
             "title": "Failed",
-            "description": "Rows without an answer."
+            "description": "Answers that failed; starting the run again asks them again."
           }
         },
         "type": "object",

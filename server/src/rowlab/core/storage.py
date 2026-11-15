@@ -22,7 +22,7 @@ from rowlab.core.errors import InvalidRequest
 
 
 def location(dataset_id: str, *names: str) -> str:
-    """A dataset's folder, or a file in it, e.g. `location(id, "parts", "part-000001.parquet")`."""
+    """A dataset's folder, or a file in it, e.g. `location(id, "runs", run_id, "part-000001.parquet")`."""
     return "/".join([config().storage_url, dataset_id, *names])
 
 
@@ -32,9 +32,9 @@ def folder(dataset_id: str) -> str:
 
 
 def prepare(dataset_id: str) -> None:
-    """Make a new dataset's folders, where there are folders (not on S3)."""
+    """Make a new dataset's folder, where there are folders (not on S3)."""
     if not config().s3_storage:
-        Path(location(dataset_id, "parts")).mkdir(parents=True)
+        Path(location(dataset_id)).mkdir(parents=True)
 
 
 @contextmanager
@@ -121,7 +121,7 @@ def write(
     if config().s3_storage:
         con.execute(f"COPY ({query}) TO {sql_string(target)} ({options})", params or [])
         return
-    Path(target).parent.mkdir(exist_ok=True)
+    Path(target).parent.mkdir(parents=True, exist_ok=True)
     temporary = f"{target}.tmp"
     con.execute(f"COPY ({query}) TO {sql_string(temporary)} ({options})", params or [])
     os.replace(temporary, target)

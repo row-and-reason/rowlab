@@ -13,7 +13,6 @@ from rowlab.core import connections, datasets, db, sql, storage
 from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID
 from rowlab.core.errors import InvalidRequest
-from rowlab.core.runs import ACTIVE
 from rowlab.core.storage import sql_ident, sql_string
 
 ExportFormat = Literal["csv", "jsonl", "parquet"]
@@ -138,8 +137,6 @@ def _write(
     query: str | None,
 ) -> None:
     dataset = datasets.get_dataset(dataset_id)
-    if dataset.run and dataset.run.status in ACTIVE:
-        raise InvalidRequest(f"{dataset.name} is still being made. Export it once its run is done.")
     columns = []
     for column in dataset.columns:
         if column.name == ROW_ID and not include_row_id:
@@ -156,8 +153,9 @@ def _write(
         with sql.connect(dataset_id) as locked:
             picked = sql.execute(locked, sql.row_ids(locked, query)).fetchall()
         where, params = f"WHERE {ROW_ID} IN (SELECT unnest(?::BIGINT[]))", [[r[0] for r in picked]]
+    datasets.attach(con, dataset_id)
     con.execute(
-        f"COPY (SELECT {', '.join(columns)} FROM {datasets.dataset_source(dataset_id)} {where} "
+        f"COPY (SELECT {', '.join(columns)} FROM data {where} "
         f"ORDER BY {ROW_ID}) TO {sql_string(path)} ({_COPY_OPTIONS[fmt]})",
         params,
     )

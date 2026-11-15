@@ -5,9 +5,9 @@ from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 from rowlab.api.auth import CanEdit, CanRead
-from rowlab.core import compare, datasets, exports, prompts, sql
+from rowlab.core import compare, datasets, exports, labels, prompts, sql
 from rowlab.core.compare import CompareRequest, Comparison
-from rowlab.core.datasets import ColumnProfile, Dataset
+from rowlab.core.datasets import AnswerColumn, ColumnProfile, Dataset, DatasetSummary
 from rowlab.core.errors import InvalidRequest
 from rowlab.core.exports import ExportFormat, ExportRequest, ExportResult
 from rowlab.core.prompts import RenderRequest, RenderResult
@@ -42,12 +42,15 @@ def create_dataset(
 
 
 @router.get("", operation_id="listDatasets")
-def list_datasets(me: CanRead) -> list[Dataset]:
+def list_datasets(me: CanRead) -> list[DatasetSummary]:
+    """The organisation's datasets, newest first. `GET /v1/datasets/{id}` has their columns."""
     return datasets.list_datasets(me.org.id)
 
 
 @router.get("/{dataset_id}", operation_id="getDataset")
 def get_dataset(dataset_id: str, me: CanRead) -> Dataset:
+    """A dataset with every column of `data`, and what its answer columns are: the task they
+    answer, the model or labels, how many rows have an answer, and what they cost."""
     datasets.check_access(me.org.id, dataset_id)
     return datasets.get_dataset(dataset_id)
 
@@ -62,6 +65,33 @@ def rename_dataset(dataset_id: str, request: datasets.RenameDataset, me: CanEdit
 def delete_dataset(dataset_id: str, me: CanEdit) -> None:
     datasets.check_access(me.org.id, dataset_id)
     datasets.delete_dataset(dataset_id)
+
+
+@router.put("/{dataset_id}/labels/{column}", operation_id="setLabels")
+def set_labels(
+    dataset_id: str, column: str, request: labels.SetLabels, me: CanEdit
+) -> AnswerColumn:
+    """Set, change or clear labels people give, in a column named `column`: on any rows, at any
+    time, before or after models are asked. The first labels in a column come with the task they
+    answer, which makes them typed columns of `data` to compare models with. A batch is saved whole
+    or not at all."""
+    datasets.check_access(me.org.id, dataset_id)
+    return labels.set_labels(dataset_id, column, request, me.user.id if me.user else None)
+
+
+@router.delete("/{dataset_id}/answers", operation_id="deleteAnswers", status_code=204)
+def delete_answers(
+    dataset_id: str,
+    me: CanEdit,
+    column: Annotated[str, Query(description="The task's column, e.g. `fallacy`.")],
+    model: Annotated[
+        str | None, Query(description="The model, e.g. `typesafe/jev-1.14`; none for labels.")
+    ] = None,
+) -> None:
+    """Delete a task's answers from a model, or its labels. Model replies are kept, so asking the
+    same again is free. A run still asking for them must be stopped first."""
+    datasets.check_access(me.org.id, dataset_id)
+    datasets.delete_answers(dataset_id, column, model)
 
 
 @router.get("/{dataset_id}/profile", operation_id="getDatasetProfile")
@@ -85,7 +115,8 @@ def compare_columns(dataset_id: str, request: CompareRequest, me: CanRead) -> Co
     """How often two or more columns give the same value in each row: several models' answers,
     a model against labels someone already has, or any columns at all. With a `reference`, also
     each column's accuracy against it. Every count comes with the filter for its rows, to use in a
-    query's WHERE clause: to see them (`query`) or to ask about them again (`runs`)."""
+    query's WHERE clause: to see them (`query`) or to ask about them again (`runs`). Every statistic
+    uses the rows where all the columns have a value, unless `rows` is `pairwise`."""
     datasets.check_access(me.org.id, dataset_id)
     return compare.compare(dataset_id, request)
 
@@ -112,8 +143,8 @@ def download_dataset(
         str | None, Query(description="Only the rows this query picks; it must return `__row_id`.")
     ] = None,
 ) -> FileResponse:
-    """Download the dataset as a CSV, JSONL or Parquet file, named after it. Nested values are JSON
-    text in CSV. A dataset still being made can't be exported until its run is done."""
+    """Download the dataset as a CSV, JSONL or Parquet file, named after it, with the answers it has
+    so far. Nested values are JSON text in CSV."""
     datasets.check_access(me.org.id, dataset_id)
     path = exports.export_to_temp(dataset_id, format, include_row_id=include_row_id, query=sql)
     return FileResponse(

@@ -39,7 +39,8 @@ def test_runs_count_answers_cost_and_model_calls(client, job, api_key):
         "done": value("rowlab_runs_finished_total", status="done"),
     }
     run(client, job)
-    run(client, job)
+    # The same question again, under another name: answered from the replies kept.
+    run(client, {**job, "tasks": [{**NEGATIVE, "column": "again"}]})
     # The second run of the same rows is answered from the cache: no calls, no cost.
     assert value("rowlab_answers_total", model=MODEL, result="answered") - before["answered"] == 3
     assert value("rowlab_answers_total", model=MODEL, result="cached") - before["cached"] == 3

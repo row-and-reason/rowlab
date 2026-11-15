@@ -22,6 +22,8 @@ def dataset(client, tmp_path):
 
 
 def compare(client, dataset, **body):
+    """A comparison; the statistics tests measure each on its own columns' rows."""
+    body = {"rows": "pairwise", **body}
     response = client.post(f"/v1/datasets/{dataset['id']}/compare", json=body)
     assert response.status_code == 200, response.text
     return response.json()
@@ -32,6 +34,23 @@ def rows(client, dataset, where):
     response = client.post(f"/v1/datasets/{dataset['id']}/query", json=body)
     assert response.status_code == 200, response.text
     return [r["city"] for r in response.json()["rows"]]
+
+
+def test_by_default_every_column_is_measured_on_the_same_rows(client, dataset):
+    # Quito has no b: by default it is left out of every statistic, so a and c are judged on the
+    # rows b is, and the comparison says so first.
+    result = compare(client, dataset, columns=["a", "c"], reference="b", rows="common")
+    assert (result["scope_rows"], result["rows"]) == (6, 5)
+    assert {c["column"]: (c["answered"], c["left_out"]) for c in result["coverage"]} == {
+        "a": (6, 1),
+        "c": (6, 1),
+        "b": (5, 0),
+    }
+    assert [r["compared"] for r in result["reference"]] == [5, 5]
+    assert result["pairs"][0]["compared"] == 5
+    pairwise = compare(client, dataset, columns=["a", "c"], reference="b")
+    assert pairwise["pairs"][0]["compared"] == 6
+    assert {c["left_out"] for c in pairwise["coverage"]} == {0}
 
 
 def test_agreement_across_three_columns_with_sql_for_each_count(client, dataset):
@@ -396,8 +415,8 @@ def test_alpha_is_ordinal_for_a_scale_tasks_levels(client, tmp_path, api_key):
         "sql": "SELECT * FROM data WHERE d IS NOT NULL",
         "tasks": [scale],
     }
-    made = run(client, job)
-    result = compare(client, {"id": made["dataset_id"]}, columns=["a", "b", "c", "level__llm"])
+    run(client, job)
+    result = compare(client, source, columns=["a", "b", "c", "level__llm"])
     assert result["agreement"]["alpha_level"] == "ordinal"
     assert result["agreement"]["alpha"] == pytest.approx(0.815, abs=1e-3)
 
@@ -463,15 +482,15 @@ def test_calibration_checks_the_probability_against_the_reference(client, datase
         assert found["rows"][0]["n"] == bucket["rows"]
 
 
-def test_a_runs_columns_come_with_their_cost(client, tmp_path, api_key):
+def test_a_models_columns_come_with_their_cost_and_labels_with_none(client, tmp_path, api_key):
     path = tmp_path / "reviews.csv"
     path.write_text("review,truth\nTerrible product,true\nLove it,true\nBroke after a day,true\n")
     source = client.post("/v1/datasets", data={"source": str(path)}).json()
     job = {"dataset_id": source["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
     made = run(client, job)
-    result = compare(client, {"id": made["dataset_id"]}, columns=made["columns"], reference="truth")
-    assert [(c["column"], c["run_id"]) for c in result["costs"]] == [
-        ("negative__jev-1.14", made["id"])
+    result = compare(client, source, columns=made["columns"], reference="truth")
+    assert [(c["column"], c["model"]) for c in result["costs"]] == [
+        ("negative__jev-1.14", "typesafe/jev-1.14")
     ]
     cost = result["costs"][0]
     assert cost["usd"] == pytest.approx(made["cost"])
@@ -481,29 +500,18 @@ def test_a_runs_columns_come_with_their_cost(client, tmp_path, api_key):
     assert accuracy["usd_per_correct"] == pytest.approx(made["cost"] / 2)
     assert accuracy["calibration"]["rows"] == 3
 
-    # A column the lab uploaded, and a column labelled by hand in a run made from this one, cost nothing.
-    manual = client.post(
-        f"/v1/datasets/{made['dataset_id']}/runs",
-        json={"method": "manual", "tasks": [{"template": "{{review}}", "column": "label"}]},
-    ).json()
+    # Labels a person set on two rows cost nothing, and are a reference like any column.
+    labelled = client.put(
+        f"/v1/datasets/{source['id']}/labels/gold",
+        json={
+            "task": {"type": "yes_no", "column": "gold"},
+            "labels": [{"row_id": 0, "value": True}, {"row_id": 1, "value": False}],
+        },
+    )
+    assert labelled.status_code == 200, labelled.text
     result = compare(
-        client,
-        {"id": manual["dataset_id"]},
-        columns=["label", "negative__jev-1.14"],
-        reference="truth",
+        client, source, columns=["negative__jev-1.14"], reference="gold", rows="common"
     )
+    assert result["rows"] == 2
     assert [c["column"] for c in result["costs"]] == ["negative__jev-1.14"]
-    assert result["reference"][0]["usd_per_correct"] is None
-
-
-def test_compare_works_after_the_source_dataset_is_deleted(client, tmp_path, api_key):
-    path = tmp_path / "reviews.csv"
-    path.write_text("review,truth\nTerrible product,true\nLove it,false\n")
-    source = client.post("/v1/datasets", data={"source": str(path)}).json()
-    made = run(
-        client, {"dataset_id": source["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
-    )
-    assert client.delete(f"/v1/datasets/{source['id']}").status_code == 204
-    result = compare(client, {"id": made["dataset_id"]}, columns=made["columns"], reference="truth")
     assert result["reference"][0]["accuracy"] == 1
-    assert [c["column"] for c in result["costs"]] == made["columns"]
