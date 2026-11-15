@@ -6,10 +6,6 @@ resume and never pay twice; comparisons; exports; the hosted mode with organisat
 and protections; MCP, the agent skill and the Python SDK; the website and the docs. What rowlab does
 is described in the [docs](https://docs.rowlab.dev); how it got here is in the git history.
 
-**Left for the launch:** `rowlab` 0.1.0 on PyPI, through the Publish workflow's trusted publishing,
-and `rowlab-python-sdk` 0.1.0, through `sdk-release.yml`'s (it needs a PyPI pending publisher
-first).
-
 ## Next
 
 - **Discover → label.** An LLM proposes the categories, then a run labels with them.
