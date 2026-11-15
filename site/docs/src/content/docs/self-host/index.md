@@ -61,4 +61,5 @@ the database, never returned by the API, and encrypted when `ROWLAB_SECRET_KEY` 
 
 rowlab sends nothing home: no telemetry, no update checks. (A shared server can turn on
 [product analytics](/self-host/hosted#analytics) of its own; locally it never does.) Model calls go to your provider with your
-key, and nowhere else.
+key, and nowhere else. Model prices are read from OpenRouter's public catalog, without a key or any
+of your data.

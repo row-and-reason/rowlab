@@ -4,6 +4,7 @@ import pytest
 from helpers import NEGATIVE, run, start
 
 from rowlab.core import db, model_providers, runs
+from rowlab.core.providers import model_api
 
 pytestmark = pytest.mark.usefixtures("fake")
 
@@ -15,6 +16,8 @@ LITELLM = {
     "api_key": "sk-good",
 }
 LLM_TASK = {**NEGATIVE, "models": ["x/llm"]}
+# Before the `fake` fixture replaces it.
+REAL_REQUEST = model_api._request
 
 
 @pytest.fixture
@@ -168,3 +171,88 @@ def test_a_saved_openrouter_key_becomes_the_active_provider():
     [provider] = model_providers.list_providers("local")
     assert (provider.type, provider.active) == ("openrouter", True)
     assert model_providers.for_run("local", None).api_key == "k"
+
+
+def test_a_saved_key_goes_only_where_it_was_first_sent(client, fake):
+    gateway = add(client, **LITELLM).json()
+    path = f"/v1/settings/providers/{gateway['id']}"
+    moved = {**LITELLM, "base_url": "https://elsewhere.example.net", "api_key": None}
+    response = client.put(path, json=moved)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Enter the API key again to change the base URL."
+    assert not any("elsewhere" in url for url in fake.urls)
+    assert client.put(path, json={**moved, "type": "openrouter"}).status_code == 400
+    # Renamed, with the key kept; or moved, with the key entered again.
+    renamed = client.put(path, json={**LITELLM, "name": "Homelab", "api_key": None})
+    assert renamed.json()["name"] == "Homelab"
+    assert client.put(path, json={**moved, "api_key": "sk-good"}).status_code == 200
+
+
+def test_a_reply_that_cant_be_read_fails_its_answer_not_the_run(client, dataset, fake, monkeypatch):
+    add(client, type="openrouter", api_key="sk-good")
+
+    def odd(method, url, *, api_key, body=None):
+        if method == "POST":
+            fake.calls.append((method, url, api_key, body))
+            return {"choices": "?", "usage": {"cost": 0.01}}
+        return fake(method, url, api_key=api_key, body=body)
+
+    monkeypatch.setattr(model_api, "_request", odd)
+    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [LLM_TASK]}
+    finished = run(client, job)
+    assert finished["status"] == "done"
+    assert finished["costs"][0]["failed"] == 2
+    # Paid for, so counted.
+    assert finished["cost"] == pytest.approx(0.02)
+
+
+def test_a_base_url_that_isnt_an_api_is_refused_on_save(client, monkeypatch):
+    class Page:
+        status_code, headers, is_error, is_redirect, text = 200, {}, False, False, "<html>"
+
+        def json(self):
+            raise ValueError("not JSON")
+
+    monkeypatch.setattr(model_api, "_request", REAL_REQUEST)
+    monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: Page())
+    response = add(client, **LITELLM)
+    assert response.status_code == 400
+    assert "wasn't JSON" in response.json()["detail"]
+
+
+def test_a_run_whose_provider_was_deleted_cant_be_resumed(client, dataset, fake):
+    provider = add(client, type="openrouter", api_key="sk-good").json()
+    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
+    created = start(client, job)
+    client.post(f"/v1/runs/{created['id']}/stop")
+    client.delete(f"/v1/settings/providers/{provider['id']}")
+    add(client, **LITELLM)
+    response = client.post(f"/v1/runs/{created['id']}/resume")
+    assert response.status_code == 400
+    assert "was deleted" in response.json()["detail"]
+    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "stopped"
+
+
+def test_a_litellm_decision_reply_missing_its_probabilities_fails_its_answer(
+    client, dataset, fake, monkeypatch
+):
+    add(client, **LITELLM)
+
+    def partial(method, url, *, api_key, body=None):
+        reply = fake(method, url, api_key=api_key, body=body)
+        if url.endswith("/v1/decisions"):
+            del reply["answers"][0]["probabilities"]
+        return reply
+
+    monkeypatch.setattr(model_api, "_request", partial)
+    pick = {
+        "template": "{{review}}",
+        "type": "pick_one",
+        "column": "team",
+        "models": ["typesafe/jev-1.14"],
+        "options": [{"name": "ops"}, {"name": "sales"}],
+    }
+    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [pick]}
+    finished = run(client, job)
+    assert (finished["status"], finished["costs"][0]["failed"]) == ("done", 2)
+    assert finished["cost"] > 0

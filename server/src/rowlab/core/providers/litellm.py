@@ -39,8 +39,9 @@ def decision_request(model: str, name: str, state: str, questions: dict[str, Any
 
 
 def answers(reply: dict[str, Any]) -> dict[str, Any]:
-    """A decision reply's answers, by question, in OpenRouter's terms."""
-    return {a.get("name"): _answer(a) for a in reply["answers"]}
+    """A decision reply's answers, by question, in OpenRouter's terms. Raises KeyError or TypeError
+    for an answer missing what reading it needs, which fails that answer."""
+    return {a.get("name"): _answer(a) for a in reply.get("answers") or []}
 
 
 def _question(name: str, question: dict[str, Any]) -> dict[str, Any]:

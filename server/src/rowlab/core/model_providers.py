@@ -107,8 +107,14 @@ def create_provider(org_id: str, data: ProviderInput) -> Provider:
 
 
 def update_provider(org_id: str, provider_id: str, data: ProviderInput) -> Provider:
-    """Change a provider; its key stays as saved unless a new one is given. Checked like a new one."""
+    """Change a provider; its key stays as saved unless a new one is given. Checked like a new one.
+    Its type can't change, and its address only with the key entered again: a saved key goes only
+    where it was first sent."""
     saved = _row(org_id, provider_id)
+    if data.type != saved["type"]:
+        raise InvalidRequest("A provider's type can't change. Add a new provider instead.")
+    if not data.api_key and _base_url(data) != saved["base_url"]:
+        raise InvalidRequest("Enter the API key again to change the base URL.")
     fields = _checked(data, data.api_key or crypto.decrypt(saved["api_key"]))
     with db.connect() as conn:
         conn.execute(
@@ -176,7 +182,10 @@ def for_run(org_id: str, provider_id: str | None) -> Use:
         raise InvalidRequest(
             "The model provider this run used was deleted. Start the run again."
         ) from None
-    _check_url(row["base_url"])
+    try:
+        _check_url(row["base_url"])
+    except network.Unresolved:
+        pass  # Perhaps for a moment: each call fails on its own, and is retried.
     return Use(
         type=row["type"],
         base_url=row["base_url"],
@@ -210,15 +219,18 @@ class Reply(BaseModel):
 
 
 def ask(use: Use, request: Request) -> Reply:
-    """Make a call, paid for. When the provider doesn't say what it cost, it is worked out from the
-    model's prices and the tokens used."""
+    """Make a call, paid for. `data` is None when the reply can't be read. When the provider doesn't
+    say what it cost, it is worked out from the model's prices and the tokens used."""
     reply = model_api.post(use.base_url, request, use.api_key)
-    if request.path == openrouter.DECISIONS:
-        data = openrouter.answers(reply)
-    elif request.path == litellm.DECISIONS:
-        data = litellm.answers(reply)
-    else:
-        data = model_api.message(reply)
+    try:
+        if request.path == openrouter.DECISIONS:
+            data = openrouter.answers(reply)
+        elif request.path == litellm.DECISIONS:
+            data = litellm.answers(reply)
+        else:
+            data = model_api.message(reply)
+    except (KeyError, IndexError, TypeError, AttributeError):
+        data = None  # Paid for, but not in a shape rowlab reads: that answer fails.
     cost, input_tokens, output_tokens = model_api.usage(reply)
     if cost is None:
         model = catalog.get(request.model)
@@ -226,15 +238,19 @@ def ask(use: Use, request: Request) -> Reply:
     return Reply(data=data, cost=cost, input_tokens=input_tokens, output_tokens=output_tokens)
 
 
-def _checked(data: ProviderInput, api_key: str) -> tuple[str, str, str, str, str]:
-    """The fields to save, once the provider accepts the key at its base URL."""
+def _base_url(data: ProviderInput) -> str:
+    """The base URL as saved: with a scheme, without a trailing `/v1`; OpenRouter's if none."""
     base_url = data.base_url.strip().rstrip("/").removesuffix("/v1").rstrip("/")
     if not base_url:
         if data.type != "openrouter":
             raise InvalidRequest(f"Enter the {_LABELS[data.type]} gateway's address.")
-        base_url = openrouter.BASE_URL
-    if "://" not in base_url:
-        base_url = f"https://{base_url}"
+        return openrouter.BASE_URL
+    return base_url if "://" in base_url else f"https://{base_url}"
+
+
+def _checked(data: ProviderInput, api_key: str) -> tuple[str, str, str, str, str]:
+    """The fields to save, once the provider accepts the key at its base URL."""
+    base_url = _base_url(data)
     _check_url(base_url)
     api_key = api_key.strip()
     try:
