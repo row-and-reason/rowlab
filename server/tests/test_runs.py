@@ -4,7 +4,7 @@ import time
 import pytest
 from helpers import NEGATIVE, run, start, stored, stored_datasets
 
-from rowlab.core import db, runs
+from rowlab.core import db, runs, storage
 from rowlab.core.config import config
 from rowlab.core.providers import model_api
 
@@ -647,6 +647,24 @@ def test_replies_stay_to_be_journaled_when_journaling_fails_once(
     monkeypatch.setattr(model_api, "_request", fake)
     assert run(client, job)["status"] == "done"
     assert _paid_calls(fake) == []
+
+
+def test_a_kept_reply_that_cant_be_read_is_asked_again(client, dataset, job, api_key, fake):
+    # Replies kept before only readable ones were (moved in from the old layout) can be unusable.
+    first = run(client, job)
+    kept = storage.location(dataset["id"], "replies", f"{first['id']}.parquet")
+    with storage.connect() as con:
+        storage.write(
+            con, f"SELECT __row_id, key, '{{}}' AS data FROM read_parquet('{kept}')", kept
+        )
+    client.delete(
+        f"/v1/datasets/{dataset['id']}/answers",
+        params={"column": "negative", "model": "typesafe/jev-1.14"},
+    )
+    fake.calls.clear()
+    again = run(client, job)
+    assert (again["status"], again["costs"][0]["failed"]) == ("done", 0)
+    assert len(_paid_calls(fake)) == 3
 
 
 def test_an_unusable_reply_from_the_cache_counts_as_failed_not_cached():

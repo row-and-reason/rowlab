@@ -827,35 +827,42 @@ def _ask(
     task: Task, model: str, request: Request, use: model_providers.Use, saved: Any = None
 ) -> tuple[_Answer, Any]:
     """One task for one row from one model, as base columns, with the reply's data (None if there
-    was no reply). `saved` is a reply already paid for, used instead of asking."""
+    was no reply). `saved` is a reply already paid for, used instead of asking unless it can't be
+    read as an answer (one kept before only readable replies were)."""
     if saved is not None:
-        answer, data = _Answer(cached=True), saved
-    else:
+        answer = _Answer(cached=True)
         try:
-            with metrics.CALLS_IN_FLIGHT.track_inprogress():
-                response = model_providers.ask(use, request)
-        except ProviderError as e:
-            if e.status in _KEY_PROBLEMS:
-                raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
-            return _Answer(error=str(e)), None
-        # Paid for even when the reply turns out unusable.
-        answer = _Answer(
-            cost=response.cost,
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
-        )
-        data = response.data
-        if data is None:
-            answer.error = "The model's reply couldn't be read."
-            return answer, None
+            answer.values = _read(task, model, saved)
+            return answer, saved
+        except tasks.AnswerFormatError:
+            pass
     try:
-        if catalog.kind(model) == "decision":
-            answer.values = tasks.read_decision(task, data)
-        else:
-            answer.values = tasks.read_llm(task, data)
+        with metrics.CALLS_IN_FLIGHT.track_inprogress():
+            response = model_providers.ask(use, request)
+    except ProviderError as e:
+        if e.status in _KEY_PROBLEMS:
+            raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
+        return _Answer(error=str(e)), None
+    # Paid for even when the reply turns out unusable.
+    answer = _Answer(
+        cost=response.cost,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+    )
+    if response.data is None:
+        answer.error = "The model's reply couldn't be read."
+        return answer, None
+    try:
+        answer.values = _read(task, model, response.data)
     except tasks.AnswerFormatError as e:
         answer.error = str(e)
-    return answer, data
+    return answer, response.data
+
+
+def _read(task: Task, model: str, data: Any) -> dict[str, Any]:
+    if catalog.kind(model) == "decision":
+        return tasks.read_decision(task, data)
+    return tasks.read_llm(task, data)
 
 
 def _status(run_id: str) -> str | None:
