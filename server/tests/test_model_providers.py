@@ -2,7 +2,7 @@
 calls go."""
 
 import pytest
-from helpers import NEGATIVE, call, run, start
+from helpers import NEGATIVE, REAL_REQUEST, HtmlReply, call, run, start
 
 from rowlab.core import db, model_providers, runs
 from rowlab.core.providers import model_api
@@ -18,8 +18,6 @@ GATEWAY = {
     "api_key": "sk-good",
 }
 LLM_TASK = {**NEGATIVE, "models": ["x/llm"]}
-# Before the `fake` fixture replaces it.
-REAL_REQUEST = model_api._request
 
 
 @pytest.fixture
@@ -213,17 +211,21 @@ def test_a_reply_that_cant_be_read_fails_its_answer_not_the_run(client, dataset,
 
 
 def test_a_base_url_that_isnt_an_api_is_refused_on_save(client, monkeypatch):
-    class Page:
-        status_code, headers, is_error, is_redirect, text = 200, {}, False, False, "<html>"
-
-        def json(self):
-            raise ValueError("not JSON")
-
     monkeypatch.setattr(model_api, "_request", REAL_REQUEST)
-    monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: Page())
+    monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: HtmlReply())
     response = add(client, **GATEWAY)
     assert response.status_code == 400
     assert "wasn't JSON" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("status", [530, 502, 504])
+def test_a_tunnel_with_no_server_behind_it_says_so_on_save(client, monkeypatch, status):
+    monkeypatch.setattr(model_api, "_request", REAL_REQUEST)
+    monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: HtmlReply(status))
+    response = add(client, **GATEWAY)
+    assert response.status_code == 400
+    assert "nothing behind it is answering" in response.json()["detail"]
+    assert "Is the server up?" in response.json()["detail"]
 
 
 def test_an_openai_decision_reply_missing_its_probabilities_fails_its_answer(

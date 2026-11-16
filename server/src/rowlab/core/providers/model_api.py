@@ -26,6 +26,11 @@ RETRY_MAX_SECONDS = 30.0
 
 COMPLETIONS = "/v1/chat/completions"
 
+# Errors a proxy or tunnel in front of a server gives when nothing behind it answers: a gateway
+# error (502, 504), or Cloudflare's 530 for a tunnel with no connector. Told apart from the API's own
+# errors by not being JSON. (503 isn't one: servers say they're busy with it.)
+_NOTHING_BEHIND = (502, 504, 530)
+
 # One client for every call, so a runner's calls reuse connections instead of each making its own
 # (DNS, TLS). Thread-safe; the runner's own pool caps how many calls are made at once. It follows no
 # redirects, so a call goes only where its base URL was checked to point.
@@ -49,7 +54,8 @@ class ProviderError(Exception):
         super().__init__(message)
         self.status = status  # None when the provider couldn't be reached or didn't answer in time
         self.retry_after = retry_after
-        # No connection at all (refused, or no such host): not one slow call but a server that's down.
+        # No connection at all (refused, no such host, or a tunnel or proxy with nothing behind it):
+        # not one slow call but a server that's down.
         self.unreachable = unreachable
 
     @property
@@ -165,14 +171,27 @@ def _request(
         )
     if response.is_error:
         try:
-            message = response.json()["error"]["message"]
-        except (ValueError, KeyError, TypeError):
-            message = response.text[:200]
+            found = response.json()
+        except ValueError:
+            found = None
         retry_after = response.headers.get("retry-after")
+        retry_after = float(retry_after) if retry_after and retry_after.isdigit() else None
+        if found is None and response.status_code in _NOTHING_BEHIND:
+            raise ProviderError(
+                f"HTTP {response.status_code} from {httpx.URL(url).host}: nothing behind it is "
+                "answering (a tunnel or proxy whose server is down, or still starting)",
+                status=response.status_code,
+                retry_after=retry_after,
+                unreachable=True,
+            )
+        try:
+            message = found["error"]["message"]
+        except (KeyError, TypeError):
+            message = response.text[:200]
         raise ProviderError(
             f"HTTP {response.status_code}: {message}",
             status=response.status_code,
-            retry_after=float(retry_after) if retry_after and retry_after.isdigit() else None,
+            retry_after=retry_after,
         )
     try:
         return response.json()

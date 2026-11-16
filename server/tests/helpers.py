@@ -8,8 +8,24 @@ from fastmcp import Client
 
 from rowlab.core import runs, storage
 from rowlab.core.config import config
-from rowlab.core.providers import openrouter
+from rowlab.core.providers import model_api, openrouter
 from rowlab.core.providers.model_api import ProviderError
+
+# Before the `fake` fixture replaces it: what a call really does with a reply.
+REAL_REQUEST = model_api._request
+
+
+class HtmlReply:
+    """A reply that isn't the API's: an HTML page, as a proxy or tunnel gives, with `status`."""
+
+    headers, is_redirect, text = {}, False, "<html>error code: 1033</html>"
+
+    def __init__(self, status=200):
+        self.status_code = status
+        self.is_error = status >= 400
+
+    def json(self):
+        raise ValueError("not JSON")
 
 
 def stored(dataset_id, *names):

@@ -137,8 +137,10 @@ does the same with `provider_move`. A stable name for the GPU, from a named tunn
 saves moving it at all.
 
 When a run can't reach its model's server at all, it stops and says so, rather than filling the
-rest of the rows with failures. Start the server again, move the provider if its address changed,
-and start the run again: it asks only for the answers it didn't get.
+rest of the rows with failures. That includes a tunnel or proxy with nothing behind it: Cloudflare's
+530 for a tunnel whose connector isn't running, or a 502 or 504 while the server is still loading.
+Start the server again, move the provider if its address changed, and start the run again: it asks
+only for the answers it didn't get.
 
 ## Comparing fairly
 

@@ -221,7 +221,7 @@ def _check(org_id: str, model: Model, provider_name: str) -> None:
     except ProviderError as e:
         hint = (
             "Is the server up, and done loading the model?"
-            if e.status is None
+            if e.status is None or e.unreachable
             else "Check the name it's served under, and that the provider's type matches the API "
             "the server speaks."
         )
