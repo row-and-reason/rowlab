@@ -13,14 +13,15 @@ and costs come from one place. The organisation's own models (`models`) each go 
 (`paid_by` "server").
 
 Base URLs are reached like any address the server fetches on someone's behalf (`network.check_url`):
-hosted, only public addresses, or the hosts the operator names in `ROWLAB_PRIVATE_HOSTS`. They are
-checked when saved, and again before each chunk of a run.
+hosted, only public addresses over HTTPS, or the hosts the operator names in `ROWLAB_PRIVATE_HOSTS`.
+They are checked when saved, and again before each chunk of a run.
 """
 
 import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
@@ -332,9 +333,18 @@ def _checked(
 
 
 def _check_url(base_url: str) -> None:
-    """OpenRouter's own address needs no check."""
-    if base_url != openrouter.BASE_URL:
-        network.check_url(base_url, config().private_hosts)
+    """OpenRouter's own address needs no check. Where private URLs aren't allowed (hosted), a key
+    goes to a public server only over HTTPS; plain HTTP is for the hosts the operator names."""
+    if base_url == openrouter.BASE_URL:
+        return
+    network.check_url(base_url, config().private_hosts)
+    private = config().private_urls or urlparse(base_url).hostname in config().private_hosts
+    if base_url.startswith("http://") and not private:
+        raise InvalidRequest(
+            "Use an https:// address: the key would go to a public server unencrypted. For a GPU "
+            "server, a tunnel (`cloudflared tunnel --url http://localhost:8000`) or the host's "
+            "HTTPS proxy gives one."
+        )
 
 
 def _active_id(org_id: str) -> str | None:

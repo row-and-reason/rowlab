@@ -40,10 +40,30 @@ a LoRA adapter in vLLM, it answers with the base model's next-token probabilitie
 Wait for the server to be up before you start a run: vLLM takes from two to six minutes to load a
 model, most of it compiling on the first start.
 
+## Give it an address
+
+rowlab calls the server, so it needs an address rowlab can reach, and the server needs a key
+(vLLM's `--api-key`), which rowlab sends with every call:
+
+- **rowlab on your own machine** reaches anything your machine does, `http://` too: a server on your
+  network, or a rented GPU's port forwarded over SSH (`ssh -L 8000:localhost:8000 gpu`) as
+  `http://localhost:8000`.
+- **A hosted rowlab, such as rowlab.dev,** needs a public `https://` address, so the key never
+  travels in clear. Any of these gives one:
+  - **Runpod** gives each exposed HTTP port one: `https://<pod-id>-8000.proxy.runpod.net`.
+  - **A Cloudflare quick tunnel**, from any machine and without an account:
+    `cloudflared tunnel --url http://localhost:8000` prints an `https://….trycloudflare.com`
+    address. It changes when the tunnel restarts; a named tunnel on your own domain keeps one.
+  - **A reverse proxy** with a certificate in front of vLLM, such as Caddy.
+
+  rowlab.dev reaches public servers on port 443 and on ports 1024 to 65535, so HTTPS on the
+  server's own port works too. A hosted rowlab reaches private addresses only on hosts its operator
+  names in [`ROWLAB_PRIVATE_HOSTS`](/self-host/configuration#private-hosts).
+
 ## Add it to rowlab
 
 An admin adds the server as a provider in **Settings → Providers**: its type, its address (e.g.
-`https://gpu.example.com:8000`) and the key it was started with. Then anyone who can run tasks adds
+`https://abc123-8000.proxy.runpod.net`) and the key it was started with. Then anyone who can run tasks adds
 models to it, from the provider's menu (**Add model**), the SDK or an agent:
 
 - **Id**: what answer columns and comparisons show, e.g. `fallacy-ft-step-2000`. Lowercase letters,
@@ -119,12 +139,7 @@ address.
   it. A generic model's comes from its next-token probabilities for the answer's labels, which
   aren't calibrated. Say which in the note; compare calibration with that in mind.
 
-## Reaching the server
-
-A rowlab on your own machine reaches a server on your network directly. A hosted rowlab reaches only
-public addresses, unless its operator names the host in
-[`ROWLAB_PRIVATE_HOSTS`](/self-host/configuration#private-hosts). A public server needs its key
-(vLLM's `--api-key`), and HTTPS, from a reverse proxy or a tunnel, so the key isn't sent in clear.
+## Calls at once
 
 rowlab makes up to 16 calls at a time per run (`ROWLAB_RUNNER_CALLS`). vLLM queues what it can't
 take at once; Laya refuses more than 16 in flight (`LAYA_MAX_CONCURRENT`), which rowlab retries, so

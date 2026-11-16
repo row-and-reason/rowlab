@@ -175,6 +175,28 @@ def test_hosted_model_providers_reach_private_hosts_only_when_named(hosted, fake
         model_providers.for_run(org_id, created.json()["id"])
 
 
+def test_hosted_a_key_goes_to_a_public_server_only_over_https(hosted, fake, monkeypatch):
+    client = hosted("ada@example.com")
+    real = network.socket.getaddrinfo
+
+    def resolve(host, *args, **kwargs):
+        if host == "gpu.example.net":
+            return [(0, 0, 0, "", ("8.8.4.4", 8000))]
+        return real(host, *args, **kwargs)
+
+    monkeypatch.setattr(network.socket, "getaddrinfo", resolve)
+    gpu = {"type": "systemone", "api_key": "sk-good"}
+    plain = client.post(
+        "/v1/settings/providers", json={**gpu, "base_url": "http://gpu.example.net:8000"}
+    )
+    assert plain.status_code == 400
+    assert "https://" in plain.json()["detail"]
+    assert not fake.calls  # Refused before the key is sent.
+    # Any port, over HTTPS.
+    secure = {**gpu, "base_url": "https://gpu.example.net:8000"}
+    assert client.post("/v1/settings/providers", json=secure).status_code == 201
+
+
 def test_hosted_the_servers_own_aws_credentials_go_unused(hosted):
     with duckdb.connect() as con:
         connections.configure(con, "org", None)
