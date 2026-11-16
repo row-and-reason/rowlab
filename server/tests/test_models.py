@@ -78,7 +78,7 @@ def test_a_model_that_doesnt_answer_is_not_added(client, gpu):
     assert missing.status_code == 400
     assert "not-served didn't answer through gpu" in missing.json()["detail"]
     nowhere = client.post("/v1/models", json={**KEV, "provider": "elsewhere"})
-    assert "No provider is named elsewhere. The organisation's: OpenRouter, gpu." in nowhere.text
+    assert "No provider is named elsewhere. The organisation's: gpu, OpenRouter." in nowhere.text
     for bad in ("Kev", "team/kev", ""):
         assert client.post("/v1/models", json={**KEV, "id": bad}).status_code == 400
     assert [m for m in client.get("/v1/models").json() if m["provider_id"]] == []

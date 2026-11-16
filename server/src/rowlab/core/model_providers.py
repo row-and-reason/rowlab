@@ -95,7 +95,7 @@ def list_providers(org_id: str) -> list[Provider]:
     active = _active_id(org_id)
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM providers WHERE org_id = ? ORDER BY name", (org_id,)
+            "SELECT * FROM providers WHERE org_id = ? ORDER BY lower(name), name", (org_id,)
         ).fetchall()
     return [_from_row(row, active) for row in rows]
 
