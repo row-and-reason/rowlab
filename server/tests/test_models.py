@@ -2,7 +2,7 @@
 for good what answered."""
 
 import pytest
-from helpers import NEGATIVE, call, run
+from helpers import NEGATIVE, REAL_REQUEST, HtmlReply, call, run
 
 from rowlab.core.providers import model_api
 from rowlab.core.providers.model_api import ProviderError
@@ -225,3 +225,28 @@ def test_on_the_servers_key_own_models_still_go_to_their_own_provider(
     assert run(client, job)["status"] == "done"
     sent = {(url.split("/")[2], c[2]) for url, c in zip(fake.urls, fake.calls) if c[0] == "POST"}
     assert sent == {("openrouter.ai", "sk-env"), ("gpu.example.com", "sk-good")}
+
+
+def test_a_run_stops_when_its_tunnel_has_no_server_behind_it(
+    client, gpu, dataset, fake, monkeypatch
+):
+    assert client.post("/v1/models", json=KEV).status_code == 201
+
+    # The GPU stops; Cloudflare still answers for its tunnel, with a 530 page.
+    def tunnel(method, url, *, api_key, body=None, timeout=None):
+        if "gpu.example.com" in url:
+            return REAL_REQUEST(method, url, api_key=api_key, body=body, timeout=timeout)
+        return fake(method, url, api_key=api_key, body=body)
+
+    monkeypatch.setattr(model_api, "_request", tunnel)
+    monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: HtmlReply(530))
+    job = {
+        "dataset_id": dataset["id"],
+        "sql": "SELECT * FROM data",
+        "tasks": [{**NEGATIVE, "models": ["kev-base"]}],
+    }
+    with pytest.raises(Exception, match="nothing behind it is answering"):
+        run(client, job)
+    failed = client.get(f"/v1/datasets/{dataset['id']}/runs").json()[0]
+    assert failed["status"] == "failed"
+    assert "Is the model's server up" in failed["error"]

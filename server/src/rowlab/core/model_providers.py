@@ -340,6 +340,8 @@ def _checked(
     try:
         _MODULES[data.type].check_key(base_url, api_key)
     except ProviderError as e:
+        if e.unreachable:
+            raise InvalidRequest(f"{e}. Is the server up? Save the provider once it is.") from e
         raise InvalidRequest(f"{_LABELS[data.type]} did not accept the key: {e}") from e
     # OpenRouter names models as rowlab does; only a gateway routes them under a prefix.
     prefix = data.model_prefix.strip() if data.type == "openai" else ""
