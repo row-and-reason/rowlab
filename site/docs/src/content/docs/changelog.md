@@ -26,6 +26,17 @@ rowlab is pre-alpha, on its way to a first release. What is in it today:
 - A Python SDK, `rowlab-python-sdk`: a typed client to upload, run, export and compare from scripts
   and notebooks, and to add your own models, such as each checkpoint a training script saves.
 
+## rowlab-python-sdk 0.3.0
+
+For servers with models of your own; 0.2.0's `models.list` doesn't work against them.
+
+- New: `models.create`, `models.update` and `models.delete`, for your organisation's own models,
+  such as each checkpoint a training script saves, served at one of its providers. Creating the same
+  model again returns it, so a script can run twice.
+- `Model` has `provider_id`, `upstream` and `note`, and its prices are empty when unknown.
+  `Estimate.unpriced` lists the models without prices.
+- `models.list` lists your own models first, and asks the server at `/v1/models`.
+
 ## rowlab-python-sdk 0.2.0
 
 For the server's answers as columns of the dataset you uploaded; 0.1.0 doesn't work against it.
