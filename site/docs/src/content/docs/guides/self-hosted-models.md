@@ -81,7 +81,7 @@ for step in (1000, 2000, 3000):
 
 Creating a model that is already there, with the same provider, served name and kind, returns it,
 so a script can run again after a crash; one deleted by mistake comes back the same way. An agent
-does the same with the `model_add` tool.
+does the same with the `model_add` tool, and changes a model's note or prices with `model_update`.
 
 ## What stays fixed
 

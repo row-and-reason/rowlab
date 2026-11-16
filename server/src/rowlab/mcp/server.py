@@ -529,6 +529,26 @@ def create_server() -> FastMCP:
             me.user.id if me.user else None,
         )
 
+    @tool
+    def model_update(
+        id: Annotated[str, Field(description="The id of one of the organisation's own models.")],
+        note: Annotated[
+            str | None, Field(description=models.ModelInput.model_fields["note"].description)
+        ] = None,
+        prompt_price: Annotated[
+            float | None, Field(ge=0, description="USD per input token.")
+        ] = None,
+        completion_price: Annotated[
+            float | None, Field(ge=0, description="USD per output token.")
+        ] = None,
+    ) -> catalog.Model:
+        """Change the note or prices of a model of the organisation's own; what is left out stays.
+        What answers (its provider, served name and kind) can't change: add a new model for that."""
+        me = _me("member")
+        given = {"note": note, "prompt_price": prompt_price, "completion_price": completion_price}
+        change = models.ModelChange(**{k: v for k, v in given.items() if v is not None})
+        return models.update(me.org.id, id, change)
+
     return mcp
 
 

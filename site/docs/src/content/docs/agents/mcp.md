@@ -61,7 +61,7 @@ organisation.
 | `answers_delete`                                  | delete a model's answers to a task, or a column of labels                        |
 | `dataset_export`                                  | a dataset as CSV, JSONL or Parquet, to S3 (locally, also a path)                 |
 | `task_types_get`, `models_list`                   | the answer types and their fields; models by name, kind or tag                   |
-| `model_add`                                       | add a model of the organisation's own, e.g. a fine-tuned checkpoint              |
+| `model_add`, `model_update`                       | add a model of the organisation's own, e.g. a checkpoint; change its note, price |
 
 Each tool's description says why it exists and when to use it, and the server's instructions give the
 order of work: read the dataset, run on a sample in a stable order
@@ -75,7 +75,8 @@ the organisation's own first, with their provider and note, then rowlab's list, 
 the top. Use `search`, `kind` and `tag` (`recommended`,
 `budget`, `accurate`) to narrow results, `all` to search the rest of OpenRouter's catalog too, and
 `offset` to continue. A run can use any model `all` finds. `model_add` adds a model served at one of
-the organisation's providers, once it answers a short question; see
+the organisation's providers, once it answers a short question, and `model_update` changes its note
+or prices; see
 [Self-hosted models](/guides/self-hosted-models). `columns_compare` keeps per-class
 precision and recall, κ, α, intervals, calibration and cost in its default summary; `detail="full"`
 includes distributions and all row filters, and it reports each column's coverage first.
