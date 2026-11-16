@@ -31,9 +31,10 @@ own and get tokens that are for rowlab alone. Scripts use an API key from **Sett
 ## Keys
 
 `ROWLAB_SECRET_KEY` encrypts the model provider keys and S3 credentials people save. Leave
-`OPENROUTER_API_KEY` unset and each organisation brings its own: OpenRouter, or a LiteLLM gateway, in
-**Settings → Providers**. Set it to pay for everyone's calls instead. A gateway on your own network
-needs its host in [`ROWLAB_PRIVATE_HOSTS`](/self-host/configuration#private-hosts). **Settings → Usage** shows what was spent, by day, model and person; members see
+`OPENROUTER_API_KEY` unset and each organisation brings its own: OpenRouter, a LiteLLM gateway, or a
+server of its own, in **Settings → Providers**. Set it to pay for everyone's calls to rowlab's models
+instead; models an organisation adds go to its own providers either way. A server on your own
+network needs its host in [`ROWLAB_PRIVATE_HOSTS`](/self-host/configuration#private-hosts). **Settings → Usage** shows what was spent, by day, model and person; members see
 their own.
 
 **Settings → Storage** shows how much the organisation's datasets take, from their recorded sizes:

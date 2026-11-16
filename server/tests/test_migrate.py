@@ -10,7 +10,7 @@ import uvicorn
 from helpers import NEGATIVE, run, stored, stored_datasets
 
 from rowlab import cli
-from rowlab.core import db, model_providers, replies, storage
+from rowlab.core import catalog, db, model_providers, replies, storage
 from rowlab.core.tasks import Task
 
 CSV = "review,stars\nTerrible product,1\nLove it,5\nBroke after a day,1\n"
@@ -64,7 +64,7 @@ def reply(row_id, review, task=NEGATIVE):
     """The reply the old run kept for a row, with the key a run asks it by."""
     prompt = Task.model_validate(task).template.replace("{{review}}", review)
     request = model_providers.request(
-        "openrouter", "", Task.model_validate(task), JEV, prompt, kind="decision"
+        "openrouter", Task.model_validate(task), catalog.get(JEV), prompt
     )
     yes = 0.9 if review != "Love it" else 0.1
     return (

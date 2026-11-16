@@ -38,6 +38,7 @@ def test_every_tool_is_listed_with_a_description(mcp):
         "dataset_download",
         "task_types_get",
         "models_list",
+        "model_add",
     }
     assert all(found.values())
 

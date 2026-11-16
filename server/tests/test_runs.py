@@ -165,7 +165,7 @@ def test_run_reports_failed_rows(client, job, api_key):
 
 def test_a_key_out_of_credits_fails_the_run_until_started_again(client, job, api_key):
     created = start(client, update(job, tasks=[{**NEGATIVE, "template": "no credits"}]))
-    with pytest.raises(runs.KeyProblem):
+    with pytest.raises(runs.ProviderProblem):
         runs.process_next()
     failed = client.get(f"/v1/runs/{created['id']}").json()
     assert failed["status"] == "failed"
@@ -390,7 +390,9 @@ def test_run_explains_what_is_missing(client, job):
     def detail(**config):
         return run(client, update(job, **config))["detail"]
 
-    assert detail() == "Add a model provider in Settings → Providers first."
+    assert (
+        detail() == "Add OpenRouter, or a gateway, in Settings → Providers to ask rowlab's models."
+    )
     assert detail(tasks=[]) == "Add a task."
     assert detail(tasks=[{**NEGATIVE, "template": " "}]) == "Task negative: Write the prompt."
     pick = {**NEGATIVE, "type": "pick_one", "column": "team"}
@@ -477,7 +479,10 @@ def test_runners_claiming_at_once_never_take_the_same_run(client, job, api_key, 
 def test_an_estimate_gives_the_cost_before_a_key_is_set(client, dataset):
     body = {"sql": "SELECT * FROM data LIMIT 2", "tasks": [NEGATIVE]}
     estimate = client.post(f"/v1/datasets/{dataset['id']}/estimate", json=body).json()
-    assert estimate["problem"] == "Add a model provider in Settings → Providers first."
+    assert (
+        estimate["problem"]
+        == "Add OpenRouter, or a gateway, in Settings → Providers to ask rowlab's models."
+    )
     assert (estimate["rows"], estimate["calls"]) == (2, 2)
     assert estimate["cost"] > 0
 
@@ -631,7 +636,7 @@ def test_replies_stay_to_be_journaled_when_journaling_fails_once(
             raise RuntimeError("database away")
         journal(run_id, kept)
 
-    def slow(method, path, *, api_key, body=None):
+    def slow(method, path, *, api_key, body=None, timeout=None):
         # One slow call, so the others are journaled while it is under way.
         if body and body.get("state") == "Is this review negative? Broke after a day":
             time.sleep(0.3)
@@ -691,7 +696,7 @@ def test_a_runner_shutting_down_gives_its_run_back_without_paying_twice(
     monkeypatch.setenv("ROWLAB_RUNNER_CALLS", "1")
     config.cache_clear()
 
-    def shut_down_mid_call(method, path, *, api_key, body=None):
+    def shut_down_mid_call(method, path, *, api_key, body=None, timeout=None):
         # SIGTERM arrives while the first model call is under way.
         if method == "POST":
             runs.shut_down()

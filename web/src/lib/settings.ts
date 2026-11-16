@@ -7,7 +7,12 @@ const ALL = [
     keywords: "mcp codex claude skills setup",
     hostedOnly: false,
   },
-  { id: "providers", label: "Providers", keywords: "openrouter litellm model provider key", hostedOnly: false },
+  {
+    id: "providers",
+    label: "Providers",
+    keywords: "openrouter litellm vllm model provider key add model gpu checkpoint",
+    hostedOnly: false,
+  },
   {
     id: "storage",
     label: "Storage",

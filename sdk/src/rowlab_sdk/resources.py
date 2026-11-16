@@ -242,7 +242,46 @@ class ModelsResource:
         self._client = client
 
     def list(self, *, all: bool = False) -> list[Model]:
-        """Decision models and LLMs, with their prices: rowlab's list, recommended first; with `all`,
-        the rest of OpenRouter's catalog after it. Any of them can be asked, by id."""
+        """Decision models and LLMs, with their prices: your organisation's own, then rowlab's list,
+        recommended first; with `all`, the rest of OpenRouter's catalog after it. Any of them can be
+        asked, by id."""
         params = {"all": "true"} if all else None
-        return self._client._request("GET", "v1/utils/models", list[Model], params=params)
+        return self._client._request("GET", "v1/models", list[Model], params=params)
+
+    def create(
+        self,
+        id: str,
+        *,
+        provider: str,
+        upstream: str = "",
+        kind: Literal["decision", "llm"] = "decision",
+        note: str = "",
+        prompt_price: float | None = None,
+        completion_price: float | None = None,
+    ) -> Model:
+        """Add a model of your organisation's own, served at one of its providers (by name), e.g. a
+        fine-tuned checkpoint on vLLM: `upstream` is the name the server gives it, `id` the one
+        answer columns show, and `note` what answers, to read in results later. It is asked a short
+        question first, and added once it answers. Creating the same model again returns it, so a
+        script can run twice, or brings it back if it was deleted; another model under an id in
+        use, or used before, is refused."""
+        body = {
+            "id": id,
+            "provider": provider,
+            "upstream": upstream,
+            "kind": kind,
+            "note": note,
+            "prompt_price": prompt_price,
+            "completion_price": completion_price,
+        }
+        return self._client._request("POST", "v1/models", Model, json=body)
+
+    def update(self, id: str, **changes: str | float | None) -> Model:
+        """Change your own model's `note`, `prompt_price` or `completion_price`. What answers can't
+        change: create a new model for that."""
+        return self._client._request("PATCH", f"v1/models/{id}", Model, json=changes)
+
+    def delete(self, id: str) -> None:
+        """Delete your own model. Its answers stay, and its id goes to no other model; creating the
+        same model again brings it back."""
+        self._client._content("DELETE", f"v1/models/{id}")

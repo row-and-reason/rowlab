@@ -1,14 +1,16 @@
-"""LiteLLM, a gateway in front of other providers: what is particular to it, beside the chat
-completions every provider serves (`model_api`).
+"""OpenAI-compatible servers: a LiteLLM gateway in front of other providers, or a model server such as
+vLLM. What is particular to them, beside the chat completions every provider serves (`model_api`).
 
 - A gateway names models as its operator routes them, e.g. `openrouter/<vendor>/<model>`, so a
   provider can give a prefix for rowlab's model ids.
 - A virtual key may list no models (a wildcard route), and may not read its own details, so a key is
-  checked by listing models: 401 for a key LiteLLM doesn't know.
+  checked by listing models: 401 for a key the server doesn't know.
 - Decisions: `POST /v1/decisions` in OpenAI's format: an `input` and a list of named questions
   (`predicate`, `choice` with `choices`, `score` with `levels`), answered in a list. rowlab asks in
   OpenRouter's terms (`noul`, `choice`, `score`, by name) and keeps replies in them, so this
   translates both ways. The reply's body has tokens but no cost, which is worked out from prices.
+  vLLM answers this for generic models and LoRA adapters, but not for dedicated decision models,
+  which take `systemone`'s format.
 """
 
 from typing import Any
@@ -20,13 +22,13 @@ DECISIONS = "/v1/decisions"
 
 
 def check_key(base_url: str, api_key: str) -> None:
-    """Raise ProviderError unless LiteLLM accepts the key."""
+    """Raise ProviderError unless the server accepts the key."""
     model_api.get(base_url + "/v1/models", api_key)
 
 
 def decision_request(model: str, name: str, state: str, questions: dict[str, Any]) -> Request:
     """Typed questions to a decision model about `state`, given as OpenRouter's (`decision_questions`).
-    `name` is what the gateway calls the model."""
+    `name` is what the server calls the model."""
     return Request(
         path=DECISIONS,
         model=model,

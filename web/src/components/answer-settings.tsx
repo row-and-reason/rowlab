@@ -332,7 +332,8 @@ const KINDS = [
 ] as const;
 const RECOMMENDED = "recommended";
 
-/** The models a task asks, as a searchable list: recommended first, then by kind. */
+/** The models a task asks, as a searchable list: the organisation's own first, then rowlab's,
+ * recommended first, then by kind. */
 export function ModelPicker({
   value,
   llmOnly = false,
@@ -344,16 +345,18 @@ export function ModelPicker({
 }) {
   const models = useModels();
   const [search, setSearch] = useState("");
-  // rowlab's list: recommended first, then the rest by kind, each in the order the server lists
-  // them. The rest of OpenRouter's catalog shows only when searching.
+  // The organisation's own, by id; then rowlab's list: recommended first, then the rest by kind,
+  // each in the order the server lists them. The rest of OpenRouter's catalog shows only when
+  // searching.
   const usable = models.filter((m) => !llmOnly || m.kind === "llm");
   const listed = usable.filter((m) => m.listed);
   const item = (m: Model) => ({
     value: m.id,
-    label: m.listed ? m.name : `${m.name} · ${m.id}`,
-    detail: price(m),
+    label: m.listed || m.provider_id ? m.name : `${m.name} · ${m.id}`,
+    detail: m.provider_id ? m.note || price(m) : price(m),
   });
   const groups: PickGroup[] = [
+    { label: "Your models", items: usable.filter((m) => m.provider_id).map(item) },
     { label: "Recommended", items: listed.filter((m) => m.tags.includes(RECOMMENDED)).map(item) },
     ...KINDS.map((k) => ({
       label: k.label,
@@ -361,7 +364,10 @@ export function ModelPicker({
         .filter((m) => m.kind === k.kind && !m.tags.includes(RECOMMENDED))
         .map(item),
     })),
-    { label: "More on OpenRouter", items: search ? usable.filter((m) => !m.listed).map(item) : [] },
+    {
+      label: "More on OpenRouter",
+      items: search ? usable.filter((m) => !m.listed && !m.provider_id).map(item) : [],
+    },
   ];
   // Models the catalog doesn't (or doesn't yet) know are still shown, by id, so they can be removed.
   const unknown = value.filter((id) => !models.some((m) => m.id === id));
@@ -389,8 +395,9 @@ export function ModelPicker({
 }
 
 function price(model: Model): string {
+  if (model.prompt_price == null) return "No price";
   const input = `$${formatNumber(model.prompt_price * 1e6)}`;
-  return model.kind === "llm"
+  return model.kind === "llm" && model.completion_price != null
     ? `${input} in · $${formatNumber(model.completion_price * 1e6)} out`
     : input;
 }

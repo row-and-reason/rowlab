@@ -1311,13 +1311,222 @@
         }
       }
     },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "List Models",
+        "description": "The models a task can use, decision models and LLMs: the organisation's own, by id, then\nrowlab's list at current prices, in the order we'd pick them; with `all`, every model in\nOpenRouter's catalog rowlab can ask.",
+        "operationId": "listModels",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "all",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Also the rest of OpenRouter's catalog, after rowlab's list, by id.",
+              "default": false,
+              "title": "All"
+            },
+            "description": "Also the rest of OpenRouter's catalog, after rowlab's list, by id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Model"
+                  },
+                  "title": "Response Listmodels"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Create Model",
+        "description": "Add a model of the organisation's own, asked through one of its providers: e.g. one served\nwith vLLM on a GPU, or a fine-tuned checkpoint. It is asked a short question first, and added\nonce it answers. Adding the same model (provider, upstream name and kind) again returns it, or\nbrings it back if it was deleted; another model under an id in use, or used before, is\nrefused.",
+        "operationId": "createModel",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models/{model_id}": {
+      "patch": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Update Model",
+        "description": "Change a model's note or prices. What answers (its provider, upstream name and kind) can't\nchange: add a new model for that.",
+        "operationId": "updateModel",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Delete Model",
+        "description": "Delete a model of the organisation's own. Its answers stay, and its id goes to no other\nmodel; adding the same model again brings it back.",
+        "operationId": "deleteModel",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/providers": {
       "get": {
         "tags": [
           "settings"
         ],
         "summary": "List Providers",
-        "description": "The organisation's model providers, by name, and which one new runs use. Keys are never\nreturned.",
+        "description": "The organisation's model providers, by name, and which one new runs ask rowlab's catalog\nmodels through. Keys are never returned.",
         "operationId": "listProviders",
         "responses": {
           "200": {
@@ -1458,6 +1667,7 @@
           "settings"
         ],
         "summary": "Delete Provider",
+        "description": "Delete a provider, once none of the organisation's own models uses it.",
         "operationId": "deleteProvider",
         "security": [
           {
@@ -1501,7 +1711,7 @@
           "settings"
         ],
         "summary": "Activate Provider",
-        "description": "Make the provider the one new runs use. Runs already started keep theirs.",
+        "description": "Make the provider the one new runs ask rowlab's catalog models through. Runs already started\nkeep theirs; the organisation's own models always go to their own.",
         "operationId": "activateProvider",
         "security": [
           {
@@ -2017,64 +2227,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Usage"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/utils/models": {
-      "get": {
-        "tags": [
-          "utils"
-        ],
-        "summary": "List Models",
-        "description": "The models a task can use, decision models and LLMs, with current prices: rowlab's list, in\nthe order we'd pick them; with `all`, every model in OpenRouter's catalog rowlab can ask.",
-        "operationId": "listModels",
-        "security": [
-          {
-            "HTTPBearer": []
-          },
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "all",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "description": "Also the rest of OpenRouter's catalog, after rowlab's list, by id.",
-              "default": false,
-              "title": "All"
-            },
-            "description": "Also the rest of OpenRouter's catalog, after rowlab's list, by id."
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Model"
-                  },
-                  "title": "Response Listmodels"
                 }
               }
             }
@@ -3404,6 +3556,15 @@
             "title": "Cost",
             "description": "Roughly what it would cost in USD, from sample rows' token counts and the models' prices; replies kept from earlier runs would be free."
           },
+          "unpriced": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unpriced",
+            "description": "Models without prices, e.g. on a GPU paid by the hour: not in `cost`.",
+            "default": []
+          },
           "problem": {
             "anyOf": [
               {
@@ -3873,18 +4034,56 @@
             "description": "On rowlab's own list, offered first. The rest of OpenRouter's catalog can be asked too."
           },
           "prompt_price": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Prompt Price",
-            "description": "USD per input token."
+            "description": "USD per input token; empty when unknown, e.g. for a GPU paid by the hour."
           },
           "completion_price": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Completion Price",
-            "description": "USD per output token."
+            "description": "USD per output token; empty when unknown."
           },
           "context_length": {
             "type": "integer",
             "title": "Context Length"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Id",
+            "description": "For the organisation's own models: the provider it is asked through. Catalog models go through the active one."
+          },
+          "upstream": {
+            "type": "string",
+            "title": "Upstream",
+            "description": "What its provider calls it, for the organisation's own.",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "description": "What answers, e.g. a checkpoint's revision or training run.",
+            "default": ""
           }
         },
         "type": "object",
@@ -3899,6 +4098,116 @@
           "context_length"
         ],
         "title": "Model"
+      },
+      "ModelChange": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "prompt_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Price"
+          },
+          "completion_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Price"
+          }
+        },
+        "type": "object",
+        "title": "ModelChange",
+        "description": "What can change about a model; fields left out stay as they are."
+      },
+      "ModelInput": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "rowlab's id for it, as answer columns and comparisons show it: lowercase letters, digits, `.`, `_` and `-`, e.g. `fallacy-ft-step-2000`. Never given to another model, even once deleted."
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "description": "The provider it is asked through, by name or id."
+          },
+          "upstream": {
+            "type": "string",
+            "title": "Upstream",
+            "description": "What the provider calls it, e.g. the name vLLM serves it under. Defaults to the id.",
+            "default": ""
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "llm"
+            ],
+            "title": "Kind",
+            "description": "A decision model, or an LLM with structured outputs.",
+            "default": "decision"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "description": "What answers, to read in results later: e.g. the base model and revision, the checkpoint's step and training run.",
+            "default": ""
+          },
+          "prompt_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Price",
+            "description": "USD per input token, if known."
+          },
+          "completion_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Price",
+            "description": "USD per output token, if known."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "provider"
+        ],
+        "title": "ModelInput"
       },
       "NewApiKey": {
         "properties": {
@@ -4178,7 +4487,8 @@
             "type": "string",
             "enum": [
               "openrouter",
-              "litellm"
+              "openai",
+              "systemone"
             ],
             "title": "Type"
           },
@@ -4193,7 +4503,7 @@
           "active": {
             "type": "boolean",
             "title": "Active",
-            "description": "Whether new runs use it."
+            "description": "Whether new runs ask rowlab's catalog models through it."
           },
           "created_at": {
             "type": "string",
@@ -4219,27 +4529,29 @@
           "name": {
             "type": "string",
             "title": "Name",
-            "description": "Defaults to the type's name, e.g. `OpenRouter`.",
+            "description": "Unique in the organisation; models are added to a provider by it. Defaults to the type's name, e.g. `OpenRouter`.",
             "default": ""
           },
           "type": {
             "type": "string",
             "enum": [
               "openrouter",
-              "litellm"
+              "openai",
+              "systemone"
             ],
-            "title": "Type"
+            "title": "Type",
+            "description": "`openrouter`; `openai` for an OpenAI-compatible server (LiteLLM, or vLLM for generic models and LoRA adapters); `systemone` for a server of dedicated decision models (vLLM, or a model's own)."
           },
           "base_url": {
             "type": "string",
             "title": "Base Url",
-            "description": "Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`. For LiteLLM, the gateway's address, e.g. `https://litellm.example.com`.",
+            "description": "Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`; otherwise the server's address, e.g. `https://litellm.example.com`.",
             "default": ""
           },
           "model_prefix": {
             "type": "string",
             "title": "Model Prefix",
-            "description": "Put before rowlab's model ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.",
+            "description": "`openai` only: put before rowlab's catalog ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.",
             "default": ""
           },
           "api_key": {
@@ -4641,7 +4953,7 @@
             },
             "type": "object",
             "title": "Models",
-            "description": "The models it asks, by id, with their kinds and prices as when it started.",
+            "description": "The models it asks, by id, as when it started: their kinds and prices, and for the organisation's own, their provider, upstream name and note.",
             "default": {}
           },
           "columns": {
@@ -4714,7 +5026,7 @@
               }
             ],
             "title": "Provider Id",
-            "description": "The model provider its calls go to, kept from when it started. Empty on the server's key."
+            "description": "The model provider its catalog models' calls go to, kept from when it started. Empty on the server's key, or with only the organisation's own models, which go to theirs."
           },
           "created_at": {
             "type": "string",
@@ -4846,7 +5158,7 @@
               }
             ],
             "title": "Provider",
-            "description": "Where model calls go: the server's own key (`OPENROUTER_API_KEY`), the organisation's active provider, or nowhere yet."
+            "description": "Where model calls go: the server's own key (`OPENROUTER_API_KEY`) for rowlab's models, the organisation's providers, or nowhere yet."
           },
           "mode": {
             "type": "string",
@@ -4958,7 +5270,7 @@
             },
             "type": "array",
             "title": "Models",
-            "description": "Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.",
+            "description": "Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.",
             "default": [
               "typesafe/jev-1.14"
             ]
@@ -5054,7 +5366,7 @@
             },
             "type": "array",
             "title": "Models",
-            "description": "Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.",
+            "description": "Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.",
             "default": [
               "typesafe/jev-1.14"
             ]

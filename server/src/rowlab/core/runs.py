@@ -34,6 +34,7 @@ from rowlab.core import (
     db,
     metrics,
     model_providers,
+    models,
     prompts,
     replies,
     sql,
@@ -89,7 +90,9 @@ class Run(BaseModel):
     status: Status
     config: RunRequest = Field(description="The query and tasks it was started with.")
     models: dict[str, catalog.Model] = Field(
-        {}, description="The models it asks, by id, with their kinds and prices as when it started."
+        {},
+        description="The models it asks, by id, as when it started: their kinds and prices, and for "
+        "the organisation's own, their provider, upstream name and note.",
     )
     columns: list[str] = Field(
         description="The answer columns it writes, without their `_proba` and `_reason` columns."
@@ -104,8 +107,8 @@ class Run(BaseModel):
     error: str | None = Field(description="Why the run failed.")
     created_by: str | None = Field(description="The user who started it; empty locally.")
     provider_id: str | None = Field(
-        description="The model provider its calls go to, kept from when it started. Empty on the "
-        "server's key."
+        description="The model provider its catalog models' calls go to, kept from when it started. "
+        "Empty on the server's key, or with only the organisation's own models, which go to theirs."
     )
     created_at: datetime
     updated_at: datetime | None
@@ -124,6 +127,9 @@ class Estimate(BaseModel):
     cost: float = Field(
         description="Roughly what it would cost in USD, from sample rows' token counts and the "
         "models' prices; replies kept from earlier runs would be free."
+    )
+    unpriced: list[str] = Field(
+        [], description="Models without prices, e.g. on a GPU paid by the hour: not in `cost`."
     )
     problem: str | None = Field(description="Why it can't run as it is, and what to change.")
 
@@ -146,8 +152,13 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
     """Queue a run of every task with every model on the rows the query picks, asking only for the
     answers those rows don't have yet; started by `created_by` (a user; nobody locally)."""
     check(dataset_id, request)
-    provider_id = model_providers.for_new_run(datasets.org_of(dataset_id))
-    models = {model: catalog.get(model) for task in request.tasks for model in task.models}
+    org_id = datasets.org_of(dataset_id)
+    asked = {model: models.get(org_id, model) for task in request.tasks for model in task.models}
+    provider_id = (
+        model_providers.for_new_run(org_id)
+        if any(m.provider_id is None for m in asked.values())
+        else None
+    )
     plan = _plan(dataset_id, request, rows=True)
     if not plan.rows:
         raise InvalidRequest("The query picks no rows.")
@@ -157,12 +168,12 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
         )
 
     run_id = uuid.uuid4().hex
-    asked = _asked_file(dataset_id, run_id)
+    asked_file = _asked_file(dataset_id, run_id)
     with storage.connect() as con:
         storage.write(
             con,
             f"SELECT unnest(?::BIGINT[]) AS {ROW_ID}, unnest(?::INTEGER[]) AS chunk",
-            asked,
+            asked_file,
             [plan.asked, [i // CHUNK_ROWS for i in range(len(plan.asked))]],
         )
     try:
@@ -190,7 +201,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
                     run_id,
                     dataset_id,
                     request.model_dump_json(),
-                    json.dumps({k: m.model_dump() for k, m in models.items()}),
+                    json.dumps({k: m.model_dump() for k, m in asked.items()}),
                     json.dumps([c for task in request.tasks for c in tasks.result_columns(task)]),
                     len(plan.asked),
                     plan.calls,
@@ -201,7 +212,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
                 ),
             )
     except BaseException:
-        storage.delete(asked)
+        storage.delete(asked_file)
         raise
     _wake.set()
     return get_run(run_id)
@@ -236,14 +247,15 @@ def check(dataset_id: str, request: RunRequest) -> None:
         not t.id for t in request.tasks
     ):
         raise InvalidRequest("Each task needs a unique, nonempty id.")
-    on_server_key = model_providers.status(datasets.org_of(dataset_id)) == "server"
+    org_id = datasets.org_of(dataset_id)
+    on_server_key = model_providers.status(org_id) == "server"
     for task in request.tasks:
         try:
             tasks.check(task)
             for model in task.models:
-                found = catalog.get(model)
-                # The server pays: only for the models it lists, not any OpenRouter has.
-                if on_server_key and not found.listed:
+                found = models.get(org_id, model)
+                # The server pays for catalog models: only for those it lists, not any OpenRouter has.
+                if on_server_key and found.provider_id is None and not found.listed:
                     raise InvalidRequest(
                         f"{model} isn't on rowlab's list, and this server's own key pays for runs. "
                         "Pick a listed model."
@@ -415,12 +427,21 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
         found.problem = "The query picks no rows."
     if found.problem or not rows:
         return found
+    org_id = datasets.org_of(dataset_id)
+    prices = {model: models.get(org_id, model) for task in request.tasks for model in task.models}
     # The cost is worth knowing before a provider is added, too.
-    if model_providers.status(datasets.org_of(dataset_id)) is None:
-        found.problem = model_providers.NO_PROVIDER
+    if any(m.provider_id is None for m in prices.values()):
+        try:
+            model_providers.for_new_run(org_id)
+        except InvalidRequest as e:
+            found.problem = str(e)
+    found.unpriced = sorted(
+        m.id
+        for m in prices.values()
+        if m.prompt_price is None or (m.kind == "llm" and m.completion_price is None)
+    )
 
     keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
-    prices = {model: catalog.get(model) for task in request.tasks for model in task.models}
     for task in request.tasks:
         prompts_by_row = [prompts.render(task.template, row, keys) for row in rows]
         if task.type == "write":
@@ -436,9 +457,7 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
             prompt_tokens = sum(
                 prompts.count_tokens(
                     json.dumps(
-                        model_providers.request(
-                            "openrouter", "", task, model, p, kind=prices[model].kind
-                        ).body,
+                        model_providers.request("openrouter", task, prices[model], p).body,
                         ensure_ascii=False,
                     )
                 )
@@ -447,8 +466,8 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
             if prices[model].kind == "decision":
                 prompt_tokens += _DECISION_FRAMING_TOKENS
             found.cost += plan.by_model[(task.id, model)] * (
-                prompt_tokens * prices[model].prompt_price
-                + answer_tokens * prices[model].completion_price
+                prompt_tokens * (prices[model].prompt_price or 0)
+                + answer_tokens * (prices[model].completion_price or 0)
             )
     return found
 
@@ -589,10 +608,10 @@ def _process(run_id: str) -> None:
     chunks = -(-run.row_count // CHUNK_ROWS)
     try:
         org_id = datasets.org_of(run.dataset_id)
-        use = model_providers.for_run(org_id, run.provider_id)
+        uses = _uses(org_id, run)
         keys = {path: k for path, (_, k) in datasets.dataset_fields(run.dataset_id).items()}
         chunk = _next_chunk(run_id)
-        if chunk < chunks and not _process_chunk(run, chunk, keys, org_id, use):
+        if chunk < chunks and not _process_chunk(run, chunk, keys, org_id, uses):
             # Stopped by its user, or deleted; or this runner is shutting down and gives it back.
             _requeue(run_id)
             return
@@ -605,6 +624,19 @@ def _process(run_id: str) -> None:
         _end(run_id, "failed", str(e))
         metrics.RUNS_FINISHED.labels("failed").inc()
         raise
+
+
+def _uses(org_id: str, run: Run) -> dict[str, model_providers.Use]:
+    """Where each model's calls go, by model: an organisation's own model to its own provider, a
+    catalog model to the one the run keeps."""
+    by_provider: dict[str | None, model_providers.Use] = {}
+    found = {}
+    for model_id, model in _models(run).items():
+        provider_id = model.provider_id or run.provider_id
+        if provider_id not in by_provider:
+            by_provider[provider_id] = model_providers.for_run(org_id, provider_id)
+        found[model_id] = by_provider[provider_id]
+    return found
 
 
 def _requeue(run_id: str) -> None:
@@ -646,7 +678,7 @@ def _process_chunk(
     chunk: int,
     keys: dict[str, list[str]],
     org_id: str,
-    use: model_providers.Use,
+    uses: dict[str, model_providers.Use],
 ) -> bool:
     """Ask every task and model for the chunk's rows that miss the answer and have the prompt's
     inputs, and write its part file, with the replies beside it. A reply already paid for, in the
@@ -662,15 +694,14 @@ def _process_chunk(
         for model in task.models
         if row.get(tasks.columns(task, model)[0][0]) is None
     ]
-    models = _models(run)
+    asked = _models(run)
     requests = [
         model_providers.request(
-            use.type,
-            use.model_prefix,
+            uses[model].type,
             task,
-            model,
+            asked[model],
             prompts.render(task.template, row, keys),
-            kind=models[model].kind,
+            prefix=uses[model].model_prefix,
         )
         for row, task, model in units
     ]
@@ -695,8 +726,8 @@ def _process_chunk(
         row, task, model = units[i]
         saved = found.get(request_keys[i])
         try:
-            answer, data = _ask(task, models[model], requests[i], use, saved)
-        except KeyProblem:
+            answer, data = _ask(task, asked[model], requests[i], uses[model], saved)
+        except ProviderProblem:
             stopping.set()
             raise
         given[i] = answer
@@ -721,14 +752,15 @@ def _process_chunk(
             del paid[: len(journaled)]
         if taken:
             with db.connect() as conn:
-                usage.add(
-                    conn,
-                    org_id=org_id,
-                    user_id=run.created_by,
-                    run_id=run.id,
-                    paid_by=use.paid_by,
-                    spent=taken,
-                )
+                for paid_by in {uses[model].paid_by for _, model in taken}:
+                    usage.add(
+                        conn,
+                        org_id=org_id,
+                        user_id=run.created_by,
+                        run_id=run.id,
+                        paid_by=paid_by,
+                        spent={k: v for k, v in taken.items() if uses[k[1]].paid_by == paid_by},
+                    )
             metrics.count_spent(taken)
 
     try:
@@ -832,9 +864,10 @@ def _count(spent: usage.Spent, answer: _Answer) -> None:
         spent.output_tokens += answer.output_tokens
 
 
-class KeyProblem(Exception):
-    """The provider refuses the key, or it is out of credits: every call would fail alike, so the run
-    fails with this. Starting it again once the key is fixed asks for what it didn't get."""
+class ProviderProblem(Exception):
+    """The provider refuses the key, is out of credits, or can't be reached: every call would fail
+    alike, so the run fails with this. Starting it again once that is fixed asks for what it didn't
+    get."""
 
 
 _KEY_PROBLEMS = {
@@ -871,7 +904,12 @@ def _ask(
             response = model_providers.ask(use, request, model)
     except ProviderError as e:
         if e.status in _KEY_PROBLEMS:
-            raise KeyProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
+            raise ProviderProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
+        if e.unreachable:
+            raise ProviderProblem(
+                f"{e}. Is the model's server up, at the provider's base URL? Start the run again "
+                "once it is"
+            ) from e
         return _Answer(error=str(e)), None
     # Paid for even when the reply turns out unusable.
     answer = _Answer(

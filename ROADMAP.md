@@ -24,9 +24,9 @@ Not planned yet; noted so they aren't lost. Add new ones here.
   models for the Translate preset, next to LLMs: cheaper and faster for plain translation. They'd be a
   third kind of model that only answers Write tasks started from Translate, with the target language as
   a setting rather than part of the prompt.
-- **More model providers.** OpenRouter and LiteLLM are the ones today; Settings → Providers is where
-  others would go: direct API keys for OpenAI, Anthropic, Google and the like, or a local
-  OpenAI-compatible server (Ollama, vLLM) for private data. Each is a module beside `model_api`.
+- **More model providers.** OpenRouter, OpenAI-compatible servers (LiteLLM, vLLM) and System One
+  servers are the ones today; Settings → Providers is where others would go: direct API keys for
+  OpenAI, Anthropic, Google and the like. Each is a module beside `model_api`.
 - **More kinds of storage.** S3-compatible storage is the only remote one; Settings → Storage is where
   others would go: Google Cloud Storage, Azure Blob Storage, and maybe databases or warehouses
   (Postgres, BigQuery) as sources and destinations.

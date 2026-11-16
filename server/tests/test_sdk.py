@@ -131,7 +131,7 @@ def test_wait_returns_runs_that_ended_and_times_out_on_the_rest(rl, api_key):
     rl.runs.stop(again.id)
 
     broke = rl.runs.create(ds.id, Task(template="no credits", column="broke"))
-    with pytest.raises(runs.KeyProblem):
+    with pytest.raises(runs.ProviderProblem):
         runs.process_next()
     failed = rl.runs.wait(broke.id)
     assert failed.status == "failed"
@@ -213,3 +213,29 @@ def test_hosted_needs_a_valid_key(hosted):
     with connect(app, api_key="rl_wrong") as rl, pytest.raises(ApiError) as caught:
         rl.datasets.get(ds.id)
     assert caught.value.status_code == 401
+
+
+def test_a_fine_tuning_script_registers_each_checkpoint_and_scores_it(rl, client, api_key):
+    gpu = {
+        "type": "openai",
+        "name": "gpu",
+        "base_url": "https://gpu.example.com",
+        "api_key": "sk-good",
+    }
+    assert client.post("/v1/settings/providers", json=gpu).status_code == 201
+    ds = rl.datasets.upload(REVIEWS, name="reviews")
+    for step in (100, 200):
+        # Run twice, as a script restarted after a crash would: the same model is returned.
+        for _ in range(2):
+            ckpt = rl.models.create(
+                f"ft-step-{step}", provider="gpu", upstream=f"ft-{step}", note=f"qwen3.5-4b, {step}"
+            )
+        rl.runs.create(ds.id, NEGATIVE.model_copy(update={"models": [ckpt.id]}))
+        drain()
+    columns = {c.model: c.answered for c in rl.datasets.get(ds.id).answers}
+    assert columns == {"ft-step-100": 3, "ft-step-200": 3}
+    assert rl.models.update("ft-step-100", note="discarded").note == "discarded"
+    rl.models.delete("ft-step-100")
+    assert "ft-step-100" not in {m.id for m in rl.models.list()}
+    with pytest.raises(ApiError, match="was a model here before"):
+        rl.models.create("ft-step-100", provider="gpu", upstream="ft-101")

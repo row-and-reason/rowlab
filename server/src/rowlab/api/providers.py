@@ -9,8 +9,8 @@ router = APIRouter(prefix="/v1/settings/providers", tags=["settings"])
 
 @router.get("", operation_id="listProviders")
 def list_providers(me: CanRead) -> list[Provider]:
-    """The organisation's model providers, by name, and which one new runs use. Keys are never
-    returned."""
+    """The organisation's model providers, by name, and which one new runs ask rowlab's catalog
+    models through. Keys are never returned."""
     return model_providers.list_providers(me.org.id)
 
 
@@ -28,10 +28,12 @@ def update_provider(provider_id: str, data: ProviderInput, me: CanAdmin) -> Prov
 
 @router.post("/{provider_id}/activate", operation_id="activateProvider")
 def activate_provider(provider_id: str, me: CanAdmin) -> Provider:
-    """Make the provider the one new runs use. Runs already started keep theirs."""
+    """Make the provider the one new runs ask rowlab's catalog models through. Runs already started
+    keep theirs; the organisation's own models always go to their own."""
     return model_providers.activate(me.org.id, provider_id)
 
 
 @router.delete("/{provider_id}", operation_id="deleteProvider", status_code=204)
 def delete_provider(provider_id: str, me: CanAdmin) -> None:
+    """Delete a provider, once none of the organisation's own models uses it."""
     model_providers.delete_provider(me.org.id, provider_id)

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BoxIcon,
   CheckIcon,
   EllipsisIcon,
   KeyRoundIcon,
@@ -36,7 +37,14 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldSeparator,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Item,
@@ -54,23 +62,46 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { api, type Provider, type Settings } from "@/lib/api/client";
-import { errorMessage } from "@/lib/format";
+import { api, type Model, type Provider, type Settings } from "@/lib/api/client";
+import { forgetModels } from "@/lib/catalog";
+import { errorMessage, formatNumber } from "@/lib/format";
 
 type ProviderType = Provider["type"];
 
-const TYPES: { value: ProviderType; label: string; baseUrl: string; keyHint: string }[] = [
+const TYPES: {
+  value: ProviderType;
+  label: string;
+  baseUrl: string;
+  keyHint: string;
+  about: string;
+}[] = [
   {
     value: "openrouter",
     label: "OpenRouter",
     baseUrl: "https://openrouter.ai/api",
     keyHint: "sk-or-v1-…",
+    about: "Billed to your OpenRouter account.",
   },
-  { value: "litellm", label: "LiteLLM", baseUrl: "", keyHint: "sk-…" },
+  {
+    value: "openai",
+    label: "OpenAI-compatible",
+    baseUrl: "",
+    keyHint: "sk-…",
+    about:
+      "A LiteLLM gateway, or vLLM serving a generic model or LoRA checkpoints (/v1/decisions).",
+  },
+  {
+    value: "systemone",
+    label: "System One",
+    baseUrl: "",
+    keyHint: "The key the server was started with",
+    about: "A server of decision models, e.g. vLLM or a model's own (/v1/systemone).",
+  },
 ];
 const typeInfo = (type: ProviderType) => TYPES.find((t) => t.value === type)!;
 
-/** The organisation's model providers: list, add, change, delete them, and pick the active one. */
+/** The organisation's model providers, each with its own models: list, add, change and delete them,
+ * and pick the one rowlab's catalog models go to. Admins manage providers; members add models. */
 export function ProviderSettings({
   settings,
   onChanged,
@@ -79,17 +110,25 @@ export function ProviderSettings({
   onChanged: () => void;
 }) {
   const [providers, setProviders] = useState<Provider[]>();
+  const [models, setModels] = useState<Model[]>([]);
   // The provider being edited, or "new" while adding one.
   const [editing, setEditing] = useState<Provider | "new">();
+  // The provider a model is being added to, or the model being edited.
+  const [modelEditing, setModelEditing] = useState<{ provider: Provider; model?: Model }>();
   const canAdmin = useCan("admin");
+  const canEdit = useCan("member");
 
   const [loadError, setLoadError] = useState<string>();
   const load = useCallback(async () => {
     setLoadError(undefined);
     try {
-      const { data, error } = await api.GET("/v1/settings/providers");
-      if (data) setProviders(data);
-      else setLoadError(errorMessage(error));
+      const [found, listed] = await Promise.all([
+        api.GET("/v1/settings/providers"),
+        api.GET("/v1/models"),
+      ]);
+      if (found.data) setProviders(found.data);
+      else setLoadError(errorMessage(found.error));
+      setModels((listed.data ?? []).filter((m) => m.provider_id));
     } catch {
       setLoadError("Could not reach rowlab.");
     }
@@ -100,6 +139,7 @@ export function ProviderSettings({
   }, [load]);
 
   function changed() {
+    forgetModels();
     load();
     onChanged();
   }
@@ -109,7 +149,7 @@ export function ProviderSettings({
       params: { path: { provider_id: provider.id } },
     });
     if (error) toast.error(errorMessage(error));
-    else toast.success(`New runs use ${provider.name}`);
+    else toast.success(`rowlab's models go to ${provider.name}`);
     changed();
   }
 
@@ -119,6 +159,15 @@ export function ProviderSettings({
     });
     if (error) toast.error(errorMessage(error));
     else toast.success(`Deleted ${provider.name}`);
+    changed();
+  }
+
+  async function removeModel(model: Model) {
+    const { error } = await api.DELETE("/v1/models/{model_id}", {
+      params: { path: { model_id: model.id } },
+    });
+    if (error) toast.error(errorMessage(error));
+    else toast.success(`Deleted ${model.id}; its answers stay`);
     changed();
   }
 
@@ -137,8 +186,8 @@ export function ProviderSettings({
       {settings.provider === "server" && (
         <Alert className="mb-4">
           <AlertDescription>
-            The server&apos;s own OpenRouter key (<code>OPENROUTER_API_KEY</code>) pays for every
-            run, so the providers here aren&apos;t used.
+            The server&apos;s own OpenRouter key (<code>OPENROUTER_API_KEY</code>) pays for
+            rowlab&apos;s models. Your own models go to their providers here.
           </AlertDescription>
         </Alert>
       )}
@@ -151,7 +200,7 @@ export function ProviderSettings({
             <EmptyTitle>No model provider yet</EmptyTitle>
             <EmptyDescription>
               {canAdmin
-                ? "Add OpenRouter, or a LiteLLM gateway, with your own key. Model charges go to it."
+                ? "Add OpenRouter, a LiteLLM gateway, or a server of your own, with its key."
                 : "An admin adds one."}
             </EmptyDescription>
           </EmptyHeader>
@@ -167,7 +216,7 @@ export function ProviderSettings({
       ) : (
         <div className="flex flex-col gap-2">
           <ItemGroup className="gap-0">
-            {providers.map((provider) => (
+            {providers.map((provider) => [
               <Item
                 key={provider.id}
                 variant="default"
@@ -184,7 +233,7 @@ export function ProviderSettings({
                     {provider.model_prefix && <> · models as {provider.model_prefix}…</>}
                   </ItemDescription>
                 </ItemContent>
-                {canAdmin && (
+                {canEdit && (
                   <ItemActions>
                     <DropdownMenu>
                       <DropdownMenuTrigger
@@ -195,29 +244,86 @@ export function ProviderSettings({
                         <EllipsisIcon />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {!provider.active && (
+                        <DropdownMenuItem onClick={() => setModelEditing({ provider })}>
+                          <PlusIcon />
+                          Add model
+                        </DropdownMenuItem>
+                        {canAdmin && !provider.active && provider.type !== "systemone" && (
                           <DropdownMenuItem onClick={() => activate(provider)}>
                             <CheckIcon />
-                            Use for new runs
+                            Use for rowlab&apos;s models
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => setEditing(provider)}>
-                          <PencilIcon />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem variant="destructive" onClick={() => remove(provider)}>
-                          <Trash2Icon />
-                          Delete
-                        </DropdownMenuItem>
+                        {canAdmin && (
+                          <DropdownMenuItem onClick={() => setEditing(provider)}>
+                            <PencilIcon />
+                            Edit
+                          </DropdownMenuItem>
+                        )}
+                        {canAdmin && (
+                          <DropdownMenuItem variant="destructive" onClick={() => remove(provider)}>
+                            <Trash2Icon />
+                            Delete
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </ItemActions>
                 )}
-              </Item>
-            ))}
+              </Item>,
+              ...models
+                .filter((m) => m.provider_id === provider.id)
+                .map((model) => (
+                  <Item
+                    key={`${provider.id}/${model.id}`}
+                    variant="default"
+                    size="xs"
+                    className="rounded-none border-x-0 border-t-0 border-b border-border pl-8"
+                  >
+                    <ItemContent className="min-w-0">
+                      <ItemTitle>
+                        <BoxIcon className="size-3.5 text-muted-foreground" />
+                        {model.id}
+                      </ItemTitle>
+                      <ItemDescription className="truncate">
+                        {model.kind === "decision" ? "Decision model" : "LLM"} · served as{" "}
+                        {model.upstream} · {modelPrice(model)}
+                        {model.note && <> · {model.note}</>}
+                      </ItemDescription>
+                    </ItemContent>
+                    {canEdit && (
+                      <ItemActions>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button variant="ghost" size="icon-sm" aria-label="Model actions" />
+                            }
+                          >
+                            <EllipsisIcon />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setModelEditing({ provider, model })}>
+                              <PencilIcon />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => removeModel(model)}
+                            >
+                              <Trash2Icon />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </ItemActions>
+                    )}
+                  </Item>
+                )),
+            ])}
           </ItemGroup>
           <p className="text-xs text-muted-foreground">
-            New runs use the active provider; runs already started keep theirs.
+            rowlab&apos;s models go to the active provider, and runs already started keep theirs.
+            Your own models, added from a provider&apos;s menu, each go to their own.
           </p>
           {canAdmin && (
             <Button
@@ -231,6 +337,18 @@ export function ProviderSettings({
             </Button>
           )}
         </div>
+      )}
+      {modelEditing && (
+        <ModelDialog
+          key={modelEditing.model?.id ?? modelEditing.provider.id}
+          provider={modelEditing.provider}
+          model={modelEditing.model}
+          onClose={() => setModelEditing(undefined)}
+          onSaved={() => {
+            setModelEditing(undefined);
+            changed();
+          }}
+        />
       )}
       {editing && (
         <ProviderDialog
@@ -338,11 +456,7 @@ function ProviderDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <FieldDescription>
-                {form.type === "litellm"
-                  ? "A LiteLLM gateway in front of other providers, billed as it is set up."
-                  : "Billed to your OpenRouter account."}
-              </FieldDescription>
+              <FieldDescription>{info.about}</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="provider-name">Name</FieldLabel>
@@ -357,7 +471,7 @@ function ProviderDialog({
               <FieldLabel htmlFor="provider-url">Base URL</FieldLabel>
               <Input
                 id="provider-url"
-                placeholder={form.type === "litellm" ? "https://litellm.example.com" : ""}
+                placeholder={form.type === "openrouter" ? "" : "https://gpu.example.com:8000"}
                 value={form.base_url}
                 onChange={set("base_url")}
               />
@@ -365,7 +479,7 @@ function ProviderDialog({
                 <FieldDescription>To change it, enter the API key again.</FieldDescription>
               )}
             </Field>
-            {form.type === "litellm" && (
+            {form.type === "openai" && (
               <Field>
                 <FieldLabel htmlFor="provider-prefix">Model prefix</FieldLabel>
                 <Input
@@ -375,7 +489,7 @@ function ProviderDialog({
                   onChange={set("model_prefix")}
                 />
                 <FieldDescription>
-                  Put before each model&apos;s id, if the gateway routes them under one.
+                  Put before the ids of rowlab&apos;s models, if a gateway routes them under one.
                 </FieldDescription>
               </Field>
             )}
@@ -405,3 +519,214 @@ function ProviderDialog({
     </Dialog>
   );
 }
+
+/** A model's prices per 1M tokens, or that it has none. */
+function modelPrice(model: Model): string {
+  if (model.prompt_price == null) return "no price";
+  const input = `$${formatNumber(model.prompt_price * 1e6)}`;
+  return model.completion_price == null
+    ? `${input}/M in`
+    : `${input} in · $${formatNumber(model.completion_price * 1e6)} out per M`;
+}
+
+/** USD per token, from a price per 1M tokens as typed: null for none, undefined if it isn't one. */
+function perToken(typed: string): number | null | undefined {
+  if (!typed.trim()) return null;
+  const value = Number(typed.trim());
+  return Number.isFinite(value) && value >= 0 ? value / 1e6 : undefined;
+}
+
+/** Add a model of the organisation's own to a provider, or change one's note and prices. What
+ * answers (its id, served name and kind) is fixed once added. */
+function ModelDialog({
+  provider,
+  model,
+  onClose,
+  onSaved,
+}: {
+  provider: Provider;
+  model: Model | undefined;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const perMillion = (price: number | null | undefined) =>
+    price == null ? "" : String(price * 1e6);
+  const [form, setForm] = useState({
+    id: model?.id ?? "",
+    upstream: model?.upstream ?? "",
+    kind: model?.kind ?? ("decision" as Model["kind"]),
+    note: model?.note ?? "",
+    prompt_price: perMillion(model?.prompt_price),
+    completion_price: perMillion(model?.completion_price),
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const set =
+    (field: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm({ ...form, [field]: e.target.value });
+
+  async function save() {
+    setSaving(true);
+    setError(undefined);
+    const prices = {
+      prompt_price: perToken(form.prompt_price),
+      completion_price: perToken(form.completion_price),
+    };
+    if (prices.prompt_price === undefined || prices.completion_price === undefined) {
+      setError("Enter prices as numbers of dollars, e.g. 0.05, or leave them empty.");
+      setSaving(false);
+      return;
+    }
+    try {
+      const { error } = model
+        ? await api.PATCH("/v1/models/{model_id}", {
+            params: { path: { model_id: model.id } },
+            body: { note: form.note, ...prices },
+          })
+        : await api.POST("/v1/models", {
+            body: {
+              id: form.id.trim(),
+              provider: provider.id,
+              upstream: form.upstream.trim(),
+              kind: form.kind,
+              note: form.note,
+              ...prices,
+            },
+          });
+      if (error) setError(errorMessage(error));
+      else {
+        toast.success(model ? `Saved ${model.id}` : `${form.id} answered, and was added`);
+        onSaved();
+      }
+    } catch {
+      setError("Could not reach rowlab. The model was not saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{model ? `Edit ${model.id}` : `Add a model to ${provider.name}`}</DialogTitle>
+          <DialogDescription>
+            {model
+              ? "What answers can't change; for other weights, add a new model."
+              : "It is asked a short question first, and added once it answers."}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save();
+          }}
+        >
+          <FieldGroup>
+            {!model && (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="model-id">Id</FieldLabel>
+                  <Input
+                    id="model-id"
+                    placeholder="fallacy-ft-step-2000"
+                    value={form.id}
+                    onChange={set("id")}
+                  />
+                  <FieldDescription>
+                    As answer columns show it, for good: one per checkpoint, never reused.
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="model-upstream">Served as</FieldLabel>
+                  <Input
+                    id="model-upstream"
+                    placeholder={form.id || "step-2000"}
+                    value={form.upstream}
+                    onChange={set("upstream")}
+                  />
+                  <FieldDescription>
+                    The name the server gives it, e.g. vLLM&apos;s --served-model-name or a
+                    --lora-modules name. Defaults to the id.
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="model-kind">Kind</FieldLabel>
+                  <Select
+                    items={KINDS}
+                    value={form.kind}
+                    onValueChange={(kind) => kind && setForm({ ...form, kind })}
+                  >
+                    <SelectTrigger id="model-kind" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {KINDS.map((k) => (
+                        <SelectItem key={k.value} value={k.value}>
+                          {k.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </>
+            )}
+            <Field>
+              <FieldLabel htmlFor="model-note">Note</FieldLabel>
+              <Input
+                id="model-note"
+                placeholder="Qwen/Qwen3.5-4B-Base + LoRA, run 7, step 2000"
+                value={form.note}
+                onChange={set("note")}
+              />
+              <FieldDescription>What answers, to read in results months later.</FieldDescription>
+            </Field>
+            <FieldSeparator />
+            <div className="grid grid-cols-2 gap-3">
+              <Field>
+                <FieldLabel htmlFor="model-price-in">$ per 1M in</FieldLabel>
+                <Input
+                  id="model-price-in"
+                  inputMode="decimal"
+                  placeholder="None"
+                  value={form.prompt_price}
+                  onChange={set("prompt_price")}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="model-price-out">$ per 1M out</FieldLabel>
+                <Input
+                  id="model-price-out"
+                  inputMode="decimal"
+                  placeholder="None"
+                  value={form.completion_price}
+                  onChange={set("completion_price")}
+                />
+              </Field>
+            </div>
+            <Field data-invalid={!!error}>
+              {error ? (
+                <FieldError>{error}</FieldError>
+              ) : (
+                <FieldDescription>
+                  Optional. Leave them empty for a GPU paid by the hour: its answers are counted,
+                  not priced.
+                </FieldDescription>
+              )}
+            </Field>
+            <Button type="submit" size="sm" className="self-end" disabled={saving}>
+              {saving && <Spinner data-icon="inline-start" />}
+              {model ? "Save" : "Add"}
+            </Button>
+          </FieldGroup>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const KINDS: { value: Model["kind"]; label: string }[] = [
+  { value: "decision", label: "Decision model" },
+  { value: "llm", label: "LLM, with structured outputs" },
+];

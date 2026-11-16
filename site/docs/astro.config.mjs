@@ -40,6 +40,7 @@ export default defineConfig({
           items: [
             { label: "Labeling", slug: "guides/labeling" },
             { label: "Comparing models", slug: "guides/comparing-models" },
+            { label: "Self-hosted models", slug: "guides/self-hosted-models" },
             { label: "Labeling at scale", slug: "guides/at-scale" },
             { label: "Exporting", slug: "guides/exporting" },
           ],

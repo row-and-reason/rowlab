@@ -4,24 +4,30 @@ import { useEffect, useState } from "react";
 
 import { api, type Model, type TaskTypes } from "@/lib/api/client";
 
-// Fetched once per page load: the models and answer types don't change while the app is open.
+// Fetched once per page load: the answer types don't change while the app is open, and the models
+// only when Settings changes them (`forgetModels`).
 let models: Promise<Model[]> | undefined;
 let taskTypes: Promise<TaskTypes | undefined> | undefined;
 
-/** The models a task can use, decision models and LLMs: rowlab's list (`listed`), in the order we'd
- * pick them, then the rest of OpenRouter's catalog. */
+/** The models a task can use, decision models and LLMs: the organisation's own (`provider_id`), then
+ * rowlab's list (`listed`), in the order we'd pick them, then the rest of OpenRouter's catalog. */
 export function useModels(): Model[] {
   const [loaded, setLoaded] = useState<Model[]>([]);
   useEffect(() => {
-    models ??= api.GET("/v1/utils/models", { params: { query: { all: true } } }).then(({ data }) => {
+    models ??= api.GET("/v1/models", { params: { query: { all: true } } }).then(({ data }) => {
       // rowlab, or OpenRouter's catalog behind it, may be unreachable: ask again next time rather
       // than keep an empty or listed-only answer.
-      if (!data?.some((m) => !m.listed)) models = undefined;
+      if (!data?.some((m) => !m.listed && !m.provider_id)) models = undefined;
       return data ?? [];
     });
     models.then(setLoaded);
   }, []);
   return loaded;
+}
+
+/** Fetch the models again next time they are used, once they have changed. */
+export function forgetModels() {
+  models = undefined;
 }
 
 /** The answer types (classify, extract, write), write presets and field types. */

@@ -13,7 +13,18 @@ from pydantic import BaseModel
 from starlette.routing import Mount
 
 from rowlab import __version__
-from rowlab.api import auth, connections, datasets, links, members, providers, runs, settings, utils
+from rowlab.api import (
+    auth,
+    connections,
+    datasets,
+    links,
+    members,
+    models,
+    providers,
+    runs,
+    settings,
+    utils,
+)
 from rowlab.core import metrics
 from rowlab.core import runs as runs_core
 from rowlab.core.config import config
@@ -95,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(datasets.router)
     app.include_router(links.router)
     app.include_router(members.router)
+    app.include_router(models.router)
     app.include_router(providers.router)
     app.include_router(runs.router)
     app.include_router(settings.router)

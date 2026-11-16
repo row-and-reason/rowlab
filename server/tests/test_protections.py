@@ -158,7 +158,7 @@ def test_hosted_model_providers_reach_private_hosts_only_when_named(hosted, fake
         return real(host, *args, **kwargs)
 
     monkeypatch.setattr(network.socket, "getaddrinfo", resolve)
-    gateway = {"type": "litellm", "base_url": "http://litellm.local:4000", "api_key": "sk-good"}
+    gateway = {"type": "openai", "base_url": "http://litellm.local:4000", "api_key": "sk-good"}
     for base_url in ("http://litellm.local:4000", "http://localhost:4000", "http://10.0.0.1"):
         response = client.post("/v1/settings/providers", json={**gateway, "base_url": base_url})
         assert response.status_code == 400

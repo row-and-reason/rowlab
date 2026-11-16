@@ -242,7 +242,10 @@ function RunSection({
         <span className={failed ? "text-destructive" : "text-muted-foreground"}>
           {formatNumber(failed)} failed
         </span>
-        <span title="Cached answers are free.">{formatUsd(run.cost)} spent</span>
+        <span title="Cached answers are free; models without prices aren't counted.">
+          {formatUsd(run.cost)} spent
+          {Object.values(run.models ?? {}).some((m) => m.prompt_price === null) && " + not priced"}
+        </span>
       </div>
       {active && (
         <div className="space-y-1.5">
@@ -311,6 +314,7 @@ function RunSection({
                 {task.models.map((model) => {
                   const cost = run.costs.find((c) => c.task_id === task.id && c.model === model);
                   const answer = answerOf(task.column, model);
+                  const unpriced = run.models?.[model]?.prompt_price === null;
                   return (
                     <TableRow key={model}>
                       <TableCell title={model}>{modelSlug(model)}</TableCell>
@@ -323,7 +327,7 @@ function RunSection({
                         {cost ? formatNumber(cost.failed) : "—"}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {cost ? formatUsd(cost.cost) : "—"}
+                        {!cost ? "—" : unpriced ? "Not priced" : formatUsd(cost.cost)}
                       </TableCell>
                     </TableRow>
                   );

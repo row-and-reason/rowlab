@@ -10,8 +10,8 @@ from rowlab.core.config import config
 
 class Settings(BaseModel):
     provider: Literal["server", "organisation"] | None = Field(
-        description="Where model calls go: the server's own key (`OPENROUTER_API_KEY`), the "
-        "organisation's active provider, or nowhere yet."
+        description="Where model calls go: the server's own key (`OPENROUTER_API_KEY`) for rowlab's "
+        "models, the organisation's providers, or nowhere yet."
     )
     mode: Literal["local", "hosted"] = Field(
         description="`local`: one person on their own machine. `hosted`: shared, with sign-in."

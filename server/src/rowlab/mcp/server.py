@@ -21,7 +21,18 @@ from fastmcp.server.dependencies import get_access_token
 from pydantic import BaseModel, Field
 
 from rowlab import __version__
-from rowlab.core import auth, catalog, compare, datasets, exports, labels, links, prompts, runs
+from rowlab.core import (
+    auth,
+    catalog,
+    compare,
+    datasets,
+    exports,
+    labels,
+    links,
+    models,
+    prompts,
+    runs,
+)
 from rowlab.core import sql as sql_core
 from rowlab.core import tasks as tasks_core
 from rowlab.core.auth import Me, Role
@@ -483,11 +494,40 @@ def create_server() -> FastMCP:
         offset: Annotated[int, Field(ge=0)] = 0,
         limit: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> catalog.ModelPage:
-        """A page of models, with per-token prices: rowlab's list, in the order we'd pick them, and with
-        `all` the rest of OpenRouter's catalog. Search by name, kind or tag; follow next_offset for
-        more. Defaults from task_types_get are fine to start with."""
-        _me()
-        return catalog.list_models(search, kind, tag, all, offset, limit)
+        """A page of models, with per-token prices: the organisation's own first (with their provider,
+        upstream name and note), then rowlab's list, in the order we'd pick them, and with `all` the
+        rest of OpenRouter's catalog. Search by name, kind or tag; follow next_offset for more.
+        Defaults from task_types_get are fine to start with."""
+        me = _me()
+        return models.page(me.org.id, search, kind, tag, all, offset, limit)
+
+    @tool
+    def model_add(
+        id: Annotated[str, Field(description=models.ModelInput.model_fields["id"].description)],
+        provider: Annotated[
+            str, Field(description="The provider it is asked through, by name, as in Settings.")
+        ],
+        upstream: Annotated[
+            str, Field(description=models.ModelInput.model_fields["upstream"].description)
+        ] = "",
+        kind: Annotated[
+            Literal["decision", "llm"], Field(description="A decision model, or an LLM.")
+        ] = "decision",
+        note: Annotated[
+            str, Field(description=models.ModelInput.model_fields["note"].description)
+        ] = "",
+    ) -> catalog.Model:
+        """Add a model of the organisation's own, to ask in runs like any other: e.g. an open-weight
+        model on a GPU, or a fine-tuned checkpoint, served at one of the organisation's providers
+        (an admin adds those in Settings). It is asked a short question first, and added once it
+        answers. Give each checkpoint its own id, and say in the note what answers; adding the
+        same model again returns it."""
+        me = _me("member")
+        return models.add(
+            me.org.id,
+            models.ModelInput(id=id, provider=provider, upstream=upstream, kind=kind, note=note),
+            me.user.id if me.user else None,
+        )
 
     return mcp
 

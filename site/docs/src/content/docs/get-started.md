@@ -15,14 +15,16 @@ That starts the API and the web app at [localhost:8000](http://localhost:8000), 
 state (a SQLite database, and datasets as Parquet) in `~/.rowlab`. `pip install rowlab` and
 `rowlab serve` do the same.
 
-Model calls go to a provider with your own key: [OpenRouter](https://openrouter.ai), or a
-[LiteLLM](https://docs.litellm.ai) gateway. Add one in **Settings → Providers** (base URL and API
-key; OpenRouter's is filled in), or set `OPENROUTER_API_KEY` before starting. An organisation can
-save several; new runs use the active one, and a run keeps the provider it started with. A LiteLLM
-gateway runs decision models and language models alike, under rowlab's model ids with an optional
-prefix (e.g. `openrouter/`). Where a gateway doesn't say what a call cost, rowlab works it out from
-the model's tokens and OpenRouter's prices. A saved key is sent only to the base URL it was saved
-with: to change the address, enter the key again.
+Model calls go to a provider with your own key: [OpenRouter](https://openrouter.ai), an
+OpenAI-compatible server such as a [LiteLLM](https://docs.litellm.ai) gateway, or a server of
+decision models you run yourself. Add one in **Settings → Providers** (base URL and API key;
+OpenRouter's is filled in), or set `OPENROUTER_API_KEY` before starting. An organisation can save
+several, each by a name of its own. rowlab's models go to the active one, and a run keeps the
+provider it started with; a gateway runs them under rowlab's model ids with an optional prefix (e.g.
+`openrouter/`). Models you serve yourself are added to their own provider, and always go there (see
+[Self-hosted models](/guides/self-hosted-models)). Where a provider doesn't say what a call cost,
+rowlab works it out from the model's tokens and prices. A saved key is sent only to the base URL it
+was saved with: to change the address, enter the key again.
 
 ## Add a dataset
 
