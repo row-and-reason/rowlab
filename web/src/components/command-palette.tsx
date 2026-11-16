@@ -13,6 +13,7 @@ import {
   SettingsIcon,
   TableIcon,
   TagIcon,
+  XIcon,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -142,6 +143,12 @@ export function CommandPalette({
                 >
                   <TableIcon />
                   Choose compared columns
+                </CommandItem>
+                <CommandItem
+                  onSelect={() => command(() => comparisonActionsRef.current?.clear?.())}
+                >
+                  <XIcon />
+                  Clear compared columns
                 </CommandItem>
               </>
             )}
