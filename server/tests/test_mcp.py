@@ -40,6 +40,9 @@ def test_every_tool_is_listed_with_a_description(mcp):
         "models_list",
         "model_add",
         "model_update",
+        "providers_list",
+        "provider_add",
+        "provider_move",
     }
     assert all(found.values())
 

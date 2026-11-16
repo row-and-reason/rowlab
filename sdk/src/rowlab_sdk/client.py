@@ -11,7 +11,7 @@ import httpx
 from pydantic import TypeAdapter, ValidationError
 
 from .errors import ApiError, ConfigurationError, ResponseError, TransportError
-from .resources import DatasetsResource, ModelsResource, RunsResource
+from .resources import DatasetsResource, ModelsResource, ProvidersResource, RunsResource
 
 T = TypeVar("T")
 
@@ -104,6 +104,7 @@ class Client:
     datasets: DatasetsResource
     runs: RunsResource
     models: ModelsResource
+    providers: ProvidersResource
 
     def __init__(
         self,
@@ -118,6 +119,7 @@ class Client:
         self.datasets = DatasetsResource(self)
         self.runs = RunsResource(self)
         self.models = ModelsResource(self)
+        self.providers = ProvidersResource(self)
 
     def __enter__(self) -> Self:
         return self

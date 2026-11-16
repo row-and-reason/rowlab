@@ -26,6 +26,12 @@ rowlab is pre-alpha, on its way to a first release. What is in it today:
 - A Python SDK, `rowlab-python-sdk`: a typed client to upload, run, export and compare from scripts
   and notebooks, and to add your own models, such as each checkpoint a training script saves.
 
+## rowlab-python-sdk 0.4.0
+
+- New: `rl.providers`: `list`, `create` and `move`, which points a provider at a new address, such
+  as a rented GPU's next machine, keeping its models. Creating and moving need an admin's key.
+- `Provider` is exported.
+
 ## rowlab-python-sdk 0.3.0
 
 For servers with models of your own; 0.2.0's `models.list` doesn't work against them.

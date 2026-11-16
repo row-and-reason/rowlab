@@ -239,3 +239,19 @@ def test_a_fine_tuning_script_registers_each_checkpoint_and_scores_it(rl, client
     assert "ft-step-100" not in {m.id for m in rl.models.list()}
     with pytest.raises(ApiError, match="was a model here before"):
         rl.models.create("ft-step-100", provider="gpu", upstream="ft-101")
+
+
+def test_a_gpu_script_points_its_provider_at_each_new_machine(rl, api_key, fake):
+    gpu = rl.providers.create(
+        "gpu", type="systemone", base_url="https://gpu-1.example.com", api_key="sk-good"
+    )
+    assert {p.name for p in rl.providers.list()} == {"OpenRouter", "gpu"}
+    rl.models.create("kev-base", provider="gpu", upstream="kev-latest")
+    ds = rl.datasets.upload(REVIEWS, name="reviews")
+    # The next session's GPU: the same provider, the same model, a new address.
+    moved = rl.providers.move("gpu", base_url="https://gpu-2.example.com", api_key="sk-good")
+    assert (moved.id, moved.base_url) == (gpu.id, "https://gpu-2.example.com")
+    fake.urls.clear()
+    rl.runs.create(ds.id, NEGATIVE.model_copy(update={"models": ["kev-base"]}))
+    drain()
+    assert {u for u in fake.urls if "systemone" in u} == {"https://gpu-2.example.com/v1/systemone"}

@@ -122,12 +122,23 @@ the note.
 
 ## When the server moves or stops
 
-A rented GPU's address changes each time. When a run can't reach its model's server at all, it
-stops and says so, rather than filling the rest of the rows with failures. Start the server again,
-change the provider's base URL in **Settings → Providers** (with its key entered again, as a key
-goes only to the address it was saved for), and start the run again: it asks only for the answers
-it didn't get. A stable name for the GPU, from a tunnel or your own DNS, saves changing the
-address.
+A rented GPU's address changes each time. Keep one provider for it, say `gpu`, and point it at each
+new machine, rather than adding a provider per machine: a model never changes provider, so the same
+weights on a new provider would be a new model, with columns of its own. Its models stay as they
+are, and a run started again asks them at the new address. An admin moves it in **Settings →
+Providers**, or from the script that starts the GPU, once the server is up:
+
+```python
+rl.providers.move("gpu", base_url="https://abc123-8000.proxy.runpod.net", api_key=key)
+```
+
+The key is entered again each time, as a key goes only to the address it was saved for. An agent
+does the same with `provider_move`. A stable name for the GPU, from a named tunnel or your own DNS,
+saves moving it at all.
+
+When a run can't reach its model's server at all, it stops and says so, rather than filling the
+rest of the rows with failures. Start the server again, move the provider if its address changed,
+and start the run again: it asks only for the answers it didn't get.
 
 ## Comparing fairly
 

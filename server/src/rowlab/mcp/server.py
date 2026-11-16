@@ -29,6 +29,7 @@ from rowlab.core import (
     exports,
     labels,
     links,
+    model_providers,
     models,
     prompts,
     runs,
@@ -540,6 +541,50 @@ def create_server() -> FastMCP:
             completion_price=completion_price,
         )
         return models.add(me.org.id, data, me.user.id if me.user else None)
+
+    @tool
+    def providers_list() -> list[model_providers.Provider]:
+        """The organisation's model providers, by name, with their type and address; keys are never
+        shown. Models are added to one by its name (model_add)."""
+        me = _me()
+        return model_providers.list_providers(me.org.id)
+
+    @tool
+    def provider_add(
+        name: Annotated[str, Field(description="Unique in the organisation, e.g. `gpu`.")],
+        type: Annotated[
+            model_providers.ProviderType,
+            Field(description=model_providers.ProviderInput.model_fields["type"].description),
+        ],
+        base_url: Annotated[
+            str,
+            Field(description=model_providers.ProviderInput.model_fields["base_url"].description),
+        ],
+        api_key: Annotated[str, Field(description="The server's key, e.g. vLLM's `--api-key`.")],
+    ) -> model_providers.Provider:
+        """Add a model provider, once it accepts the key: e.g. a GPU server running vLLM, to add
+        models to with model_add. A hosted rowlab reaches a public server over https:// only.
+        Admins only."""
+        me = _me("admin")
+        data = model_providers.ProviderInput(
+            name=name, type=type, base_url=base_url, api_key=api_key
+        )
+        return model_providers.create_provider(me.org.id, data)
+
+    @tool
+    def provider_move(
+        provider: Annotated[str, Field(description="The provider's name, e.g. `gpu`.")],
+        base_url: Annotated[str, Field(description="Its new address.")],
+        api_key: Annotated[
+            str,
+            Field(description="Its key, entered again: a key goes only where it was saved for."),
+        ],
+    ) -> model_providers.Provider:
+        """Point a provider at a new address, e.g. when a rented GPU's server starts again on
+        another machine. Its models stay as they are, and runs started again ask them there.
+        Admins only."""
+        me = _me("admin")
+        return model_providers.move(me.org.id, provider, base_url, api_key)
 
     @tool
     def model_update(
