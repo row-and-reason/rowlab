@@ -9,6 +9,7 @@ export type ComparisonActions = {
   setReady?: (ready: boolean) => void;
   rules?: () => void;
   columns?: () => void;
+  clear?: () => void;
   different?: () => void;
 };
 

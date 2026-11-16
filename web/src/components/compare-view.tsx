@@ -56,7 +56,12 @@ export function CompareView({
       columns: () => setColumnsOpen(true),
     };
     return () => {
-      actionsRef.current = { ...actionsRef.current, rules: undefined, columns: undefined };
+      actionsRef.current = {
+        ...actionsRef.current,
+        rules: undefined,
+        columns: undefined,
+        clear: undefined,
+      };
     };
   }, [actionsRef]);
   const datasetColumns = useSameColumns(dataset.columns);
@@ -72,6 +77,9 @@ export function CompareView({
   );
   const result = useComparison(dataset.id, request, version);
   useDefaultColumns(dataset.answers);
+  useEffect(() => {
+    actionsRef.current = { ...actionsRef.current, clear: () => change({ columns: [] }) };
+  }, [actionsRef, change]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -83,7 +91,14 @@ export function CompareView({
           </PopoverTrigger>
           <PopoverContent align="start" className="w-80 p-1">
             <PickList
-              groups={columnGroups(dataset, [reference])}
+              // The compared columns first, so they're found to untick in a wide dataset.
+              groups={[
+                {
+                  label: "Compared",
+                  items: columns.map((name) => ({ value: name, label: name })),
+                },
+                ...columnGroups(dataset, [reference, ...columns]),
+              ]}
               picked={columns}
               onPick={(name) =>
                 change({
@@ -95,9 +110,19 @@ export function CompareView({
               placeholder="Find a column…"
               empty="No matching columns."
             />
-            <p className="px-2 pb-1 text-xs text-muted-foreground">
-              Pick two columns, or one and a reference.
-            </p>
+            <div className="flex items-center gap-2 px-2 pb-1">
+              <p className="flex-1 text-xs text-muted-foreground">
+                Pick two columns, or one and a reference.
+              </p>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={!columns.length}
+                onClick={() => change({ columns: [] })}
+              >
+                Clear
+              </Button>
+            </div>
           </PopoverContent>
         </Popover>
         <Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
