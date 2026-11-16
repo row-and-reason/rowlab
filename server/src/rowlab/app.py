@@ -25,7 +25,7 @@ from rowlab.api import (
     settings,
     utils,
 )
-from rowlab.core import metrics
+from rowlab.core import metrics, serving
 from rowlab.core import runs as runs_core
 from rowlab.core.config import config
 from rowlab.core.errors import Forbidden, InvalidRequest, NotFound, Unauthorized
@@ -99,7 +99,25 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/health", operation_id="getHealth")
     def health() -> Health:
+        """Whether the process is alive, for a liveness probe. It touches nothing, not even the
+        database: see `/v1/ready`."""
         return Health(status="ok", version=__version__)
+
+    @app.get(
+        "/v1/ready",
+        operation_id="getReady",
+        responses={503: {"model": Health, "description": "Not ready, and why."}},
+    )
+    def ready() -> Health:
+        """Whether this server should get requests, for a readiness probe: its database answers,
+        with its migrations applied, and it isn't draining before it stops (`ROWLAB_DRAIN_SECONDS`).
+        503 otherwise, with the reason as `status`."""
+        reason = serving.not_ready()
+        if reason:
+            return JSONResponse(
+                Health(status=reason, version=__version__).model_dump(), status_code=503
+            )
+        return Health(status="ready", version=__version__)
 
     app.include_router(auth.router)
     app.include_router(connections.router)

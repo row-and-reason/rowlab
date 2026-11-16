@@ -11,8 +11,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Whether the process is alive, for a liveness probe. It touches nothing, not even the
+         *     database: see `/v1/ready`.
+         */
         get: operations["getHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ready
+         * @description Whether this server should get requests, for a readiness probe: its database answers,
+         *     with its migrations applied, and it isn't draining before it stops (`ROWLAB_DRAIN_SECONDS`).
+         *     503 otherwise, with the reason as `status`.
+         */
+        get: operations["getReady"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2479,6 +2505,35 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    getReady: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Health"];
+                };
+            };
+            /** @description Not ready, and why. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

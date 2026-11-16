@@ -38,6 +38,8 @@ Limits, the same in both modes; raise them for bigger data:
 - `ROWLAB_MAX_FILE` (`1GB`): the largest file that can be uploaded, downloaded or read from S3.
 - `ROWLAB_RUN_WAIT_SECONDS` (`300`): a run waiting this long goes next, before shorter ones.
 - `ROWLAB_RUNNER_CALLS` (`16`): model calls each runner makes at once, so how fast one run goes.
+- `ROWLAB_DRAIN_SECONDS` (`15` hosted, `0` locally): on SIGTERM, how long `rowlab serve` keeps serving
+  while `/v1/ready` says it is stopping, before it shuts down (`serving`).
 """
 
 import functools
@@ -73,6 +75,7 @@ class Config:
     max_file_bytes: int
     run_wait_seconds: float
     runner_calls: int
+    drain_seconds: float
 
     @property
     def postgres(self) -> bool:
@@ -138,6 +141,7 @@ def config() -> Config:
         max_file_bytes=_size("ROWLAB_MAX_FILE", "1GB")[1],
         run_wait_seconds=_number("ROWLAB_RUN_WAIT_SECONDS", 300, float),
         runner_calls=_number("ROWLAB_RUNNER_CALLS", 16, int),
+        drain_seconds=_number("ROWLAB_DRAIN_SECONDS", 0 if local else 15, float, zero=True),
     )
 
 
@@ -146,14 +150,15 @@ def _flag(name: str, default: bool) -> bool:
     return default if value is None else value.lower() in ("1", "true", "yes")
 
 
-def _number(name: str, default: float, kind: type) -> float:
+def _number(name: str, default: float, kind: type, *, zero: bool = False) -> float:
+    """A number from the environment: more than 0, or with `zero`, 0 or more."""
     value = os.environ.get(name) or str(default)
     try:
         number = kind(value)
     except ValueError:
         raise ValueError(f"{name} must be a number, not {value!r}.") from None
-    if number <= 0:
-        raise ValueError(f"{name} must be more than 0.")
+    if number < 0 or (number == 0 and not zero):
+        raise ValueError(f"{name} must be {'0 or ' if zero else ''}more than 0.")
     return number
 
 

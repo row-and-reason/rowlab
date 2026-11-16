@@ -1,13 +1,13 @@
 import sys
 
-import uvicorn
-
 from rowlab import cli
+from rowlab.core import serving
 
 
 def test_rowlab_alone_serves(monkeypatch):
-    calls = []
-    monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: calls.append((args, kwargs)))
+    served = []
+    monkeypatch.setattr(serving.Server, "run", lambda self: served.append(self.config))
     monkeypatch.setattr(sys, "argv", ["rowlab"])
     cli.main()
-    assert calls == [(("rowlab.app:app",), {"host": "127.0.0.1", "port": 8000, "reload": False})]
+    [config] = served
+    assert (config.app, config.host, config.port) == ("rowlab.app:app", "127.0.0.1", 8000)

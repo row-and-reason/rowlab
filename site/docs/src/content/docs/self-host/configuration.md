@@ -56,5 +56,6 @@ The same in both modes. They are modest, so a shared server stays up; raise them
 | `ROWLAB_MAX_FILE`         | `1GB`   | the largest file to upload, download or read from S3                      |
 | `ROWLAB_RUN_WAIT_SECONDS` | `300`   | a run waiting this long goes next; otherwise the run with least left does |
 | `ROWLAB_RUNNER_CALLS`     | `16`    | model calls each runner makes at once: how fast one run goes              |
+| `ROWLAB_DRAIN_SECONDS`    | `15`    | on `SIGTERM`, how long the API keeps serving, not ready; `0` locally      |
 
 Sizes are written like `500MB` or `2GB`.
