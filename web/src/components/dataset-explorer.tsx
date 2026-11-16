@@ -1,6 +1,6 @@
 "use client";
 
-import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDownIcon,
   ArrowUpDownIcon,
@@ -11,7 +11,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -31,16 +31,9 @@ import {
 } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { answerLabel } from "@/components/delete-answers";
-import type { AnswerColumn, Dataset, Row } from "@/lib/api/client";
+import type { AnswerColumn, Column, Dataset, Row } from "@/lib/api/client";
 import { columnLabel, formatCell, formatNumber } from "@/lib/format";
 import type { View } from "@/lib/sql";
 import { useDatasetRows } from "@/lib/use-dataset-rows";
@@ -54,9 +47,17 @@ import {
 
 const ROW_ID = "__row_id";
 
-const features = tableFeatures({});
-const helper = createColumnHelper<typeof features, Row>();
 const emptyRows: Row[] = [];
+// Rows and columns rendered beyond those on screen, so scrolling doesn't show blanks.
+const OVERSCAN_ROWS = 10;
+const OVERSCAN_COLUMNS = 4;
+// A row's height, which is fixed: cells keep to one line.
+const ROW_HEIGHT = 37;
+// Column widths, in px: from the header's and the page's longest text, within these bounds.
+const MIN_WIDTH = 72;
+const MAX_WIDTH = 384;
+// Roughly a character of the cells' text (text-sm, tabular digits), erring wide.
+const CHAR_WIDTH = 8.5;
 
 /**
  * A dataset's rows, as the view picks them: search, filters, sort and limit, which become `sql`, or SQL
@@ -90,16 +91,9 @@ export function DatasetExplorer({
   const { search, filters } = view;
   const custom = view.sql !== null;
   const sort = view.sort[0] ?? null;
-  const [searchInput, setSearchInput] = useState(search);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(100);
-  const [previousSearch, setPreviousSearch] = useState(search);
   const [previousSql, setPreviousSql] = useState(sql);
-  // Comparison drill-through can replace the view while this tab remains mounted.
-  if (search !== previousSearch) {
-    setPreviousSearch(search);
-    setSearchInput(search);
-  }
   if (sql !== previousSql) {
     setPreviousSql(sql);
     setPage(0);
@@ -109,16 +103,6 @@ export function DatasetExplorer({
     onViewChange(changes);
     setPage(0);
   }
-
-  // Debounce typing in the search box.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchInput === search) return;
-      onViewChange({ search: searchInput });
-      setPage(0);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchInput, search, onViewChange]);
 
   const { result, shown, loading } = useDatasetRows(dataset.id, sql, page, pageSize, version);
 
@@ -137,18 +121,38 @@ export function DatasetExplorer({
       return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
     });
   }, [shown?.columns, dataset.columns, priorityColumns]);
-  const columns = useMemo(
-    () =>
-      shownColumns.map((c) =>
-        helper.accessor((row) => row[c.name], {
-          id: c.name,
-          header: columnLabel(c.name),
-          cell: (info) => <CellValue value={info.getValue()} />,
-        }),
-      ),
-    [shownColumns],
-  );
-  const table = useTable({ features, columns, data: shown?.rows ?? emptyRows });
+  const rows = shown?.rows ?? emptyRows;
+  const widths = useMemo(() => columnWidths(shownColumns, rows), [shownColumns, rows]);
+
+  // Only the rows and columns on screen are rendered: a wide page has tens of thousands of cells.
+  // The header scrolls with the rows; the overscan absorbs its height.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // The app has no React Compiler to skip it; the virtualizer redraws this component as it scrolls.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: OVERSCAN_ROWS,
+  });
+  const columnVirtualizer = useVirtualizer({
+    horizontal: true,
+    count: shownColumns.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => widths[i],
+    overscan: OVERSCAN_COLUMNS,
+  });
+  // A new page, or other columns: their sizes are estimated afresh, before they are painted.
+  useLayoutEffect(() => {
+    columnVirtualizer.measure();
+  }, [widths, columnVirtualizer]);
+  const visibleRows = rowVirtualizer.getVirtualItems();
+  const visibleColumns = columnVirtualizer.getVirtualItems();
+  const columnsWidth = columnVirtualizer.getTotalSize();
+  const before = visibleColumns[0]?.start ?? 0;
+  const after = columnsWidth - (visibleColumns.at(-1)?.end ?? 0);
+  const above = visibleRows[0]?.start ?? 0;
+  const below = rowVirtualizer.getTotalSize() - (visibleRows.at(-1)?.end ?? 0);
 
   const total = shown?.total ?? 0;
   const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
@@ -177,17 +181,7 @@ export function DatasetExplorer({
           </Badge>
         ) : (
           <>
-            <InputGroup className="w-56">
-              <InputGroupAddon>
-                <SearchIcon />
-              </InputGroupAddon>
-              <InputGroupInput
-                id="rows-search"
-                placeholder="Search"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-            </InputGroup>
+            <SearchBox search={search} onViewChange={onViewChange} />
             <FilterButton
               dataset={dataset}
               onAdd={(filter) => changeView({ filters: [...filters, filter] })}
@@ -273,84 +267,109 @@ export function DatasetExplorer({
       )}
 
       {/* Data is text you may want to copy, unlike the interface around it. */}
-      <div className="min-h-0 flex-1 overflow-auto select-text">
-        <Table>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto select-text">
+        {/* One scrolling area for both directions; the table's own wrapper would add a second. */}
+        <table
+          data-slot="table"
+          className="min-w-full caption-bottom table-fixed text-sm"
+          style={{ width: columnsWidth }}
+        >
           <TableHeader className="bg-muted/40">
-            {table.getHeaderGroups().map((group) => (
-              <TableRow key={group.id}>
-                {group.headers.map((header) => {
-                  const column = shownColumns.find((c) => c.name === header.id);
-                  const answer = dataset.answers.find((a) => a.columns.includes(header.id));
-                  const SortIcon =
-                    sort?.column !== header.id
-                      ? ArrowUpDownIcon
-                      : sort.desc
-                        ? ArrowDownIcon
-                        : ArrowUpIcon;
-                  return (
-                    <TableHead
-                      key={header.id}
-                      className="w-px px-3 select-none"
-                      draggable={header.id !== ROW_ID}
-                      onDragStart={(e) => e.dataTransfer.setData("text/plain", `{{${header.id}}}`)}
-                    >
-                      <ContextMenu disabled={!answer || !onDeleteAnswers}>
-                        <ContextMenuTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              className="-ml-2 text-muted-foreground"
-                              title={column?.type}
-                              // Custom SQL sorts itself.
-                              disabled={custom}
-                              onClick={() => toggleSort(header.id)}
-                            />
-                          }
-                        >
-                          {columnLabel(header.id)}
-                          <SortIcon
-                            data-icon="inline-end"
-                            className={
-                              sort?.column !== header.id ? "text-muted-foreground" : undefined
-                            }
+            <TableRow>
+              {before > 0 && <th style={{ width: before }} />}
+              {visibleColumns.map((item) => {
+                const column = shownColumns[item.index];
+                const answer = dataset.answers.find((a) => a.columns.includes(column.name));
+                const SortIcon =
+                  sort?.column !== column.name
+                    ? ArrowUpDownIcon
+                    : sort.desc
+                      ? ArrowDownIcon
+                      : ArrowUpIcon;
+                return (
+                  <TableHead
+                    key={column.name}
+                    className="truncate px-3 select-none"
+                    style={{ width: item.size }}
+                    draggable={column.name !== ROW_ID}
+                    onDragStart={(e) => e.dataTransfer.setData("text/plain", `{{${column.name}}}`)}
+                  >
+                    <ContextMenu disabled={!answer || !onDeleteAnswers}>
+                      <ContextMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            className="-ml-2 text-muted-foreground"
+                            title={column.type}
+                            // Custom SQL sorts itself.
+                            disabled={custom}
+                            onClick={() => toggleSort(column.name)}
                           />
-                        </ContextMenuTrigger>
-                        {answer && (
-                          <ContextMenuContent>
-                            <ContextMenuItem
-                              variant="destructive"
-                              onClick={() => onDeleteAnswers?.(answer)}
-                            >
-                              <Trash2Icon />
-                              Delete {answerLabel(answer)}…
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        )}
-                      </ContextMenu>
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            ))}
+                        }
+                      >
+                        {columnLabel(column.name)}
+                        <SortIcon
+                          data-icon="inline-end"
+                          className={
+                            sort?.column !== column.name ? "text-muted-foreground" : undefined
+                          }
+                        />
+                      </ContextMenuTrigger>
+                      {answer && (
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            variant="destructive"
+                            onClick={() => onDeleteAnswers?.(answer)}
+                          >
+                            <Trash2Icon />
+                            Delete {answerLabel(answer)}…
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      )}
+                    </ContextMenu>
+                  </TableHead>
+                );
+              })}
+              {after > 0 && <th style={{ width: after }} />}
+            </TableRow>
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows.map((row, index) => (
-              <TableRow
-                key={row.id}
-                className="border-border/60"
-                data-state={selectedPosition === page * pageSize + index ? "selected" : undefined}
-                onClick={() => onPickRow?.(page * pageSize + index)}
-              >
-                {row.getAllCells().map((cell) => (
-                  <TableCell key={cell.id} className="max-w-96 truncate px-3 tabular-nums">
-                    <table.FlexRender cell={cell} />
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
+            {above > 0 && (
+              <tr>
+                <td style={{ height: above }} />
+              </tr>
+            )}
+            {visibleRows.map((item) => {
+              const row = rows[item.index];
+              const position = page * pageSize + item.index;
+              return (
+                <TableRow
+                  key={item.index}
+                  className="border-border/60"
+                  data-state={selectedPosition === position ? "selected" : undefined}
+                  onClick={() => onPickRow?.(position)}
+                >
+                  {before > 0 && <td />}
+                  {visibleColumns.map((column) => (
+                    <TableCell
+                      key={shownColumns[column.index].name}
+                      className="truncate px-3 tabular-nums"
+                    >
+                      <CellValue value={row[shownColumns[column.index].name]} />
+                    </TableCell>
+                  ))}
+                  {after > 0 && <td />}
+                </TableRow>
+              );
+            })}
+            {below > 0 && (
+              <tr>
+                <td style={{ height: below }} />
+              </tr>
+            )}
           </TableBody>
-        </Table>
+        </table>
         {shown?.total === 0 && !result?.error && (
           <Empty>
             <EmptyHeader>
@@ -381,4 +400,59 @@ function CellValue({ value }: { value: unknown }) {
       {text}
     </span>
   );
+}
+
+/** The rows' search box: its text is its own until typing pauses, so typing doesn't redraw the rows. */
+function SearchBox({
+  search,
+  onViewChange,
+}: {
+  search: string;
+  onViewChange: (changes: Partial<View>) => void;
+}) {
+  const [text, setText] = useState(search);
+  const [previous, setPrevious] = useState(search);
+  // Comparison drill-through can replace the search while this tab remains mounted. (Its own
+  // search coming back isn't one: a keystroke typed meanwhile is kept.)
+  if (search !== previous) {
+    setPrevious(search);
+    setText(search);
+  }
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (text === search) return;
+      setPrevious(text);
+      onViewChange({ search: text });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [text, search, onViewChange]);
+  return (
+    <InputGroup className="w-56">
+      <InputGroupAddon>
+        <SearchIcon />
+      </InputGroupAddon>
+      <InputGroupInput
+        id="rows-search"
+        placeholder="Search"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+    </InputGroup>
+  );
+}
+
+/** Each column's width, in px: enough for its header and the page's longest value, within bounds. */
+function columnWidths(columns: Column[], rows: Row[]): number[] {
+  return columns.map((column) => {
+    // The header's label, plus its sort icon.
+    let longest = columnLabel(column.name).length + 3;
+    for (const row of rows) {
+      const value = row[column.name];
+      if (value !== null && value !== undefined) {
+        longest = Math.max(longest, formatCell(value).length);
+      }
+      if (longest * CHAR_WIDTH >= MAX_WIDTH) break;
+    }
+    return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.ceil(longest * CHAR_WIDTH) + 24));
+  });
 }
