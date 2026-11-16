@@ -516,18 +516,30 @@ def create_server() -> FastMCP:
         note: Annotated[
             str, Field(description=models.ModelInput.model_fields["note"].description)
         ] = "",
+        prompt_price: Annotated[
+            float | None, Field(ge=0, description="USD per input token, if known.")
+        ] = None,
+        completion_price: Annotated[
+            float | None, Field(ge=0, description="USD per output token, if known.")
+        ] = None,
     ) -> catalog.Model:
         """Add a model of the organisation's own, to ask in runs like any other: e.g. an open-weight
         model on a GPU, or a fine-tuned checkpoint, served at one of the organisation's providers
         (an admin adds those in Settings). It is asked a short question first, and added once it
-        answers. Give each checkpoint its own id, and say in the note what answers; adding the
-        same model again returns it."""
+        answers. Give each checkpoint its own id, and say in the note what answers. Leave the
+        prices out for a GPU paid by the hour: its cost shows as not priced. Adding the same model
+        again returns it."""
         me = _me("member")
-        return models.add(
-            me.org.id,
-            models.ModelInput(id=id, provider=provider, upstream=upstream, kind=kind, note=note),
-            me.user.id if me.user else None,
+        data = models.ModelInput(
+            id=id,
+            provider=provider,
+            upstream=upstream,
+            kind=kind,
+            note=note,
+            prompt_price=prompt_price,
+            completion_price=completion_price,
         )
+        return models.add(me.org.id, data, me.user.id if me.user else None)
 
     @tool
     def model_update(

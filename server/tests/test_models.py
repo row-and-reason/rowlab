@@ -179,7 +179,8 @@ def test_members_add_models_through_providers_only_admins_add(hosted):
 
 
 def test_an_agent_adds_and_updates_a_checkpoint_over_mcp(client, gpu):
-    added = call(server.create_server(), "model_add", **KEV)
+    added = call(server.create_server(), "model_add", **KEV, completion_price=2e-7)
+    assert (added["prompt_price"], added["completion_price"]) == (None, 2e-7)
     assert (added["id"], added["upstream"], added["note"]) == (
         "kev-base",
         "kev-latest",
@@ -189,7 +190,11 @@ def test_an_agent_adds_and_updates_a_checkpoint_over_mcp(client, gpu):
     assert [m["id"] for m in found] == ["kev-base"]
     changed = call(server.create_server(), "model_update", id="kev-base", prompt_price=1e-7)
     # What is left out stays.
-    assert (changed["note"], changed["prompt_price"]) == ("kev-4b @ 6cfce5c", 1e-7)
+    assert (changed["note"], changed["prompt_price"], changed["completion_price"]) == (
+        "kev-4b @ 6cfce5c",
+        1e-7,
+        2e-7,
+    )
 
 
 def test_a_system_one_server_never_answers_for_rowlabs_catalog(client, dataset):
