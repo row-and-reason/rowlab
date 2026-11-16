@@ -122,12 +122,11 @@ export function DatasetPanels({
     setLabelQuery(sql);
     setLabelPosition(0);
   }
-  // Changes whenever answers do: a run filling in, or a label saved or changed.
+  // Changes whenever answers do: a run writing a chunk of them, or a label saved or changed. Not a
+  // run's progress, which changes every second while its answers reach the dataset only a chunk at a
+  // time: the rows and comparison would be fetched and redrawn each second for nothing.
   const [saved, setSaved] = useState(0);
-  const version =
-    dataset.answers.reduce((n, a) => n + a.answered, 0) +
-    runs.reduce((n, r) => n + r.done, 0) +
-    saved;
+  const version = dataset.answers.reduce((n, a) => n + a.answered, 0) + saved;
   const labelChanged = () => {
     setSaved((n) => n + 1);
     onChanged();
