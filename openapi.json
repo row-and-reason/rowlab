@@ -8,10 +8,40 @@
     "/v1/health": {
       "get": {
         "summary": "Health",
+        "description": "Whether the process is alive, for a liveness probe. It touches nothing, not even the\ndatabase: see `/v1/ready`.",
         "operationId": "getHealth",
         "responses": {
           "200": {
             "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ready": {
+      "get": {
+        "summary": "Ready",
+        "description": "Whether this server should get requests, for a readiness probe: its database answers,\nwith its migrations applied, and it isn't draining before it stops (`ROWLAB_DRAIN_SECONDS`).\n503 otherwise, with the reason as `status`.",
+        "operationId": "getReady",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready, and why.",
             "content": {
               "application/json": {
                 "schema": {

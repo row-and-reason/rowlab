@@ -39,13 +39,15 @@ def test_hosted_the_api_needs_sign_in(hosted):
     paths = create_app().openapi()["paths"]
     assert len(paths) > 20
     for path, methods in paths.items():
-        # Links carry their own permission; test_links checks they refuse bad tokens.
-        if path == "/v1/health" or path.startswith("/v1/links/"):
+        # Probes need no sign-in; links carry their own permission (test_links checks they refuse
+        # bad tokens).
+        if path in ("/v1/health", "/v1/ready") or path.startswith("/v1/links/"):
             continue
         for method in methods:
             response = client.request(method, re.sub(r"{\w+}", "x", path))
             assert response.status_code == 401, f"{method} {path}"
     assert client.get("/v1/health").status_code == 200
+    assert client.get("/v1/ready").status_code == 200
 
 
 def test_first_sign_in_makes_an_organisation(hosted):

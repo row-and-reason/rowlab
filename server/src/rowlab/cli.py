@@ -47,7 +47,13 @@ def main() -> None:
         if args.no_runner:
             # Read by the app as it starts, also in the processes `--reload` starts.
             os.environ["ROWLAB_NO_RUNNER"] = "1"
-        uvicorn.run("rowlab.app:app", host=args.host, port=args.port, reload=args.reload)
+        if args.reload:
+            uvicorn.run("rowlab.app:app", host=args.host, port=args.port, reload=True)
+        else:
+            from rowlab.core import serving
+
+            # Drains on SIGTERM before it stops (`ROWLAB_DRAIN_SECONDS`).
+            serving.Server(uvicorn.Config("rowlab.app:app", host=args.host, port=args.port)).run()
     elif args.command == "runner":
         from rowlab.core import metrics, runs
 

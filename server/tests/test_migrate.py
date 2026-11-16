@@ -6,11 +6,10 @@ import json
 import sys
 
 import pytest
-import uvicorn
 from helpers import NEGATIVE, run, stored, stored_datasets
 
 from rowlab import cli
-from rowlab.core import catalog, db, model_providers, replies, storage
+from rowlab.core import catalog, db, model_providers, replies, serving, storage
 from rowlab.core.tasks import Task
 
 CSV = "review,stars\nTerrible product,1\nLove it,5\nBroke after a day,1\n"
@@ -266,7 +265,7 @@ def test_a_dataset_whose_parent_was_deleted_becomes_one_of_its_own(client, root,
 
 def test_serving_waits_for_the_migration(client, tree, monkeypatch, capsys):
     served = []
-    monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: served.append(args))
+    monkeypatch.setattr(serving.Server, "run", lambda self: served.append(self.config.app))
     for command in (["serve"], ["runner"]):
         with pytest.raises(SystemExit) as refused:
             rowlab(monkeypatch, *command)
@@ -274,7 +273,7 @@ def test_serving_waits_for_the_migration(client, tree, monkeypatch, capsys):
     assert served == []
     rowlab(monkeypatch, "migrate")
     rowlab(monkeypatch, "serve")
-    assert served == [("rowlab.app:app",)]
+    assert served == ["rowlab.app:app"]
 
 
 def _tables():

@@ -66,8 +66,8 @@ up to each organisation's provider, key and model: calls still rate-limited afte
 failed answers, which resuming the run asks again. Watch `rate_limited` in the
 [metrics](#metrics) after raising it.
 
-Both stop gracefully on `SIGTERM`. The API stops taking connections and finishes the requests under
-way. A runner takes no more runs, lets the model calls in flight finish (a few seconds usually; up
+Both stop gracefully on `SIGTERM`. The API first [drains](#stopping), then stops taking connections
+and finishes the requests under way. A runner takes no more runs, lets the model calls in flight finish (a few seconds usually; up
 to about four minutes when the provider keeps timing out and is retried), then puts its run back in the
 queue, where the next runner continues it at once. The chunk under way is redone, without paying again
 for the replies it already got. A runner that is killed instead loses only the calls in flight, and
@@ -117,4 +117,18 @@ The [image](/self-host#with-docker) runs `rowlab serve --host 0.0.0.0` on port 8
 command `runner` for a runner, or `serve --host 0.0.0.0 --no-runner` for the API alone. It runs as
 any user, with a read-only filesystem, as long as `/data` is writable: with Postgres and S3 it holds
 only temporary files, so an empty volume will do (DuckDB spills to it, up to `ROWLAB_DUCKDB_TEMP`).
-`GET /v1/health` answers once it is ready.
+Probe it on two routes:
+
+- **`GET /v1/health`**, for liveness: 200 while the process is alive. It touches nothing, not even
+  the database, so a database outage doesn't get every pod restarted.
+- **`GET /v1/ready`**, for readiness: 200 once the database answers with its migrations applied, and
+  503 otherwise, or while draining, with the reason as `status`.
+
+### Stopping
+
+On `SIGTERM` the API drains for `ROWLAB_DRAIN_SECONDS` (15 when hosted): `/v1/ready` turns 503
+while it keeps answering every request, so a load balancer that learns of pods by probing them has
+time to stop sending requests before it stops listening. Then it shuts down gracefully. Give the pod
+a grace period longer than the drain plus the longest request (adding a dataset from a URL can take
+a minute): 90 seconds will do. With the drain, it needs no `preStop` sleep. A second `SIGTERM` stops
+it at once.
