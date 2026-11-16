@@ -1,4 +1,5 @@
-"""`rl.datasets`, `rl.runs` and `rl.models`: one method per API call, named and typed like the API."""
+"""`rl.datasets`, `rl.runs`, `rl.models` and `rl.providers`: one method per API call, named and typed
+like the API."""
 
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from ._models import (
     DatasetSummary,
     Estimate,
     Model,
+    Provider,
     Run,
     TaskInput,
 )
@@ -285,3 +287,53 @@ class ModelsResource:
         """Delete your own model. Its answers stay, and its id goes to no other model; creating the
         same model again brings it back."""
         self._client._content("DELETE", f"v1/models/{id}")
+
+
+class ProvidersResource:
+    def __init__(self, client: Client):
+        self._client = client
+
+    def list(self) -> list[Provider]:
+        """Your organisation's model providers, by name; keys are never returned."""
+        return self._client._request("GET", "v1/settings/providers", list[Provider])
+
+    def create(
+        self,
+        name: str,
+        *,
+        type: Literal["openrouter", "openai", "systemone"],
+        base_url: str,
+        api_key: str,
+        model_prefix: str = "",
+    ) -> Provider:
+        """Add a model provider, once it accepts the key: e.g. `type="systemone"` for a GPU server
+        of decision models, or `"openai"` for vLLM serving LoRA checkpoints. A hosted rowlab
+        reaches a public server over `https://` only. Admins only."""
+        body = {
+            "name": name,
+            "type": type,
+            "base_url": base_url,
+            "model_prefix": model_prefix,
+            "api_key": api_key,
+        }
+        return self._client._request("POST", "v1/settings/providers", Provider, json=body)
+
+    def move(self, name: str, *, base_url: str, api_key: str) -> Provider:
+        """Point a provider, by name or id, at a new address with its key, entered again: e.g. when
+        a rented GPU's server starts on another machine. Its models stay as they are, and runs
+        started again ask them there. Admins only."""
+        providers = self.list()
+        found = [p for p in providers if p.id == name] or [p for p in providers if p.name == name]
+        if len(found) != 1:
+            raise ValueError(f"No single provider is named {name}.")
+        saved = found[0]
+        body = {
+            "name": saved.name,
+            "type": saved.type,
+            "base_url": base_url,
+            "model_prefix": saved.model_prefix,
+            "api_key": api_key,
+        }
+        return self._client._request(
+            "PUT", f"v1/settings/providers/{saved.id}", Provider, json=body
+        )

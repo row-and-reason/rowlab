@@ -2,10 +2,11 @@
 calls go."""
 
 import pytest
-from helpers import NEGATIVE, run, start
+from helpers import NEGATIVE, call, run, start
 
 from rowlab.core import db, model_providers, runs
 from rowlab.core.providers import model_api
+from rowlab.mcp import server
 
 pytestmark = pytest.mark.usefixtures("fake")
 
@@ -269,3 +270,18 @@ def test_a_litellm_provider_becomes_an_openai_one():
         )
         conn.execute(rename)
     assert model_providers.get_provider("local", "p").type == "openai"
+
+
+def test_an_agent_adds_a_gpu_and_moves_it_to_the_next_machine(client, api_key, fake):
+    mcp = server.create_server()
+    gpu = {"name": "gpu", "type": "systemone", "api_key": "sk-good"}
+    added = call(mcp, "provider_add", **gpu, base_url="https://gpu-1.example.com")
+    assert [p["name"] for p in call(mcp, "providers_list")] == ["gpu", "OpenRouter"]
+    moved = call(
+        mcp,
+        "provider_move",
+        provider="gpu",
+        base_url="https://gpu-2.example.com",
+        api_key="sk-good",
+    )
+    assert (moved["id"], moved["base_url"]) == (added["id"], "https://gpu-2.example.com")

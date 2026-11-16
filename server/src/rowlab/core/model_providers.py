@@ -142,6 +142,20 @@ def update_provider(org_id: str, provider_id: str, data: ProviderInput) -> Provi
     return get_provider(org_id, provider_id)
 
 
+def move(org_id: str, name_or_id: str, base_url: str, api_key: str) -> Provider:
+    """Point a provider, by name or id, at a new address with its key: a rented GPU's server, say,
+    started again elsewhere. Its models and the runs that ask them keep going there."""
+    saved = find(org_id, name_or_id)
+    data = ProviderInput(
+        name=saved.name,
+        type=saved.type,
+        base_url=base_url,
+        model_prefix=saved.model_prefix,
+        api_key=api_key,
+    )
+    return update_provider(org_id, saved.id, data)
+
+
 def delete_provider(org_id: str, provider_id: str) -> None:
     """Delete a provider, once no model of the organisation's own uses it. If it was active, none is
     until another is picked. Runs that used it fail on their next chunk, saying so."""

@@ -9,6 +9,7 @@ from ._models import (
     Estimate,
     Model,
     Option,
+    Provider,
     Run,
 )
 from ._models import ExtractFieldInput as ExtractField
@@ -28,6 +29,7 @@ __all__ = [
     "ExtractField",
     "Model",
     "Option",
+    "Provider",
     "ResponseError",
     "RowlabError",
     "Run",

@@ -62,6 +62,7 @@ organisation.
 | `dataset_export`                                  | a dataset as CSV, JSONL or Parquet, to S3 (locally, also a path)                 |
 | `task_types_get`, `models_list`                   | the answer types and their fields; models by name, kind or tag                   |
 | `model_add`, `model_update`                       | add a model of the organisation's own, e.g. a checkpoint; change its note, price |
+| `providers_list`, `provider_add`, `provider_move` | the organisation's providers; add one, or point one at a GPU's new address (admins) |
 
 Each tool's description says why it exists and when to use it, and the server's instructions give the
 order of work: read the dataset, run on a sample in a stable order
