@@ -62,12 +62,13 @@ def check_key(base_url: str, api_key: str) -> None:
     model_api.get(base_url + "/v1/key", api_key)
 
 
-def decision_request(model: str, state: str, questions: dict[str, Any]) -> Request:
-    """Typed questions to a decision model about `state`."""
+def decision_request(model: str, name: str, state: str, questions: dict[str, Any]) -> Request:
+    """Typed questions to a decision model about `state`. `name` is what OpenRouter calls the model:
+    rowlab's id, unless it is an organisation's own."""
     return Request(
         path=DECISIONS,
         model=model,
-        body={"model": model, "state": state, "questions": questions},
+        body={"model": name, "state": state, "questions": questions},
     )
 
 

@@ -35,9 +35,18 @@ class Model(BaseModel):
         description="On rowlab's own list, offered first. The rest of OpenRouter's catalog can be "
         "asked too."
     )
-    prompt_price: float = Field(description="USD per input token.")
-    completion_price: float = Field(description="USD per output token.")
+    prompt_price: float | None = Field(
+        description="USD per input token; empty when unknown, e.g. for a GPU paid by the hour."
+    )
+    completion_price: float | None = Field(description="USD per output token; empty when unknown.")
     context_length: int
+    provider_id: str | None = Field(
+        None,
+        description="For the organisation's own models: the provider it is asked through. Catalog "
+        "models go through the active one.",
+    )
+    upstream: str = Field("", description="What its provider calls it, for the organisation's own.")
+    note: str = Field("", description="What answers, e.g. a checkpoint's revision or training run.")
 
 
 _list: list[Model] | None = None
@@ -78,29 +87,6 @@ class ModelPage(BaseModel):
     models: list[Model]
     total: int
     next_offset: int | None
-
-
-def list_models(
-    search: str = "",
-    kind: Literal["decision", "llm"] | None = None,
-    tag: str | None = None,
-    everything: bool = False,
-    offset: int = 0,
-    limit: int = 20,
-) -> ModelPage:
-    needle = search.lower()
-    found = [
-        m
-        for m in models(everything=everything)
-        if (kind is None or m.kind == kind)
-        and (tag is None or tag in m.tags)
-        and (needle in m.id.lower() or needle in m.name.lower())
-    ]
-    return ModelPage(
-        models=found[offset : offset + limit],
-        total=len(found),
-        next_offset=offset + limit if offset + limit < len(found) else None,
-    )
 
 
 def _load() -> list[Model]:

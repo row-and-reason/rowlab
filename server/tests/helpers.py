@@ -100,7 +100,7 @@ class FakeOpenRouter:
         self.unlisted_decisions = [decision_model("b/decider", "0.00000002")]
         self.unlisted_llms = [chat_model("y/other", "0.000003")]
 
-    def __call__(self, method, url, *, api_key, body=None):
+    def __call__(self, method, url, *, api_key, body=None, timeout=None):
         # Paths as OpenRouter's under its `/api`, and as any other provider's under its host.
         path = url.removeprefix(openrouter.BASE_URL)
         if path == url:
@@ -157,20 +157,23 @@ class FakeOpenRouter:
             raise ProviderError("HTTP 400: Provider error", status=400)
         if state == "no credits":
             raise ProviderError("HTTP 402: Insufficient credits", status=402)
+        if body["model"] == "not-served":
+            raise ProviderError("HTTP 404: The model `not-served` does not exist.", status=404)
         yes = 0.9 if _bad(state) else 0.1
         if path == "/v1/decisions":
-            # LiteLLM's (OpenAI's) format: a list of answers, by the questions' names, without cost.
+            # OpenAI's format (LiteLLM, vLLM): a list of answers, by the questions' names, no cost.
             return {
-                "answers": [_litellm_answer(q, yes) for q in body["questions"]],
+                "answers": [_openai_answer(q, yes) for q in body["questions"]],
                 "usage": {"input_tokens": 100, "output_tokens": 1},
             }
-        return {
-            "answers": {"answer": {"type": "noul", "noul": yes}},
-            "usage": {"input_tokens": 100, "output_tokens": 1, "cost": 0.001},
-        }
+        answers = {"answers": {"answer": {"type": "noul", "noul": yes}}}
+        if path == "/v1/systemone":
+            # A server of your own, e.g. vLLM: OpenRouter's format, without a cost.
+            return answers | {"usage": {"input_tokens": 100, "output_tokens": 1}}
+        return answers | {"usage": {"input_tokens": 100, "output_tokens": 1, "cost": 0.001}}
 
 
-def _litellm_answer(question, yes):
+def _openai_answer(question, yes):
     """Yes for a bad experience; the last choice; the top level, for certain."""
     name = question["name"]
     if question["type"] == "predicate":

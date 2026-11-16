@@ -1,4 +1,5 @@
-"""Model providers: an organisation's own keys, one active, and where each run's calls go."""
+"""Model providers: an organisation's own keys, one active for catalog models, and where each run's
+calls go."""
 
 import pytest
 from helpers import NEGATIVE, run, start
@@ -8,8 +9,8 @@ from rowlab.core.providers import model_api
 
 pytestmark = pytest.mark.usefixtures("fake")
 
-LITELLM = {
-    "type": "litellm",
+GATEWAY = {
+    "type": "openai",
     "name": "Gateway",
     "base_url": "https://litellm.example.com/v1/",
     "model_prefix": "openrouter/",
@@ -36,8 +37,8 @@ def test_a_provider_is_saved_once_it_accepts_the_key_which_is_never_returned(cli
     bad = add(client, type="openrouter", api_key="sk-bad")
     assert bad.status_code == 400
     assert bad.json()["detail"].startswith("OpenRouter did not accept the key")
-    assert add(client, type="litellm", api_key="sk-good").json()["detail"] == (
-        "Enter the LiteLLM gateway's address."
+    assert add(client, type="openai", api_key="sk-good").json()["detail"] == (
+        "Enter the server's address."
     )
     saved = add(client, type="openrouter", api_key=" sk-good ").json()
     assert (saved["name"], saved["base_url"], saved["active"]) == (
@@ -51,7 +52,7 @@ def test_a_provider_is_saved_once_it_accepts_the_key_which_is_never_returned(cli
 
 def test_one_provider_is_active_and_a_run_keeps_the_one_it_started_with(client, dataset, fake):
     first = add(client, type="openrouter", api_key="sk-good").json()
-    gateway = add(client, **LITELLM).json()
+    gateway = add(client, **GATEWAY).json()
     # Saved without its trailing `/v1`; the first provider stays active.
     assert gateway["base_url"] == "https://litellm.example.com"
     providers = client.get("/v1/settings/providers").json()
@@ -68,10 +69,12 @@ def test_one_provider_is_active_and_a_run_keeps_the_one_it_started_with(client, 
     asked = [u for u, c in zip(fake.urls, fake.calls, strict=True) if c[0] == "POST"]
     assert asked and all(u.startswith("https://openrouter.ai/") for u in asked)
 
-    # The next run goes to the gateway, with its prefix before the model's id.
+    # The next run goes to the gateway, with its prefix before the model's id. (Asked something
+    # new: a reply kept from the same model is used whichever provider it came through.)
     fake.calls.clear()
     fake.urls.clear()
-    finished = run(client, {**job, "tasks": [{**LLM_TASK, "column": "again"}]})
+    again = {**LLM_TASK, "column": "again", "template": LLM_TASK["template"] + " Really?"}
+    finished = run(client, {**job, "tasks": [again]})
     assert finished["status"] == "done"
     assert finished["provider_id"] == gateway["id"]
     posts = [(u, c[3]) for u, c in zip(fake.urls, fake.calls, strict=True) if c[0] == "POST"]
@@ -82,7 +85,7 @@ def test_one_provider_is_active_and_a_run_keeps_the_one_it_started_with(client, 
 
 
 def test_without_a_cost_in_the_reply_it_is_worked_out_from_prices(client, dataset, fake):
-    add(client, **LITELLM)
+    add(client, **GATEWAY)
     fake.reports_cost = False
     job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [LLM_TASK]}
     finished = run(client, job)
@@ -90,8 +93,10 @@ def test_without_a_cost_in_the_reply_it_is_worked_out_from_prices(client, datase
     assert finished["cost"] == pytest.approx(2 * (1000 * 2e-06 + 100 * 1e-06))
 
 
-def test_decision_models_answer_through_litellm_like_through_openrouter(client, dataset, fake):
-    add(client, **LITELLM)
+def test_decision_models_answer_through_an_openai_server_like_through_openrouter(
+    client, dataset, fake
+):
+    add(client, **GATEWAY)
     review = "{{review}}"
     jev = ["typesafe/jev-1.14"]
     tasks = [
@@ -131,7 +136,7 @@ def test_decision_models_answer_through_litellm_like_through_openrouter(client, 
     assert (broke["team__jev-1.14"], broke["team__jev-1.14_proba"]) == ("sales", 0.8)
     assert (broke["stars__jev-1.14"], broke["stars__jev-1.14_proba"]) == ("5", 1.0)
     assert broke["topic_delivery__jev-1.14"] is True
-    # No cost in LiteLLM's decision replies: 100 tokens in at Jev's $0.04/M, for each of 2 rows × 4.
+    # No cost in OpenAI-style decision replies: 100 tokens in at Jev's $0.04/M, for each of 2 rows × 4.
     assert finished["cost"] == pytest.approx(8 * 100 * 4e-08)
 
 
@@ -174,16 +179,16 @@ def test_a_saved_openrouter_key_becomes_the_active_provider():
 
 
 def test_a_saved_key_goes_only_where_it_was_first_sent(client, fake):
-    gateway = add(client, **LITELLM).json()
+    gateway = add(client, **GATEWAY).json()
     path = f"/v1/settings/providers/{gateway['id']}"
-    moved = {**LITELLM, "base_url": "https://elsewhere.example.net", "api_key": None}
+    moved = {**GATEWAY, "base_url": "https://elsewhere.example.net", "api_key": None}
     response = client.put(path, json=moved)
     assert response.status_code == 400
     assert response.json()["detail"] == "Enter the API key again to change the base URL."
     assert not any("elsewhere" in url for url in fake.urls)
     assert client.put(path, json={**moved, "type": "openrouter"}).status_code == 400
     # Renamed, with the key kept; or moved, with the key entered again.
-    renamed = client.put(path, json={**LITELLM, "name": "Homelab", "api_key": None})
+    renamed = client.put(path, json={**GATEWAY, "name": "Homelab", "api_key": None})
     assert renamed.json()["name"] == "Homelab"
     assert client.put(path, json={**moved, "api_key": "sk-good"}).status_code == 200
 
@@ -191,7 +196,7 @@ def test_a_saved_key_goes_only_where_it_was_first_sent(client, fake):
 def test_a_reply_that_cant_be_read_fails_its_answer_not_the_run(client, dataset, fake, monkeypatch):
     add(client, type="openrouter", api_key="sk-good")
 
-    def odd(method, url, *, api_key, body=None):
+    def odd(method, url, *, api_key, body=None, timeout=None):
         if method == "POST":
             fake.calls.append((method, url, api_key, body))
             return {"choices": "?", "usage": {"cost": 0.01}}
@@ -215,17 +220,17 @@ def test_a_base_url_that_isnt_an_api_is_refused_on_save(client, monkeypatch):
 
     monkeypatch.setattr(model_api, "_request", REAL_REQUEST)
     monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: Page())
-    response = add(client, **LITELLM)
+    response = add(client, **GATEWAY)
     assert response.status_code == 400
     assert "wasn't JSON" in response.json()["detail"]
 
 
-def test_a_litellm_decision_reply_missing_its_probabilities_fails_its_answer(
+def test_an_openai_decision_reply_missing_its_probabilities_fails_its_answer(
     client, dataset, fake, monkeypatch
 ):
-    add(client, **LITELLM)
+    add(client, **GATEWAY)
 
-    def partial(method, url, *, api_key, body=None):
+    def partial(method, url, *, api_key, body=None, timeout=None):
         reply = fake(method, url, api_key=api_key, body=body)
         if url.endswith("/v1/decisions"):
             del reply["answers"][0]["probabilities"]
@@ -243,3 +248,24 @@ def test_a_litellm_decision_reply_missing_its_probabilities_fails_its_answer(
     finished = run(client, job)
     assert (finished["status"], finished["costs"][0]["failed"]) == ("done", 2)
     assert finished["cost"] > 0
+
+
+def test_provider_names_are_unique_as_models_are_added_by_them(client, fake):
+    assert add(client, type="openrouter", api_key="sk-good").status_code == 201
+    second = add(client, type="openrouter", api_key="sk-good")
+    assert second.json()["detail"] == (
+        "A provider is already named OpenRouter. Give this one another name."
+    )
+    assert add(client, type="openrouter", name="Team", api_key="sk-good").status_code == 201
+
+
+def test_a_litellm_provider_becomes_an_openai_one():
+    sql = (db.MIGRATIONS_DIR / "009_models.sql").read_text()
+    rename = sql[sql.index("UPDATE providers") : sql.index(";") + 1]
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO providers (id, org_id, name, type, base_url, model_prefix, api_key,"
+            " created_at) VALUES ('p', 'local', 'Gateway', 'litellm', 'https://g', '', 'k', '2026-11-16T00:00:00+00:00')"
+        )
+        conn.execute(rename)
+    assert model_providers.get_provider("local", "p").type == "openai"

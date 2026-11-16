@@ -311,6 +311,13 @@ class Estimate(BaseModel):
             title='Cost',
         ),
     ]
+    unpriced: Annotated[
+        list[str] | None,
+        Field(
+            description='Models without prices, e.g. on a GPU paid by the hour: not in `cost`.',
+            title='Unpriced',
+        ),
+    ] = []
     problem: Annotated[
         str | None,
         Field(description="Why it can't run as it is, and what to change.", title='Problem'),
@@ -446,11 +453,103 @@ class Model(BaseModel):
             title='Listed',
         ),
     ]
-    prompt_price: Annotated[float, Field(description='USD per input token.', title='Prompt Price')]
+    prompt_price: Annotated[
+        float | None,
+        Field(
+            description='USD per input token; empty when unknown, e.g. for a GPU paid by the hour.',
+            title='Prompt Price',
+        ),
+    ]
     completion_price: Annotated[
-        float, Field(description='USD per output token.', title='Completion Price')
+        float | None,
+        Field(description='USD per output token; empty when unknown.', title='Completion Price'),
     ]
     context_length: Annotated[int, Field(title='Context Length')]
+    provider_id: Annotated[
+        str | None,
+        Field(
+            description="For the organisation's own models: the provider it is asked through. Catalog models go through the active one.",
+            title='Provider Id',
+        ),
+    ] = None
+    upstream: Annotated[
+        str | None,
+        Field(
+            description="What its provider calls it, for the organisation's own.", title='Upstream'
+        ),
+    ] = ''
+    note: Annotated[
+        str | None,
+        Field(
+            description="What answers, e.g. a checkpoint's revision or training run.", title='Note'
+        ),
+    ] = ''
+
+
+class PromptPrice(RootModel[float]):
+    root: Annotated[float, Field(ge=0.0, title='Prompt Price')]
+
+
+class CompletionPrice(RootModel[float]):
+    root: Annotated[float, Field(ge=0.0, title='Completion Price')]
+
+
+class ModelChange(BaseModel):
+    note: Annotated[str | None, Field(title='Note')] = None
+    prompt_price: Annotated[PromptPrice | None, Field(title='Prompt Price')] = None
+    completion_price: Annotated[CompletionPrice | None, Field(title='Completion Price')] = None
+
+
+class PromptPrice1(RootModel[float]):
+    root: Annotated[
+        float, Field(description='USD per input token, if known.', ge=0.0, title='Prompt Price')
+    ]
+
+
+class CompletionPrice1(RootModel[float]):
+    root: Annotated[
+        float,
+        Field(description='USD per output token, if known.', ge=0.0, title='Completion Price'),
+    ]
+
+
+class ModelInput(BaseModel):
+    id: Annotated[
+        str,
+        Field(
+            description="rowlab's id for it, as answer columns and comparisons show it: lowercase letters, digits, `.`, `_` and `-`, e.g. `fallacy-ft-step-2000`. Never given to another model, even once deleted.",
+            title='Id',
+        ),
+    ]
+    provider: Annotated[
+        str, Field(description='The provider it is asked through, by name or id.', title='Provider')
+    ]
+    upstream: Annotated[
+        str | None,
+        Field(
+            description='What the provider calls it, e.g. the name vLLM serves it under. Defaults to the id.',
+            title='Upstream',
+        ),
+    ] = ''
+    kind: Annotated[
+        Literal['decision', 'llm'] | None,
+        Field(description='A decision model, or an LLM with structured outputs.', title='Kind'),
+    ] = 'decision'
+    note: Annotated[
+        str | None,
+        Field(
+            description="What answers, to read in results later: e.g. the base model and revision, the checkpoint's step and training run.",
+            title='Note',
+        ),
+    ] = ''
+    prompt_price: Annotated[
+        PromptPrice1 | None,
+        Field(description='USD per input token, if known.', title='Prompt Price'),
+    ] = None
+    completion_price: Annotated[
+        CompletionPrice1 | None,
+        Field(description='USD per output token, if known.', title='Completion Price'),
+    ] = None
 
 
 class NewApiKey(BaseModel):
@@ -480,30 +579,44 @@ class Preset(BaseModel):
 class Provider(BaseModel):
     id: Annotated[str, Field(title='Id')]
     name: Annotated[str, Field(title='Name')]
-    type: Annotated[Literal['openrouter', 'litellm'], Field(title='Type')]
+    type: Annotated[Literal['openrouter', 'openai', 'systemone'], Field(title='Type')]
     base_url: Annotated[str, Field(title='Base Url')]
     model_prefix: Annotated[str, Field(title='Model Prefix')]
-    active: Annotated[bool, Field(description='Whether new runs use it.', title='Active')]
+    active: Annotated[
+        bool,
+        Field(
+            description="Whether new runs ask rowlab's catalog models through it.", title='Active'
+        ),
+    ]
     created_at: Annotated[AwareDatetime, Field(title='Created At')]
 
 
 class ProviderInput(BaseModel):
     name: Annotated[
         str | None,
-        Field(description="Defaults to the type's name, e.g. `OpenRouter`.", title='Name'),
+        Field(
+            description="Unique in the organisation; models are added to a provider by it. Defaults to the type's name, e.g. `OpenRouter`.",
+            title='Name',
+        ),
     ] = ''
-    type: Annotated[Literal['openrouter', 'litellm'], Field(title='Type')]
+    type: Annotated[
+        Literal['openrouter', 'openai', 'systemone'],
+        Field(
+            description="`openrouter`; `openai` for an OpenAI-compatible server (LiteLLM, or vLLM for generic models and LoRA adapters); `systemone` for a server of dedicated decision models (vLLM, or a model's own).",
+            title='Type',
+        ),
+    ]
     base_url: Annotated[
         str | None,
         Field(
-            description="Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`. For LiteLLM, the gateway's address, e.g. `https://litellm.example.com`.",
+            description="Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`; otherwise the server's address, e.g. `https://litellm.example.com`.",
             title='Base Url',
         ),
     ] = ''
     model_prefix: Annotated[
         str | None,
         Field(
-            description="Put before rowlab's model ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.",
+            description="`openai` only: put before rowlab's catalog ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.",
             title='Model Prefix',
         ),
     ] = ''
@@ -590,7 +703,7 @@ class Settings(BaseModel):
     provider: Annotated[
         Literal['server', 'organisation'] | None,
         Field(
-            description="Where model calls go: the server's own key (`OPENROUTER_API_KEY`), the organisation's active provider, or nowhere yet.",
+            description="Where model calls go: the server's own key (`OPENROUTER_API_KEY`) for rowlab's models, the organisation's providers, or nowhere yet.",
             title='Provider',
         ),
     ]
@@ -666,7 +779,7 @@ class TaskInput(BaseModel):
     models: Annotated[
         list[str] | None,
         Field(
-            description='Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.',
+            description='Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.',
             title='Models',
         ),
     ] = ['typesafe/jev-1.14']
@@ -725,7 +838,7 @@ class TaskOutput(BaseModel):
     models: Annotated[
         list[str],
         Field(
-            description='Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.',
+            description='Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.',
             title='Models',
         ),
     ]
@@ -1277,7 +1390,7 @@ class Run(BaseModel):
     models: Annotated[
         dict[str, Model] | None,
         Field(
-            description='The models it asks, by id, with their kinds and prices as when it started.',
+            description="The models it asks, by id, as when it started: their kinds and prices, and for the organisation's own, their provider, upstream name and note.",
             title='Models',
             validate_default=True,
         ),
@@ -1311,7 +1424,7 @@ class Run(BaseModel):
     provider_id: Annotated[
         str | None,
         Field(
-            description="The model provider its calls go to, kept from when it started. Empty on the server's key.",
+            description="The model provider its catalog models' calls go to, kept from when it started. Empty on the server's key, or with only the organisation's own models, which go to theirs.",
             title='Provider Id',
         ),
     ]

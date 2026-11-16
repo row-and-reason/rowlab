@@ -433,10 +433,11 @@ export function DatasetPanels({
   );
 }
 
-/** E.g. "About $0.12 for 400 calls · 20 answered · 3 missing input". */
+/** E.g. "About $0.12 for 400 calls · kev-base not priced · 20 answered · 3 missing input". */
 function describeEstimate(estimate: Estimate): string {
   return [
     `About ${formatUsd(estimate.cost)} for ${formatNumber(estimate.calls)} calls`,
+    estimate.unpriced.length > 0 && `${estimate.unpriced.join(", ")} not priced`,
     estimate.answered > 0 && `${formatNumber(estimate.answered)} answered already`,
     estimate.missing_input > 0 && `${formatNumber(estimate.missing_input)} missing input`,
     estimate.failed_before > 0 && `${formatNumber(estimate.failed_before)} failed before`,

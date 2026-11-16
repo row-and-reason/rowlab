@@ -20,7 +20,7 @@ def dataset(client, tmp_path):
 
 
 def test_lists_the_offered_models_in_order_at_openrouters_prices(client):
-    models = client.get("/v1/utils/models").json()
+    models = client.get("/v1/models").json()
     assert [m["id"] for m in models] == [
         "typesafe/jev-1.14",
         "a/cheap",
@@ -41,18 +41,18 @@ def test_models_are_listed_when_openrouter_is_down(client, monkeypatch):
         raise ProviderError("Could not reach openrouter.ai")
 
     monkeypatch.setattr(openrouter, "models", down)
-    models = {m["id"]: m for m in client.get("/v1/utils/models").json()}
+    models = {m["id"]: m for m in client.get("/v1/models").json()}
     assert models["typesafe/jev-1.14"]["prompt_price"] == pytest.approx(5e-08)
 
     # Nor when it answers in a shape it didn't before.
     monkeypatch.setattr(catalog, "_openrouter", None)
     monkeypatch.setattr(model_api, "_request", lambda *args, **kwargs: {"models": []})
-    models = {m["id"]: m for m in client.get("/v1/utils/models").json()}
+    models = {m["id"]: m for m in client.get("/v1/models").json()}
     assert models["typesafe/jev-1.14"]["prompt_price"] == pytest.approx(5e-08)
 
 
 def test_all_lists_the_rest_of_openrouters_catalog_that_rowlab_can_ask(client):
-    models = client.get("/v1/utils/models", params={"all": True}).json()
+    models = client.get("/v1/models", params={"all": True}).json()
     assert [m["id"] for m in models] == [
         "typesafe/jev-1.14",
         "a/cheap",

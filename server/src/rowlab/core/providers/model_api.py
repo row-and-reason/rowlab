@@ -1,4 +1,4 @@
-"""Calls to a model provider's HTTP API, in the OpenAI style OpenRouter and LiteLLM both serve: a base
+"""Calls to a model provider's HTTP API, in the OpenAI style OpenRouter, LiteLLM and vLLM serve: a base
 URL, a Bearer key, JSON in and out, and errors as `{"error": {"message": …}}`. What is particular to a
 provider (its key check, its decisions API) is in its own module.
 
@@ -39,11 +39,18 @@ class ProviderError(Exception):
     """A failed call, with the provider's own message."""
 
     def __init__(
-        self, message: str, *, status: int | None = None, retry_after: float | None = None
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retry_after: float | None = None,
+        unreachable: bool = False,
     ):
         super().__init__(message)
         self.status = status  # None when the provider couldn't be reached or didn't answer in time
         self.retry_after = retry_after
+        # No connection at all (refused, or no such host): not one slow call but a server that's down.
+        self.unreachable = unreachable
 
     @property
     def retryable(self) -> bool:
@@ -94,18 +101,27 @@ def usage(reply: dict[str, Any]) -> tuple[float | None, int, int]:
     )
 
 
-def post(base_url: str, request: Request, api_key: str) -> dict[str, Any]:
+def post(
+    base_url: str,
+    request: Request,
+    api_key: str,
+    *,
+    attempts: int = ATTEMPTS,
+    timeout: float = TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     """Make a call, paid for, retrying failures that may pass, waiting longer each time (or as long
     as the provider asks), with some randomness so parallel calls don't retry in step."""
-    for attempt in range(ATTEMPTS):
+    for attempt in range(attempts):
         started = time.monotonic()
         try:
-            reply = _request("POST", base_url + request.path, api_key=api_key, body=request.body)
+            reply = _request(
+                "POST", base_url + request.path, api_key=api_key, body=request.body, timeout=timeout
+            )
             _timed(request.model, started, 200)
             return reply
         except ProviderError as e:
             _timed(request.model, started, e.status)
-            if not e.retryable or attempt == ATTEMPTS - 1:
+            if not e.retryable or attempt == attempts - 1:
                 raise
             wait = e.retry_after or RETRY_BASE_SECONDS * 2**attempt * random.uniform(1, 1.5)
             time.sleep(min(wait, RETRY_MAX_SECONDS))
@@ -123,12 +139,21 @@ def _timed(model: str, started: float, status: int | None) -> None:
     )
 
 
-def _request(method: str, url: str, *, api_key: str | None, body: Any = None) -> dict[str, Any]:
+def _request(
+    method: str,
+    url: str,
+    *,
+    api_key: str | None,
+    body: Any = None,
+    timeout: float = TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     headers = {"User-Agent": f"rowlab/{__version__}", "X-Title": "rowlab"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     try:
-        response = _client.request(method, url, headers=headers, json=body)
+        response = _client.request(method, url, headers=headers, json=body, timeout=timeout)
+    except httpx.ConnectError as e:
+        raise ProviderError(f"Could not reach {httpx.URL(url).host}: {e}", unreachable=True) from e
     except httpx.HTTPError as e:
         raise ProviderError(f"Could not reach {httpx.URL(url).host}: {e}") from e
     if response.is_redirect:

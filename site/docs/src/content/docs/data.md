@@ -38,7 +38,7 @@ To delete your organisation or account and everything in it, email
 - **Your model provider and the model you pick** get, for each row a run asks about, the prompt
   with that row's columns, sent with your key. What they keep is set by the provider's terms (for
   OpenRouter, [its terms](https://openrouter.ai/terms) and your account's privacy settings there),
-  and for a LiteLLM gateway, by whoever runs it and the providers behind it.
+  and for a LiteLLM gateway or a server of your own, by whoever runs it and the providers behind it.
 - **WorkOS** signs you in, so it has your name and email.
 - **Cloudflare** carries every request to and from rowlab.dev, and protects it from abuse.
 - **PostHog** (EU) gets product analytics from the web app: the pages you open and what you click,

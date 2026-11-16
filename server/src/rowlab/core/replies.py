@@ -1,10 +1,11 @@
 """Model replies, kept so a paid call is not made twice, without the database growing with every row.
 
 A run writes each chunk's replies beside the dataset: `replies/{run}/part-{k}.parquet`, with
-`__row_id`, the request's `key` (a hash of the organisation and the request) and the reply's `data`.
-When the run ends (done, stopped or failed) they are written out as one `replies/{run}.parquet`,
-sorted by `__row_id`, with those it paid for in a chunk it didn't get to write. They are deleted with the dataset, and kept when its answers are deleted, so
-asking the same again is free. Only replies that could be read as an answer are kept.
+`__row_id`, the request's `key` (a hash of the organisation and the request, with rowlab's model id)
+and the reply's `data`. When the run ends (done, stopped or failed) they are written out as one
+`replies/{run}.parquet`, sorted by `__row_id`, with those it paid for in a chunk it didn't get to
+write. They are deleted with the dataset, and kept when its answers are deleted, so asking the same
+again is free. Only replies that could be read as an answer are kept.
 
 Before asking, a run looks for each request's reply among those of the dataset's other runs that used
 the same models, read only around the chunk's rows. The database only keeps the replies of chunks under
@@ -30,11 +31,13 @@ Reply = tuple[str, int, Any]
 
 def key(org_id: str, request: Request) -> str:
     """The same request from the same organisation gets the same key; each organisation has its
-    own replies, which nobody else sees or gets for free."""
+    own replies, which nobody else sees or gets for free. The model is named by rowlab's id, not the
+    name its provider gives it: two checkpoints served under one name are two models, and a catalog
+    model's reply is kept for it through any provider that asks it the same way (an LLM's chat
+    completion through OpenRouter or a gateway; decisions differ by API)."""
+    body = request.body | {"model": request.model}
     return hashlib.sha256(
-        json.dumps(
-            {"org": org_id, "path": request.path, "body": request.body}, sort_keys=True
-        ).encode()
+        json.dumps({"org": org_id, "path": request.path, "body": body}, sort_keys=True).encode()
     ).hexdigest()
 
 

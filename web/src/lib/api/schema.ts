@@ -389,6 +389,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Models
+         * @description The models a task can use, decision models and LLMs: the organisation's own, by id, then
+         *     rowlab's list at current prices, in the order we'd pick them; with `all`, every model in
+         *     OpenRouter's catalog rowlab can ask.
+         */
+        get: operations["listModels"];
+        put?: never;
+        /**
+         * Create Model
+         * @description Add a model of the organisation's own, asked through one of its providers: e.g. one served
+         *     with vLLM on a GPU, or a fine-tuned checkpoint. It is asked a short question first, and added
+         *     once it answers. Adding the same model (provider, upstream name and kind) again returns it, or
+         *     brings it back if it was deleted; another model under an id in use, or used before, is
+         *     refused.
+         */
+        post: operations["createModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/models/{model_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Model
+         * @description Delete a model of the organisation's own. Its answers stay, and its id goes to no other
+         *     model; adding the same model again brings it back.
+         */
+        delete: operations["deleteModel"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Model
+         * @description Change a model's note or prices. What answers (its provider, upstream name and kind) can't
+         *     change: add a new model for that.
+         */
+        patch: operations["updateModel"];
+        trace?: never;
+    };
     "/v1/settings/providers": {
         parameters: {
             query?: never;
@@ -398,8 +454,8 @@ export interface paths {
         };
         /**
          * List Providers
-         * @description The organisation's model providers, by name, and which one new runs use. Keys are never
-         *     returned.
+         * @description The organisation's model providers, by name, and which one new runs ask rowlab's catalog
+         *     models through. Keys are never returned.
          */
         get: operations["listProviders"];
         put?: never;
@@ -428,7 +484,10 @@ export interface paths {
          */
         put: operations["updateProvider"];
         post?: never;
-        /** Delete Provider */
+        /**
+         * Delete Provider
+         * @description Delete a provider, once none of the organisation's own models uses it.
+         */
         delete: operations["deleteProvider"];
         options?: never;
         head?: never;
@@ -446,7 +505,8 @@ export interface paths {
         put?: never;
         /**
          * Activate Provider
-         * @description Make the provider the one new runs use. Runs already started keep theirs.
+         * @description Make the provider the one new runs ask rowlab's catalog models through. Runs already started
+         *     keep theirs; the organisation's own models always go to their own.
          */
         post: operations["activateProvider"];
         delete?: never;
@@ -621,27 +681,6 @@ export interface paths {
          *     anyone else their own runs'.
          */
         get: operations["getUsage"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/utils/models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Models
-         * @description The models a task can use, decision models and LLMs, with current prices: rowlab's list, in
-         *     the order we'd pick them; with `all`, every model in OpenRouter's catalog rowlab can ask.
-         */
-        get: operations["listModels"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1309,6 +1348,12 @@ export interface components {
              */
             cost: number;
             /**
+             * Unpriced
+             * @description Models without prices, e.g. on a GPU paid by the hour: not in `cost`.
+             * @default []
+             */
+            unpriced: string[];
+            /**
              * Problem
              * @description Why it can't run as it is, and what to change.
              */
@@ -1526,16 +1571,87 @@ export interface components {
             listed: boolean;
             /**
              * Prompt Price
-             * @description USD per input token.
+             * @description USD per input token; empty when unknown, e.g. for a GPU paid by the hour.
              */
-            prompt_price: number;
+            prompt_price: number | null;
             /**
              * Completion Price
-             * @description USD per output token.
+             * @description USD per output token; empty when unknown.
              */
-            completion_price: number;
+            completion_price: number | null;
             /** Context Length */
             context_length: number;
+            /**
+             * Provider Id
+             * @description For the organisation's own models: the provider it is asked through. Catalog models go through the active one.
+             */
+            provider_id?: string | null;
+            /**
+             * Upstream
+             * @description What its provider calls it, for the organisation's own.
+             * @default
+             */
+            upstream: string;
+            /**
+             * Note
+             * @description What answers, e.g. a checkpoint's revision or training run.
+             * @default
+             */
+            note: string;
+        };
+        /**
+         * ModelChange
+         * @description What can change about a model; fields left out stay as they are.
+         */
+        ModelChange: {
+            /** Note */
+            note?: string | null;
+            /** Prompt Price */
+            prompt_price?: number | null;
+            /** Completion Price */
+            completion_price?: number | null;
+        };
+        /** ModelInput */
+        ModelInput: {
+            /**
+             * Id
+             * @description rowlab's id for it, as answer columns and comparisons show it: lowercase letters, digits, `.`, `_` and `-`, e.g. `fallacy-ft-step-2000`. Never given to another model, even once deleted.
+             */
+            id: string;
+            /**
+             * Provider
+             * @description The provider it is asked through, by name or id.
+             */
+            provider: string;
+            /**
+             * Upstream
+             * @description What the provider calls it, e.g. the name vLLM serves it under. Defaults to the id.
+             * @default
+             */
+            upstream: string;
+            /**
+             * Kind
+             * @description A decision model, or an LLM with structured outputs.
+             * @default decision
+             * @enum {string}
+             */
+            kind: "decision" | "llm";
+            /**
+             * Note
+             * @description What answers, to read in results later: e.g. the base model and revision, the checkpoint's step and training run.
+             * @default
+             */
+            note: string;
+            /**
+             * Prompt Price
+             * @description USD per input token, if known.
+             */
+            prompt_price?: number | null;
+            /**
+             * Completion Price
+             * @description USD per output token, if known.
+             */
+            completion_price?: number | null;
         };
         /** NewApiKey */
         NewApiKey: {
@@ -1647,14 +1763,14 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "openrouter" | "litellm";
+            type: "openrouter" | "openai" | "systemone";
             /** Base Url */
             base_url: string;
             /** Model Prefix */
             model_prefix: string;
             /**
              * Active
-             * @description Whether new runs use it.
+             * @description Whether new runs ask rowlab's catalog models through it.
              */
             active: boolean;
             /**
@@ -1667,24 +1783,25 @@ export interface components {
         ProviderInput: {
             /**
              * Name
-             * @description Defaults to the type's name, e.g. `OpenRouter`.
+             * @description Unique in the organisation; models are added to a provider by it. Defaults to the type's name, e.g. `OpenRouter`.
              * @default
              */
             name: string;
             /**
              * Type
+             * @description `openrouter`; `openai` for an OpenAI-compatible server (LiteLLM, or vLLM for generic models and LoRA adapters); `systemone` for a server of dedicated decision models (vLLM, or a model's own).
              * @enum {string}
              */
-            type: "openrouter" | "litellm";
+            type: "openrouter" | "openai" | "systemone";
             /**
              * Base Url
-             * @description Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`. For LiteLLM, the gateway's address, e.g. `https://litellm.example.com`.
+             * @description Where its API is. Empty for OpenRouter's own, `https://openrouter.ai/api`; otherwise the server's address, e.g. `https://litellm.example.com`.
              * @default
              */
             base_url: string;
             /**
              * Model Prefix
-             * @description Put before rowlab's model ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.
+             * @description `openai` only: put before rowlab's catalog ids, for a gateway that routes them under a prefix, e.g. `openrouter/`.
              * @default
              */
             model_prefix: string;
@@ -1869,7 +1986,7 @@ export interface components {
             config: components["schemas"]["RunRequest-Output"];
             /**
              * Models
-             * @description The models it asks, by id, with their kinds and prices as when it started.
+             * @description The models it asks, by id, as when it started: their kinds and prices, and for the organisation's own, their provider, upstream name and note.
              * @default {}
              */
             models: {
@@ -1917,7 +2034,7 @@ export interface components {
             created_by: string | null;
             /**
              * Provider Id
-             * @description The model provider its calls go to, kept from when it started. Empty on the server's key.
+             * @description The model provider its catalog models' calls go to, kept from when it started. Empty on the server's key, or with only the organisation's own models, which go to theirs.
              */
             provider_id: string | null;
             /**
@@ -1967,7 +2084,7 @@ export interface components {
         Settings: {
             /**
              * Provider
-             * @description Where model calls go: the server's own key (`OPENROUTER_API_KEY`), the organisation's active provider, or nowhere yet.
+             * @description Where model calls go: the server's own key (`OPENROUTER_API_KEY`) for rowlab's models, the organisation's providers, or nowhere yet.
              */
             provider: ("server" | "organisation") | null;
             /**
@@ -2036,7 +2153,7 @@ export interface components {
             reason: boolean;
             /**
              * Models
-             * @description Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.
+             * @description Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.
              * @default [
              *       "typesafe/jev-1.14"
              *     ]
@@ -2097,7 +2214,7 @@ export interface components {
             reason: boolean;
             /**
              * Models
-             * @description Decision models or LLMs; see `GET /v1/utils/models`. Defaults to one for the type.
+             * @description Decision models or LLMs; see `GET /v1/models`. Defaults to one for the type.
              * @default [
              *       "typesafe/jev-1.14"
              *     ]
@@ -3145,6 +3262,135 @@ export interface operations {
             };
         };
     };
+    listModels: {
+        parameters: {
+            query?: {
+                /** @description Also the rest of OpenRouter's catalog, after rowlab's list, by id. */
+                all?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Model"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    createModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Model"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    updateModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Model"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     listProviders: {
         parameters: {
             query?: never;
@@ -3576,38 +3822,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Usage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    listModels: {
-        parameters: {
-            query?: {
-                /** @description Also the rest of OpenRouter's catalog, after rowlab's list, by id. */
-                all?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Model"][];
                 };
             };
             /** @description Validation Error */
