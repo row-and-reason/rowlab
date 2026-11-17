@@ -125,7 +125,7 @@ the note.
 A rented GPU's address changes each time. Keep one provider for it, say `gpu`, and point it at each
 new machine, rather than adding a provider per machine: a model never changes provider, so the same
 weights on a new provider would be a new model, with columns of its own. Its models stay as they
-are, and a run started again asks them at the new address. An admin moves it in **Settings →
+are, and a resumed run asks them at the new address. An admin moves it in **Settings →
 Providers**, or from the script that starts the GPU, once the server is up:
 
 ```python
@@ -139,8 +139,8 @@ saves moving it at all.
 When a run can't reach its model's server at all, it stops and says so, rather than filling the
 rest of the rows with failures. That includes a tunnel or proxy with nothing behind it: Cloudflare's
 530 for a tunnel whose connector isn't running, or a 502 or 504 while the server is still loading.
-Start the server again, move the provider if its address changed, and start the run again: it asks
-only for the answers it didn't get.
+Start the server again, move the provider if its address changed, and continue the run: it asks
+only for the answers it didn't get, and takes the replies it already paid for free.
 
 ## Comparing fairly
 

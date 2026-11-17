@@ -262,7 +262,7 @@ class DatasetSummary(BaseModel):
     last_run_status: Annotated[
         Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'] | None,
         Field(
-            description='How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.',
+            description='How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.',
             title='Last Run Status',
         ),
     ]
@@ -861,10 +861,7 @@ class TaskModelCost(BaseModel):
     ] = 0
     failed: Annotated[
         int,
-        Field(
-            description='Answers that failed; starting the run again asks them again.',
-            title='Failed',
-        ),
+        Field(description='Answers that failed; resuming the run asks them again.', title='Failed'),
     ]
 
 
@@ -1106,7 +1103,7 @@ class Dataset(BaseModel):
     last_run_status: Annotated[
         Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'] | None,
         Field(
-            description='How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.',
+            description='How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.',
             title='Last Run Status',
         ),
     ]
@@ -1413,6 +1410,13 @@ class Run(BaseModel):
         ),
     ]
     done: Annotated[int, Field(description='Answers asked so far, failed ones too.', title='Done')]
+    reused: Annotated[
+        int | None,
+        Field(
+            description='Of those done, replies kept from earlier runs: free, and not asked again.',
+            title='Reused',
+        ),
+    ] = 0
     total: Annotated[int, Field(description='Answers it asks for.', title='Total')]
     cost: Annotated[
         float, Field(description='USD spent so far; cached answers are free.', title='Cost')
@@ -1421,6 +1425,13 @@ class Run(BaseModel):
     created_by: Annotated[
         str | None, Field(description='The user who started it; empty locally.', title='Created By')
     ]
+    resumes: Annotated[
+        str | None,
+        Field(
+            description="The ended run it was started again from (`POST /v1/runs/{id}/resume`), to ask what that one didn't get: the two are one piece of work.",
+            title='Resumes',
+        ),
+    ] = None
     provider_id: Annotated[
         str | None,
         Field(

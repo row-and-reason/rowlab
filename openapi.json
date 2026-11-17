@@ -1792,7 +1792,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Queue a run of every task with every model on the rows the query picks (all rows by\ndefault). It adds each task's answers to the dataset as columns, `<column>__<model>`, which fill\nin as the run works through the rows in the background: poll `GET /v1/runs/{id}`.\n\nIt asks only for answers the dataset doesn't have yet, and skips rows missing a value the prompt\nuses. So a run on all rows after a try on a few pays only for the rest, and starting a run\nagain after a stop or a failure asks only what is still missing. A column name keeps its\nquestion: a different prompt, options or answer type under a name in use is refused.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
+        "description": "Queue a run of every task with every model on the rows the query picks (all rows by\ndefault). It adds each task's answers to the dataset as columns, `<column>__<model>`, which fill\nin as the run works through the rows in the background: poll `GET /v1/runs/{id}`.\n\nIt asks only for answers the dataset doesn't have yet, and skips rows missing a value the prompt\nuses. So a run on all rows after a try on a few pays only for the rest; to ask what a stopped or\nfailed run is still missing, resume it (`POST /v1/runs/{id}/resume`). A column name keeps its\nquestion: a different prompt, options or answer type under a name in use is refused.\n\nA task needs only its `template` and `type`; the result column and models default to ones that\nsuit the type (see `GET /v1/utils/task-types`).",
         "operationId": "createRun",
         "security": [
           {
@@ -2017,7 +2017,7 @@
           "runs"
         ],
         "summary": "Stop Run",
-        "description": "Stop after the calls in flight. Starting the same run again asks for what it didn't get to;\nanswers it paid for are free.",
+        "description": "Stop after the calls in flight. Resuming it asks for what it didn't get to; answers it paid\nfor are free.",
         "operationId": "stopRun",
         "security": [
           {
@@ -2040,6 +2040,57 @@
         ],
         "responses": {
           "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runs/{run_id}/resume": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Resume Run",
+        "description": "Start an ended run again, as a new run whose `resumes` is this one: it asks what this one\ndidn't get, the answers it didn't get to and those that failed, on the rows its query picks.\nReplies it paid for are free. Only the latest attempt can be resumed.",
+        "operationId": "resumeRun",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -3385,7 +3436,7 @@
               }
             ],
             "title": "Last Run Status",
-            "description": "How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run."
+            "description": "How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run."
           },
           "columns": {
             "items": {
@@ -3488,7 +3539,7 @@
               }
             ],
             "title": "Last Run Status",
-            "description": "How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run."
+            "description": "How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run."
           }
         },
         "type": "object",
@@ -5012,6 +5063,12 @@
             "title": "Done",
             "description": "Answers asked so far, failed ones too."
           },
+          "reused": {
+            "type": "integer",
+            "title": "Reused",
+            "description": "Of those done, replies kept from earlier runs: free, and not asked again.",
+            "default": 0
+          },
           "total": {
             "type": "integer",
             "title": "Total",
@@ -5045,6 +5102,18 @@
             ],
             "title": "Created By",
             "description": "The user who started it; empty locally."
+          },
+          "resumes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resumes",
+            "description": "The ended run it was started again from (`POST /v1/runs/{id}/resume`), to ask what that one didn't get: the two are one piece of work."
           },
           "provider_id": {
             "anyOf": [
@@ -5447,7 +5516,7 @@
           "failed": {
             "type": "integer",
             "title": "Failed",
-            "description": "Answers that failed; starting the run again asks them again."
+            "description": "Answers that failed; resuming the run asks them again."
           }
         },
         "type": "object",
