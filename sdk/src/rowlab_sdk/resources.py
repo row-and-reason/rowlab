@@ -201,8 +201,8 @@ class RunsResource:
         """Start a run of every task with every model on the rows `sql` picks (all by default). It
         adds the answers to the dataset as columns, `<column>__<model>`, which fill in as it goes;
         `wait` for it. It asks only for answers the dataset doesn't have yet: a run on all rows
-        after a try on a few pays only for the rest, and creating the same run again after a stop
-        or a failure asks only what is still missing."""
+        after a try on a few pays only for the rest; `resume` a stopped or failed run to ask only
+        what it is still missing."""
         return self._client._request(
             "POST",
             f"v1/datasets/{dataset_id}/runs",
@@ -218,9 +218,15 @@ class RunsResource:
         return self._client._request("GET", f"v1/runs/{id}", Run)
 
     def stop(self, id: str) -> Run:
-        """Stop after the calls in flight. `create` the same run again to ask what it didn't get
-        to; answers it paid for are free."""
+        """Stop after the calls in flight. `resume` it to ask what it didn't get to; answers it
+        paid for are free."""
         return self._client._request("POST", f"v1/runs/{id}/stop", Run)
+
+    def resume(self, id: str) -> Run:
+        """Start an ended run again, as a new run whose `resumes` is this one: it asks the answers
+        this one didn't get to and those that failed. Replies it paid for are free. Only the latest
+        attempt can be resumed."""
+        return self._client._request("POST", f"v1/runs/{id}/resume", Run)
 
     def wait(self, id: str, *, interval: float = 2.0, timeout: float | None = None) -> Run:
         """The run once it's done, failed or stopped. It doesn't raise when the run failed: check
@@ -321,7 +327,7 @@ class ProvidersResource:
     def move(self, name: str, *, base_url: str, api_key: str) -> Provider:
         """Point a provider, by name or id, at a new address with its key, entered again: e.g. when
         a rented GPU's server starts on another machine. Its models stay as they are, and runs
-        started again ask them there. Admins only."""
+        resumed ask them there. Admins only."""
         providers = self.list()
         found = [p for p in providers if p.id == name] or [p for p in providers if p.name == name]
         if len(found) != 1:

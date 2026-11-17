@@ -56,7 +56,7 @@ organisation.
 | `sql_query`                                       | rows from one DuckDB `SELECT` over `data`                                        |
 | `columns_compare`                                 | coverage, agreement between answer columns, and accuracy against a reference     |
 | `run_preview`                                     | the estimate and the rendered prompts for a run, before it costs anything        |
-| `run_start`, `run_get`, `run_stop`, `runs_list`   | runs, with `run_start` and `run_get` waiting up to 30 seconds for progress       |
+| `run_start`, `run_get`, `run_stop`, `run_resume`, `runs_list` | runs, with `run_start`, `run_resume` and `run_get` waiting up to 30 seconds for progress |
 | `labels_set`                                      | set or clear labels people give, in a column of their own                        |
 | `answers_delete`                                  | delete a model's answers to a task, or a column of labels                        |
 | `dataset_export`                                  | a dataset as CSV, JSONL or Parquet, to S3 (locally, also a path)                 |
@@ -67,8 +67,8 @@ organisation.
 Each tool's description says why it exists and when to use it, and the server's instructions give the
 order of work: read the dataset, run on a sample in a stable order
 (`ORDER BY md5('s1' || __row_id) LIMIT 50`), read and compare the answers, then run the same tasks on
-all rows, asking only for the answers still missing. A stopped or failed run is started again with
-`run_start`. The
+all rows, asking only for the answers still missing. A stopped or failed run, or one with failed answers, is resumed with
+`run_resume`. The
 [Rowlab skill](/agents/skills) goes further.
 
 `models_list` returns `{models, total, next_offset}`: 20 models by default, at most 100 per page,

@@ -26,6 +26,13 @@ rowlab is pre-alpha, on its way to a first release. What is in it today:
 - A Python SDK, `rowlab-python-sdk`: a typed client to upload, run, export and compare from scripts
   and notebooks, and to add your own models, such as each checkpoint a training script saves.
 
+## rowlab-python-sdk 0.5.0
+
+- New: `runs.resume`, which starts an ended run again to ask the answers it didn't get to and those
+  that failed, as the next attempt of the same run; replies it paid for are free.
+- `Run` has `resumes`, the run it continues, and `reused`, its answers taken from replies kept by
+  earlier runs.
+
 ## rowlab-python-sdk 0.4.0
 
 - New: `rl.providers`: `list`, `create` and `move`, which points a provider at a new address, such

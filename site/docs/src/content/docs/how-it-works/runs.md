@@ -53,7 +53,7 @@ On a shared server, runs take turns a chunk at a time, so one person's million r
 another's twenty. An organisation can have any number of runs going, but only one at a time asks a
 given model for a given column.
 
-## Stop, fail, start again
+## Stop, fail, resume
 
 A stopped run keeps the chunks it finished; the chunk under way is dropped, though the replies paid
 for in it are kept, and cost nothing when asked again. When a runner stops or restarts under a run,
@@ -63,6 +63,10 @@ every call would fail alike; the answers so far stay. Other calls fail on their 
 provider error, a reply that doesn't fit the answer type): the run finishes with those cells empty and
 counted as failed.
 
-To continue a run, start the same run again. It asks for what is still missing, the failed cells and
-the rows a stopped run didn't get to, and never re-asks what was answered. A run's tasks are frozen
+To finish a run, resume it: **Continue** on a stopped or failed run, **Retry failed** on one that
+finished with failed cells, both saying how many they will ask. It asks for what is still missing,
+the failed cells and the rows a stopped run didn't get to, never re-asks what was answered, and takes
+the replies already paid for free. The resume is a run of its own, with its own rows and bill, shown
+as the next attempt of the same run: the Runs tab lists each piece of work once, with its earlier
+attempts and why they ended. A run's tasks are frozen
 when it starts; to change the prompt, start a run with a new column name.

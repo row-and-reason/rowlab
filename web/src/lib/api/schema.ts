@@ -561,8 +561,8 @@ export interface paths {
          *     in as the run works through the rows in the background: poll `GET /v1/runs/{id}`.
          *
          *     It asks only for answers the dataset doesn't have yet, and skips rows missing a value the prompt
-         *     uses. So a run on all rows after a try on a few pays only for the rest, and starting a run
-         *     again after a stop or a failure asks only what is still missing. A column name keeps its
+         *     uses. So a run on all rows after a try on a few pays only for the rest; to ask what a stopped or
+         *     failed run is still missing, resume it (`POST /v1/runs/{id}/resume`). A column name keeps its
          *     question: a different prompt, options or answer type under a name in use is refused.
          *
          *     A task needs only its `template` and `type`; the result column and models default to ones that
@@ -624,10 +624,32 @@ export interface paths {
         put?: never;
         /**
          * Stop Run
-         * @description Stop after the calls in flight. Starting the same run again asks for what it didn't get to;
-         *     answers it paid for are free.
+         * @description Stop after the calls in flight. Resuming it asks for what it didn't get to; answers it paid
+         *     for are free.
          */
         post: operations["stopRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume Run
+         * @description Start an ended run again, as a new run whose `resumes` is this one: it asks what this one
+         *     didn't get, the answers it didn't get to and those that failed, on the rows its query picks.
+         *     Replies it paid for are free. Only the latest attempt can be resumed.
+         */
+        post: operations["resumeRun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1252,7 +1274,7 @@ export interface components {
             active_total: number;
             /**
              * Last Run Status
-             * @description How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.
+             * @description How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.
              */
             last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
             /**
@@ -1308,7 +1330,7 @@ export interface components {
             active_total: number;
             /**
              * Last Run Status
-             * @description How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.
+             * @description How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.
              */
             last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
         };
@@ -2039,6 +2061,12 @@ export interface components {
              */
             done: number;
             /**
+             * Reused
+             * @description Of those done, replies kept from earlier runs: free, and not asked again.
+             * @default 0
+             */
+            reused: number;
+            /**
              * Total
              * @description Answers it asks for.
              */
@@ -2058,6 +2086,11 @@ export interface components {
              * @description The user who started it; empty locally.
              */
             created_by: string | null;
+            /**
+             * Resumes
+             * @description The ended run it was started again from (`POST /v1/runs/{id}/resume`), to ask what that one didn't get: the two are one piece of work.
+             */
+            resumes?: string | null;
             /**
              * Provider Id
              * @description The model provider its catalog models' calls go to, kept from when it started. Empty on the server's key, or with only the organisation's own models, which go to theirs.
@@ -2272,7 +2305,7 @@ export interface components {
             output_tokens: number;
             /**
              * Failed
-             * @description Answers that failed; starting the run again asks them again.
+             * @description Answers that failed; resuming the run asks them again.
              */
             failed: number;
         };
@@ -3739,6 +3772,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resumeRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

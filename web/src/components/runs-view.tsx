@@ -46,11 +46,13 @@ import {
   formatNumber,
   formatUsd,
 } from "@/lib/format";
-import { isActive } from "@/lib/runs";
+import { attempts, isActive, resumeLabel } from "@/lib/runs";
 import { ALL_ROWS } from "@/lib/sql";
 import { modelSlug } from "@/lib/tasks";
+import { useEstimate } from "@/lib/use-estimate";
 
-/** Where the dataset came from, and its runs, newest first: what each asked, how it went, its cost. */
+/** Where the dataset came from, and its runs, newest first: what each asked, how it went, its cost.
+ * A run resumed is one piece of work with its resumes, shown once with its earlier attempts. */
 export function RunsView({
   dataset,
   runs,
@@ -80,13 +82,13 @@ export function RunsView({
           answers as columns.
         </p>
       ) : (
-        runs.map((run) => (
+        attempts(runs).map((chain) => (
           <RunSection
-            key={run.id}
+            key={chain[0].id}
             dataset={dataset}
-            run={run}
+            attempts={chain}
             onChanged={onChanged}
-            onEdit={() => onEdit(run)}
+            onEdit={() => onEdit(chain[0])}
             onDeleteAnswers={onDeleteAnswers}
           />
         ))
@@ -100,19 +102,21 @@ const STATUS = {
   running: "Running",
   stopping: "Stopping",
   stopped: "Stopped",
-  failed: "Failed",
+  // Ended by a problem every call would have (a key, a server down), not by failed answers.
+  failed: "Interrupted",
   done: "Done",
 };
 
+/** A piece of work: its latest attempt, with its earlier ones (`attempts`, latest first). */
 function RunSection({
   dataset,
-  run,
+  attempts,
   onChanged,
   onEdit,
   onDeleteAnswers,
 }: {
   dataset: Dataset;
-  run: Run;
+  attempts: Run[];
   onChanged: () => void;
   onEdit: () => void;
   onDeleteAnswers: (answer: AnswerColumn) => void;
@@ -120,10 +124,23 @@ function RunSection({
   const types = useTaskTypes();
   const router = useRouter();
   const canEdit = useCan("member");
+  const [run, ...earlier] = attempts;
   const speed = useSpeed(run);
   const [busy, setBusy] = useState(false);
   const failed = run.costs.reduce((n, c) => n + c.failed, 0);
   const active = isActive(run);
+  // What resuming would ask: the answers not got to, and those that failed. Asked again when the
+  // dataset's answers change (another run, a delete), as that changes what is missing.
+  const resumeEnabled = canEdit && !active && (run.status !== "done" || failed > 0);
+  const { estimate, problem } = useEstimate(
+    dataset.id,
+    run.config.sql,
+    run.config.tasks,
+    resumeEnabled,
+    JSON.stringify(dataset.answers.map((a) => [a.name, a.model, a.answered])),
+  );
+  const resumable = !active && estimate ? resumeLabel(estimate) : null;
+  const spent = attempts.reduce((n, a) => n + a.cost, 0);
   const answerOf = (column: string, model: string) =>
     dataset.answers.find((a) => a.name === column && a.model === model);
   const deletable = run.config.tasks.flatMap((task) =>
@@ -140,12 +157,11 @@ function RunSection({
     onChanged();
   }
 
-  // Asks the same tasks on the same rows again: only what is still missing is asked.
-  async function startAgain() {
+  // The next attempt: asks only what is still missing, and takes replies already paid for free.
+  async function resume() {
     setBusy(true);
-    const { error } = await api.POST("/v1/datasets/{dataset_id}/runs", {
-      params: { path: { dataset_id: dataset.id } },
-      body: run.config,
+    const { error } = await api.POST("/v1/runs/{run_id}/resume", {
+      params: { path: { run_id: run.id } },
     });
     setBusy(false);
     if (error) toast.error(errorMessage(error));
@@ -166,6 +182,7 @@ function RunSection({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-medium">{STATUS[run.status]}</span>
         <span className="text-xs text-muted-foreground" title={formatDate(run.created_at)}>
+          {earlier.length > 0 && `attempt ${attempts.length} · `}
           {formatAgo(run.created_at)}
         </span>
         <div className="ml-auto flex items-center gap-1">
@@ -180,16 +197,19 @@ function RunSection({
               Stop
             </Button>
           )}
-          {canEdit && !active && (run.status !== "done" || failed > 0) && (
+          {canEdit && resumable && (
             <Button
               size="sm"
               variant="ghost"
-              title="Ask what is still missing; answers it has are free"
+              title={
+                problem ??
+                `About ${formatUsd(estimate?.cost ?? 0)}${estimate?.unpriced.length ? " + not priced" : ""}; replies already paid for are free`
+              }
               disabled={busy}
-              onClick={startAgain}
+              onClick={resume}
             >
               <RotateCcwIcon data-icon="inline-start" />
-              Start again
+              {resumable}
             </Button>
           )}
           <DropdownMenu>
@@ -203,9 +223,9 @@ function RunSection({
                 <SquareIcon />
                 Stop
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={!canEdit || active || busy} onClick={startAgain}>
+              <DropdownMenuItem disabled={!canEdit || !resumable || busy} onClick={resume}>
                 <RotateCcwIcon />
-                Start again
+                {resumable ?? "Continue"}
               </DropdownMenuItem>
               <DropdownMenuItem disabled={!canEdit} onClick={onEdit}>
                 <PencilIcon />
@@ -242,8 +262,16 @@ function RunSection({
         <span className={failed ? "text-destructive" : "text-muted-foreground"}>
           {formatNumber(failed)} failed
         </span>
-        <span title="Cached answers are free; models without prices aren't counted.">
-          {formatUsd(run.cost)} spent
+        {run.reused > 0 && (
+          <span
+            className="text-muted-foreground"
+            title="Replies paid for by earlier attempts or runs: free, not asked again."
+          >
+            {formatNumber(run.reused)} reused
+          </span>
+        )}
+        <span title="By every attempt. Cached answers are free; models without prices aren't counted.">
+          {formatUsd(spent)} spent
           {Object.values(run.models ?? {}).some((m) => m.prompt_price === null) && " + not priced"}
         </span>
       </div>
@@ -262,6 +290,28 @@ function RunSection({
         <Alert variant="destructive">
           <AlertDescription>{run.error}</AlertDescription>
         </Alert>
+      )}
+      {resumeEnabled && !resumable && problem && (
+        <p className="text-xs text-muted-foreground">Can&apos;t resume it: {problem}</p>
+      )}
+      {earlier.length > 0 && (
+        <ol className="space-y-0.5 text-xs text-muted-foreground" aria-label="Earlier attempts">
+          {earlier.map((attempt, i) => (
+            <li key={attempt.id} className="flex gap-x-2">
+              <span className="shrink-0 tabular-nums" title={formatDate(attempt.created_at)}>
+                Attempt {attempts.length - 1 - i} · {STATUS[attempt.status]}{" "}
+                {formatAgo(attempt.created_at)} · {formatNumber(attempt.done)} /{" "}
+                {formatNumber(attempt.total)} asked ·{" "}
+                {formatNumber(attempt.costs.reduce((n, c) => n + c.failed, 0))} failed
+              </span>
+              {attempt.error && (
+                <span className="truncate" title={attempt.error}>
+                  · {attempt.error}
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
       )}
       {run.config.tasks.map((task) => {
         const comparable = task.models
@@ -312,7 +362,13 @@ function RunSection({
               </TableHeader>
               <TableBody>
                 {task.models.map((model) => {
+                  // Failed: those the latest attempt didn't get, as each asks all earlier failures
+                  // again. Cost: every attempt's.
+                  const costs = attempts.flatMap((a) =>
+                    a.costs.filter((c) => c.task_id === task.id && c.model === model),
+                  );
                   const cost = run.costs.find((c) => c.task_id === task.id && c.model === model);
+                  const modelSpent = costs.reduce((n, c) => n + c.cost, 0);
                   const answer = answerOf(task.column, model);
                   const unpriced = run.models?.[model]?.prompt_price === null;
                   return (
@@ -327,7 +383,7 @@ function RunSection({
                         {cost ? formatNumber(cost.failed) : "—"}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {!cost ? "—" : unpriced ? "Not priced" : formatUsd(cost.cost)}
+                        {!costs.length ? "—" : unpriced ? "Not priced" : formatUsd(modelSpent)}
                       </TableCell>
                     </TableRow>
                   );
@@ -369,22 +425,25 @@ function fieldLabel(type: string, types: TaskTypes | undefined): string {
   return types?.field_types.find((t) => t.id === type)?.label.toLowerCase() ?? type;
 }
 
+/** Calls a second and the time left, from the answers actually asked: replies reused come at
+ * once and would make it look faster than it is. */
 function useSpeed(
-  run: Pick<Run, "id" | "done" | "total">,
+  run: Pick<Run, "id" | "done" | "reused" | "total">,
 ): { perSecond: number; secondsLeft: number } | undefined {
-  const first = useRef<{ runId: string; done: number; at: number }>(undefined);
+  const asked = run.done - run.reused;
+  const first = useRef<{ runId: string; asked: number; at: number }>(undefined);
   const [speed, setSpeed] = useState<{ perSecond: number; secondsLeft: number }>();
   useEffect(() => {
     const start = first.current;
-    if (!start || start.runId !== run.id || run.done < start.done) {
-      first.current = { runId: run.id, done: run.done, at: Date.now() };
+    if (!start || start.runId !== run.id || asked < start.asked) {
+      first.current = { runId: run.id, asked, at: Date.now() };
       setSpeed(undefined);
       return;
     }
     const seconds = (Date.now() - start.at) / 1000;
-    if (seconds < 2 || run.done <= start.done) return;
-    const perSecond = (run.done - start.done) / seconds;
+    if (seconds < 2 || asked <= start.asked) return;
+    const perSecond = (asked - start.asked) / seconds;
     setSpeed({ perSecond, secondsLeft: (run.total - run.done) / perSecond });
-  }, [run.id, run.done, run.total]);
+  }, [run.id, asked, run.done, run.total]);
   return speed;
 }

@@ -66,7 +66,7 @@ with Client() as rl:
 - A run adds its answers to the dataset, as columns `{column}__{model}` listed in `run.columns`:
   export and compare the dataset you uploaded.
 - `wait` returns once the run is done, failed or stopped, without raising: check `run.status`, and
-  `run.costs[i].failed` for answers that failed. Creating the same run again asks for those, and for
+  `run.costs[i].failed` for answers that failed. `rl.runs.resume(run.id)` asks for those, and for
   whatever a stopped run didn't get to. With `timeout=`, it raises `TimeoutError` when that passes;
   the run carries on.
 - The `reference` is a column you uploaded with the data, or [labels people
