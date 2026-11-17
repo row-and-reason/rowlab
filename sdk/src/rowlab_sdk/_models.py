@@ -262,7 +262,7 @@ class DatasetSummary(BaseModel):
     last_run_status: Annotated[
         Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'] | None,
         Field(
-            description='How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.',
+            description='How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.',
             title='Last Run Status',
         ),
     ]
@@ -1103,7 +1103,7 @@ class Dataset(BaseModel):
     last_run_status: Annotated[
         Literal['queued', 'running', 'stopping', 'stopped', 'done', 'failed'] | None,
         Field(
-            description='How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.',
+            description='How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.',
             title='Last Run Status',
         ),
     ]

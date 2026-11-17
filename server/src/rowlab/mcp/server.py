@@ -590,7 +590,7 @@ def create_server() -> FastMCP:
         ],
     ) -> model_providers.Provider:
         """Point a provider at a new address, e.g. when a rented GPU's server starts again on
-        another machine. Its models stay as they are, and runs started again ask them there.
+        another machine. Its models stay as they are, and runs resumed ask them there.
         Admins only."""
         me = _me("admin")
         return model_providers.move(me.org.id, provider, base_url, api_key)

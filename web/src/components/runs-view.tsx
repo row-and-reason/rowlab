@@ -129,14 +129,18 @@ function RunSection({
   const [busy, setBusy] = useState(false);
   const failed = run.costs.reduce((n, c) => n + c.failed, 0);
   const active = isActive(run);
-  // What resuming would ask: the answers not got to, and those that failed.
+  // What resuming would ask: the answers not got to, and those that failed. Asked again when the
+  // dataset's answers change (another run, a delete), as that changes what is missing.
+  const resumeEnabled = canEdit && !active && (run.status !== "done" || failed > 0);
   const { estimate, problem } = useEstimate(
     dataset.id,
     run.config.sql,
     run.config.tasks,
-    canEdit && !active && (run.status !== "done" || failed > 0),
+    resumeEnabled,
+    JSON.stringify(dataset.answers.map((a) => [a.name, a.model, a.answered])),
   );
   const resumable = !active && estimate ? resumeLabel(estimate) : null;
+  const spent = attempts.reduce((n, a) => n + a.cost, 0);
   const answerOf = (column: string, model: string) =>
     dataset.answers.find((a) => a.name === column && a.model === model);
   const deletable = run.config.tasks.flatMap((task) =>
@@ -266,8 +270,8 @@ function RunSection({
             {formatNumber(run.reused)} reused
           </span>
         )}
-        <span title="Cached answers are free; models without prices aren't counted.">
-          {formatUsd(run.cost)} spent
+        <span title="By every attempt. Cached answers are free; models without prices aren't counted.">
+          {formatUsd(spent)} spent
           {Object.values(run.models ?? {}).some((m) => m.prompt_price === null) && " + not priced"}
         </span>
       </div>
@@ -286,6 +290,9 @@ function RunSection({
         <Alert variant="destructive">
           <AlertDescription>{run.error}</AlertDescription>
         </Alert>
+      )}
+      {resumeEnabled && !resumable && problem && (
+        <p className="text-xs text-muted-foreground">Can&apos;t resume it: {problem}</p>
       )}
       {earlier.length > 0 && (
         <ol className="space-y-0.5 text-xs text-muted-foreground" aria-label="Earlier attempts">
@@ -361,7 +368,7 @@ function RunSection({
                     a.costs.filter((c) => c.task_id === task.id && c.model === model),
                   );
                   const cost = run.costs.find((c) => c.task_id === task.id && c.model === model);
-                  const spent = costs.reduce((n, c) => n + c.cost, 0);
+                  const modelSpent = costs.reduce((n, c) => n + c.cost, 0);
                   const answer = answerOf(task.column, model);
                   const unpriced = run.models?.[model]?.prompt_price === null;
                   return (
@@ -376,7 +383,7 @@ function RunSection({
                         {cost ? formatNumber(cost.failed) : "—"}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {!costs.length ? "—" : unpriced ? "Not priced" : formatUsd(spent)}
+                        {!costs.length ? "—" : unpriced ? "Not priced" : formatUsd(modelSpent)}
                       </TableCell>
                     </TableRow>
                   );

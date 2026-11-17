@@ -739,5 +739,8 @@ def test_a_runner_shutting_down_gives_its_run_back_without_paying_twice(
     monkeypatch.setattr(model_api, "_request", fake)
     while runs.process_next():
         pass
-    assert client.get(f"/v1/runs/{created['id']}").json()["status"] == "done"
+    finished = client.get(f"/v1/runs/{created['id']}").json()
+    assert finished["status"] == "done"
     assert len(_paid_calls(fake)) == 3
+    # The chunk asked again counts its answers once, and its own replies aren't reused ones.
+    assert (finished["done"], finished["reused"]) == (finished["total"], 0)

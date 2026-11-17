@@ -125,7 +125,7 @@ the note.
 A rented GPU's address changes each time. Keep one provider for it, say `gpu`, and point it at each
 new machine, rather than adding a provider per machine: a model never changes provider, so the same
 weights on a new provider would be a new model, with columns of its own. Its models stay as they
-are, and a run started again asks them at the new address. An admin moves it in **Settings →
+are, and a resumed run asks them at the new address. An admin moves it in **Settings →
 Providers**, or from the script that starts the GPU, once the server is up:
 
 ```python

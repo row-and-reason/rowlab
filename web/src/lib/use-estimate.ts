@@ -5,12 +5,14 @@ import { useEffect, useState } from "react";
 import { api, type Estimate, type Task } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
 
-/** What running the draft would take and cost, or why it can't run: fetched again as it changes. */
+/** What running the draft would take and cost, or why it can't run: fetched again as it changes,
+ * or as `refresh` does (anything else it depends on). */
 export function useEstimate(
   datasetId: string,
   sql: string,
   tasks: Task[],
   enabled: boolean,
+  refresh = "",
 ): { estimate?: Estimate; problem?: string } {
   // What the API says the run would cost, and why it can't start, if it can't: its own answer, or
   // the request's error (e.g. rowlab can't be reached).
@@ -37,6 +39,6 @@ export function useEstimate(
     };
     // The key stands for the query and tasks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datasetId, key, enabled]);
+  }, [datasetId, key, enabled, refresh]);
   return { estimate: estimate?.estimate, problem: estimate?.problem };
 }

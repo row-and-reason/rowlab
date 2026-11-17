@@ -327,7 +327,7 @@ class ProvidersResource:
     def move(self, name: str, *, base_url: str, api_key: str) -> Provider:
         """Point a provider, by name or id, at a new address with its key, entered again: e.g. when
         a rented GPU's server starts on another machine. Its models stay as they are, and runs
-        started again ask them there. Admins only."""
+        resumed ask them there. Admins only."""
         providers = self.list()
         found = [p for p in providers if p.id == name] or [p for p in providers if p.name == name]
         if len(found) != 1:

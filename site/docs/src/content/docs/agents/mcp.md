@@ -67,8 +67,8 @@ organisation.
 Each tool's description says why it exists and when to use it, and the server's instructions give the
 order of work: read the dataset, run on a sample in a stable order
 (`ORDER BY md5('s1' || __row_id) LIMIT 50`), read and compare the answers, then run the same tasks on
-all rows, asking only for the answers still missing. A stopped or failed run is started again with
-`run_start`. The
+all rows, asking only for the answers still missing. A stopped or failed run, or one with failed answers, is resumed with
+`run_resume`. The
 [Rowlab skill](/agents/skills) goes further.
 
 `models_list` returns `{models, total, next_offset}`: 20 models by default, at most 100 per page,

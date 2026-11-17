@@ -193,6 +193,14 @@ def create_run(
         with db.connect() as conn:
             # One at a time per dataset, so two runs never ask for the same answers.
             datasets.lock(conn, dataset_id)
+            later = (
+                resumes
+                and conn.execute("SELECT id FROM runs WHERE resumes = ?", (resumes,)).fetchone()
+            )
+            if later:
+                raise InvalidRequest(
+                    f"Run {resumes} was resumed already, by run {later['id']}: resume that."
+                )
             for other in _active(conn, dataset_id):
                 same = _pairs(request) & _pairs(other.config)
                 if same:
@@ -239,12 +247,6 @@ def resume_run(run_id: str, created_by: str | None) -> Run:
     run = get_run(run_id)
     if run.status in datasets.ACTIVE:
         raise InvalidRequest("The run is still going: stop it, or wait for it to end.")
-    with db.connect() as conn:
-        later = conn.execute("SELECT id FROM runs WHERE resumes = ?", (run_id,)).fetchone()
-    if later:
-        raise InvalidRequest(
-            f"Run {run_id} was resumed already, by run {later['id']}: resume that."
-        )
     return create_run(run.dataset_id, run.config, created_by, resumes=run_id)
 
 
@@ -737,12 +739,14 @@ def _process_chunk(
     ]
     request_keys = [replies.key(org_id, request) for request in requests]
     row_ids = [row[ROW_ID] for row in rows]
-    found = replies.stored(
+    earlier = replies.stored(
         run.dataset_id, [model for task in run.config.tasks for model in task.models], row_ids
-    ) | replies.journaled(run.id)
-    before = get_run(run.id)
+    )
+    found = earlier | replies.journaled(run.id)
     stopping = threading.Event()
     given: list[_Answer | None] = [None] * len(units)
+    # Whether each answer is a reply kept by an earlier run; those this run paid for don't count.
+    reused = [False] * len(units)
     # The replies to keep, written beside the part; those paid for now are journaled until it is.
     kept: list[replies.Reply | None] = [None] * len(units)
     paid: list[replies.Reply] = []
@@ -761,6 +765,7 @@ def _process_chunk(
             stopping.set()
             raise
         given[i] = answer
+        reused[i] = answer.cached and answer.error is None and request_keys[i] in earlier
         # Only replies that could be read: one that couldn't is asked again next time.
         if data is not None and answer.error is None:
             kept[i] = (request_keys[i], row[ROW_ID], data)
@@ -801,8 +806,8 @@ def _process_chunk(
                 # Saving progress also shows other runners this run still has its runner.
                 _set(
                     run.id,
-                    done=before.done + sum(a is not None for a in given),
-                    reused=before.reused + sum(_reused(a) for a in given),
+                    chunk_done=sum(a is not None for a in given),
+                    chunk_reused=sum(reused),
                 )
                 record_spent()
                 # A deleted dataset takes its run with it.
@@ -843,12 +848,12 @@ def _process_chunk(
                 (n, run.dataset_id, column, model),
             )
         conn.execute(
-            "UPDATE runs SET next_chunk = ?, done = ?, reused = ?, costs = ?, cost = ?,"
-            " updated_at = ? WHERE id = ?",
+            "UPDATE runs SET next_chunk = ?, done = done + ?, reused = reused + ?, chunk_done = 0,"
+            " chunk_reused = 0, costs = ?, cost = ?, updated_at = ? WHERE id = ?",
             (
                 chunk + 1,
-                before.done + len(units),
-                before.reused + sum(_reused(a) for a in given),
+                len(units),
+                sum(reused),
                 json.dumps([c.model_dump() for c in costs.values()]),
                 sum(c.cost for c in costs.values()),
                 datetime.now(UTC).isoformat(),
@@ -888,11 +893,6 @@ def write_part(
         storage.write(con, "SELECT * FROM part", datasets.run_part(dataset_id, run_id, chunk))
 
 
-def _reused(answer: _Answer | None) -> bool:
-    """Whether the answer is a reply kept from before, not asked again."""
-    return answer is not None and answer.cached and answer.error is None
-
-
 def _count(spent: usage.Spent, answer: _Answer) -> None:
     """Add an answer to what was spent. Cached replies cost nothing and used no tokens this time."""
     spent.answers += answer.error is None
@@ -911,8 +911,8 @@ class ProviderProblem(Exception):
 
 
 _KEY_PROBLEMS = {
-    401: "The model provider refused the key. Change it in Settings → Providers, then start the "
-    "run again",
+    401: "The model provider refused the key. Change it in Settings → Providers, then continue "
+    "the run",
     402: "The model provider's key is out of credits. Add some, then continue the run",
 }
 
@@ -998,14 +998,14 @@ def _from_row(row) -> Run:
         columns=json.loads(row["columns"]),
         costs=json.loads(row["costs"]),
         row_count=row["row_count"],
-        done=row["done"],
+        done=row["done"] + row["chunk_done"],
         total=row["total"],
         cost=row["cost"],
         error=row["error"],
         created_by=row["created_by"],
         provider_id=row["provider_id"],
         resumes=row["resumes"],
-        reused=row["reused"],
+        reused=row["reused"] + row["chunk_reused"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

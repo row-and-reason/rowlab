@@ -83,8 +83,8 @@ class DatasetSummary(BaseModel):
     last_run_status: (
         Literal["queued", "running", "stopping", "stopped", "done", "failed"] | None
     ) = Field(
-        description="How its newest run stands: `failed` or `stopped` until a run is started "
-        "again. Empty before any run."
+        description="How its newest run stands: `failed` or `stopped` until it is resumed or "
+        "another run starts. Empty before any run."
     )
 
 
@@ -365,7 +365,7 @@ _ACTIVE = "('queued', 'running', 'stopping')"
 _SUMMARY = f"""
     (SELECT count(*) FROM answer_columns a WHERE a.dataset_id = d.id) AS answer_columns,
     (SELECT count(*) FROM runs r WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_runs,
-    (SELECT coalesce(sum(r.done), 0) FROM runs r
+    (SELECT coalesce(sum(r.done + r.chunk_done), 0) FROM runs r
         WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_done,
     (SELECT coalesce(sum(r.total), 0) FROM runs r
         WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_total,

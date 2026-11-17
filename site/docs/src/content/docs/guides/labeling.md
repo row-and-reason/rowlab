@@ -43,7 +43,8 @@ the prompt is unclear. A try you no longer want is deleted from the column's men
 Preview the same tasks without the `LIMIT`, and note the rows, the answers already there, the calls
 and the cost: only the answers still missing are asked and paid for. Start the run. If the first
 answers look wrong, stop it. A run that stopped or failed with the prompt right, or a done run with
-failed answers, is started again the same way: it asks only for what is missing.
+failed answers, is resumed with **Continue** or **Retry failed** on its card in the Runs tab: it
+asks only for what is missing.
 
 ## Check the result
 

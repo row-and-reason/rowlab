@@ -28,7 +28,7 @@ all. Separate tasks are each a call per row and model.
 The same prompt and model on the same row is never paid for twice in a dataset: a run asks only for
 the answers it is missing, and model replies are kept. So iterate on a sample before the full run, a
 stable one (`ORDER BY md5('s1' || __row_id) LIMIT 200`) whose answers the full run then reuses, and
-start a stopped or failed run again rather than changing it. When the data grows, add the new rows as
+resume a stopped or failed run rather than changing it. When the data grows, add the new rows as
 a new dataset (a file of just them, with a stable id), run on it, and join the results to the earlier
 ones where you keep your data.
 

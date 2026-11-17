@@ -1274,7 +1274,7 @@ export interface components {
             active_total: number;
             /**
              * Last Run Status
-             * @description How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.
+             * @description How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.
              */
             last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
             /**
@@ -1330,7 +1330,7 @@ export interface components {
             active_total: number;
             /**
              * Last Run Status
-             * @description How its newest run stands: `failed` or `stopped` until a run is started again. Empty before any run.
+             * @description How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.
              */
             last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
         };
