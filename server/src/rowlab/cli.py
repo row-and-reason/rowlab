@@ -33,16 +33,8 @@ def main() -> None:
 
     commands.add_parser("openapi", help="Print the OpenAPI spec as JSON")
 
-    migrate = commands.add_parser(
-        "migrate",
-        help="Fold datasets runs made into the datasets they were made from (once, runners stopped)",
-    )
-    migrate.add_argument("--dry-run", action="store_true", help="Only say what it would do")
-
     # `rowlab` alone serves, so `uvx rowlab` is all a first run needs.
     args = parser.parse_args(sys.argv[1:] or ["serve"])
-    if args.command in ("serve", "runner", "mcp"):
-        _check_migrated()
     if args.command == "serve":
         if args.no_runner:
             # Read by the app as it starts, also in the processes `--reload` starts.
@@ -77,19 +69,3 @@ def main() -> None:
         from rowlab.app import app
 
         print(json.dumps(app.openapi(), indent=2))
-    elif args.command == "migrate":
-        from rowlab.core import migrate as migrate_core
-
-        migrate_core.migrate(dry_run=args.dry_run)
-
-
-def _check_migrated() -> None:
-    """Refuse to start on datasets still in trees: runs would add answers where nothing reads them."""
-    from rowlab.core import migrate
-
-    pending = migrate.pending()
-    if pending:
-        sys.exit(
-            f"{pending} dataset(s) were made by runs, in the layout before answers became columns. "
-            "Stop every runner and run `rowlab migrate` first."
-        )

@@ -660,7 +660,7 @@ def test_replies_stay_to_be_journaled_when_journaling_fails_once(
 
 
 def test_a_kept_reply_that_cant_be_read_is_asked_again(client, dataset, job, api_key, fake):
-    # Replies kept before only readable ones were (moved in from the old layout) can be unusable.
+    # Replies an older rowlab kept, before it kept only readable ones, can be unusable.
     first = run(client, job)
     kept = storage.location(dataset["id"], "replies", f"{first['id']}.parquet")
     with storage.connect() as con:

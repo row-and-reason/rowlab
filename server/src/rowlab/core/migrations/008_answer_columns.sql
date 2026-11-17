@@ -1,6 +1,6 @@
 -- One dataset per file: runs and people add answer columns to it, instead of a run making a new dataset.
--- `datasets.parent_id`, `branch`, `made` and `root_id` stay until every tree is folded into its root
--- (`rowlab migrate`); a later migration drops them.
+-- `datasets.parent_id`, `branch`, `made` and `root_id` stayed until every tree was folded into its
+-- root; 010 drops them.
 
 -- The answer columns of a dataset, one row per task and model, or per labelled task (model ''): the
 -- question they answer, so a name keeps its meaning, and how many rows have an answer.
