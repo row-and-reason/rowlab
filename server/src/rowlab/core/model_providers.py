@@ -240,7 +240,7 @@ def for_run(org_id: str, provider_id: str | None) -> Use:
         row = _row(org_id, provider_id)
     except NotFound:
         raise InvalidRequest(
-            "The model provider this run used was deleted. Start the run again."
+            "The model provider this run used was deleted. Continue the run to use the active one."
         ) from None
     try:
         _check_url(row["base_url"])

@@ -125,9 +125,9 @@ def test_wait_returns_runs_that_ended_and_times_out_on_the_rest(rl, api_key):
         rl.runs.wait(queued.id, timeout=0)
     rl.runs.stop(queued.id)
     assert rl.runs.wait(queued.id).status == "stopped"
-    # Starting it again asks for what it didn't get to.
-    again = rl.runs.create(ds.id, NEGATIVE)
-    assert (again.status, again.row_count) == ("queued", 3)
+    # Resuming it asks for what it didn't get to.
+    again = rl.runs.resume(queued.id)
+    assert (again.status, again.row_count, again.resumes) == ("queued", 3, queued.id)
     rl.runs.stop(again.id)
 
     broke = rl.runs.create(ds.id, Task(template="no credits", column="broke"))

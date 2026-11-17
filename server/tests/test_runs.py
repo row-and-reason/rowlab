@@ -163,7 +163,7 @@ def test_run_reports_failed_rows(client, job, api_key):
     assert finished["costs"][0]["failed"] == 3
 
 
-def test_a_key_out_of_credits_fails_the_run_until_started_again(client, job, api_key):
+def test_a_key_out_of_credits_fails_the_run_until_resumed(client, job, api_key):
     created = start(client, update(job, tasks=[{**NEGATIVE, "template": "no credits"}]))
     with pytest.raises(runs.ProviderProblem):
         runs.process_next()
@@ -171,16 +171,13 @@ def test_a_key_out_of_credits_fails_the_run_until_started_again(client, job, api
     assert failed["status"] == "failed"
     assert failed["error"].startswith("The model provider's key is out of credits.")
     assert "HTTP 402: Insufficient credits" in failed["error"]
-    assert "start the run again" in failed["error"]
-    # The datasets list says so, until a run is started again.
+    assert "continue the run" in failed["error"]
+    # The datasets list says so, until the run is resumed.
     assert client.get("/v1/datasets").json()[0]["last_run_status"] == "failed"
-    assert (
-        start(client, update(job, tasks=[{**NEGATIVE, "template": "no credits"}]))["status"]
-        == "queued"
-    )
+    assert resume(client, failed)["status"] == "queued"
 
 
-def test_starting_a_run_again_asks_only_the_answers_that_failed(client, job, api_key, fake):
+def test_resuming_a_run_asks_only_the_answers_that_failed(client, job, api_key, fake):
     fake.flaky = {"Is this review negative? Love it"}
     finished = run(client, job)
     assert (finished["status"], finished["costs"][0]["failed"]) == ("done", 1)
@@ -189,16 +186,17 @@ def test_starting_a_run_again_asks_only_the_answers_that_failed(client, job, api
     assert (preview["answered"], preview["calls"], preview["failed_before"]) == (2, 1, 1)
 
     asked = len(fake.calls)
-    again = run(client, job)
+    again = resumed(client, finished)
     assert (again["status"], again["total"], again["costs"][0]["failed"]) == ("done", 1, 0)
+    assert again["resumes"] == finished["id"]
     assert rows(client, again)[1]["negative__jev-1.14"] is False
     # Only the failed answer was asked again.
     assert len(fake.calls) == asked + 1
     # Nothing is missing now, so there is nothing to start.
-    assert "already" in start(client, job)["detail"]
+    assert "already" in resume(client, again)["detail"]
 
 
-def test_a_stopped_run_started_again_asks_for_what_it_didnt_get_to(
+def test_a_stopped_run_resumed_asks_for_what_it_didnt_get_to(
     client, job, api_key, fake, monkeypatch
 ):
     monkeypatch.setattr(runs, "CHUNK_ROWS", 1)
@@ -209,7 +207,7 @@ def test_a_stopped_run_started_again_asks_for_what_it_didnt_get_to(
     assert runs.process_next() is False
     assert [r["negative__jev-1.14"] for r in rows(client, created).values()] == [True, None, None]
 
-    again = run(client, job)
+    again = resumed(client, stopped)
     assert (again["status"], again["row_count"]) == ("done", 2)
     assert None not in [r["negative__jev-1.14"] for r in rows(client, created).values()]
     assert len([c for c in fake.calls if c[1] == "/alpha/decisions"]) == 3
@@ -541,6 +539,33 @@ def test_an_organisation_can_have_any_number_of_runs_going(client, job, api_key,
     assert len(claimed) == 3
 
 
+def resume(client, run_):
+    """Start an ended run again, as its Continue or Retry failed button does."""
+    return client.post(f"/v1/runs/{run_['id']}/resume").json()
+
+
+def resumed(client, run_):
+    """Resume a run and let the runner process the resume."""
+    created = resume(client, run_)
+    while runs.process_next():
+        pass
+    return client.get(f"/v1/runs/{created['id']}").json()
+
+
+def test_only_the_latest_attempt_of_an_ended_run_is_resumed(client, job, api_key, fake):
+    first = run(client, update(job, tasks=[{**NEGATIVE, "template": "fail"}]))
+    assert first["costs"][0]["failed"] == 3
+    # Still going: there is nothing to resume yet.
+    second = resume(client, first)
+    assert "still going" in resume(client, second)["detail"]
+    # Once resumed, an attempt is resumed through the latest one, so the attempts stay one line.
+    assert second["id"] in resume(client, first)["detail"]
+    while runs.process_next():
+        pass
+    third = resume(client, second)
+    assert third["resumes"] == second["id"]
+
+
 def _paid_calls(fake):
     return [c for c in fake.calls if c[0] == "POST"]
 
@@ -574,7 +599,7 @@ def test_replies_are_kept_when_answers_are_deleted(client, dataset, job, api_key
     assert [a["name"] for a in found["answers"]] == ["again"]
     assert "negative__jev-1.14" not in [c["name"] for c in found["columns"]]
     asked_anew = run(client, job)
-    assert asked_anew["total"] == 3
+    assert (asked_anew["total"], asked_anew["reused"]) == (3, 3)
     assert _paid_calls(fake) == []
     assert rows(client, first)[0]["negative__jev-1.14"] is True
 

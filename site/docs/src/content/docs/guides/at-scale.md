@@ -43,4 +43,4 @@ A run on a million rows takes hours, and its dataset fills in a chunk of 500 row
 the answers early (`WHERE <column> IS NOT NULL`) and stop the run if they are wrong, before the
 budget is spent.
 Some answers fail at scale (rate limits, provider errors, unusable replies); when the run is done,
-start it again once to ask them again, then see what is still missing.
+retry them once (resume the run), then see what is still missing.

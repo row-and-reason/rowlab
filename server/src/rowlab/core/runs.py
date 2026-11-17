@@ -3,7 +3,9 @@ by runners taking turns.
 
 A run asks only for answers its dataset doesn't have yet. A cell an earlier run answered (a try on a
 few rows, say) is skipped, and so is a row missing a value the prompt uses, e.g. an earlier answer
-that failed. So starting the same run again, after a stop or a failure, asks only what is still missing.
+that failed. So resuming a run, after a stop or a failure, asks only what is still missing: the
+answers it didn't get to and those that failed. The resume is a run of its own (`resumes` names the
+one it continues), so each attempt keeps its own rows, files and bill.
 
 The rows a run asks about are listed when it starts (`runs/{id}/asked.parquet`), and it works in chunks
 of them: chunk k is always the same rows. A chunk's answers are written to `runs/{id}/part-{k}.parquet`
@@ -69,7 +71,7 @@ class TaskModelCost(BaseModel):
     cost: float = Field(description="USD spent by this run; cached answers are free.")
     input_tokens: int = Field(0, description="Prompt tokens billed, as the provider counts them.")
     output_tokens: int = Field(0, description="Answer tokens billed.")
-    failed: int = Field(description="Answers that failed; starting the run again asks them again.")
+    failed: int = Field(description="Answers that failed; resuming the run asks them again.")
 
 
 class RunRequest(BaseModel):
@@ -102,10 +104,18 @@ class Run(BaseModel):
         description="Rows it asks about: those the query picks that miss one of its answers."
     )
     done: int = Field(description="Answers asked so far, failed ones too.")
+    reused: int = Field(
+        0, description="Of those done, replies kept from earlier runs: free, and not asked again."
+    )
     total: int = Field(description="Answers it asks for.")
     cost: float = Field(description="USD spent so far; cached answers are free.")
     error: str | None = Field(description="Why the run failed.")
     created_by: str | None = Field(description="The user who started it; empty locally.")
+    resumes: str | None = Field(
+        None,
+        description="The ended run it was started again from (`POST /v1/runs/{id}/resume`), to ask "
+        "what that one didn't get: the two are one piece of work.",
+    )
     provider_id: str | None = Field(
         description="The model provider its catalog models' calls go to, kept from when it started. "
         "Empty on the server's key, or with only the organisation's own models, which go to theirs."
@@ -148,9 +158,12 @@ _wake = threading.Event()
 _shutdown = threading.Event()
 
 
-def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> Run:
+def create_run(
+    dataset_id: str, request: RunRequest, created_by: str | None, resumes: str | None = None
+) -> Run:
     """Queue a run of every task with every model on the rows the query picks, asking only for the
-    answers those rows don't have yet; started by `created_by` (a user; nobody locally)."""
+    answers those rows don't have yet; started by `created_by` (a user; nobody locally), resuming
+    the run `resumes`, if given."""
     check(dataset_id, request)
     org_id = datasets.org_of(dataset_id)
     asked = {model: models.get(org_id, model) for task in request.tasks for model in task.models}
@@ -195,8 +208,8 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
             now = datetime.now(UTC).isoformat()
             conn.execute(
                 "INSERT INTO runs (id, dataset_id, status, config, models, columns, costs,"
-                " row_count, total, created_at, queued_at, created_by, provider_id)"
-                " VALUES (?, ?, 'queued', ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)",
+                " row_count, total, created_at, queued_at, created_by, provider_id, resumes)"
+                " VALUES (?, ?, 'queued', ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     dataset_id,
@@ -209,6 +222,7 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
                     now,
                     created_by,
                     provider_id,
+                    resumes,
                 ),
             )
     except BaseException:
@@ -216,6 +230,22 @@ def create_run(dataset_id: str, request: RunRequest, created_by: str | None) -> 
         raise
     _wake.set()
     return get_run(run_id)
+
+
+def resume_run(run_id: str, created_by: str | None) -> Run:
+    """Start an ended run again, as a run that resumes it: it asks what this one didn't get, the
+    answers it didn't get to and those that failed, on the rows its query picks. Replies it paid
+    for are free. Only the latest attempt can be resumed, so the attempts stay one line."""
+    run = get_run(run_id)
+    if run.status in datasets.ACTIVE:
+        raise InvalidRequest("The run is still going: stop it, or wait for it to end.")
+    with db.connect() as conn:
+        later = conn.execute("SELECT id FROM runs WHERE resumes = ?", (run_id,)).fetchone()
+    if later:
+        raise InvalidRequest(
+            f"Run {run_id} was resumed already, by run {later['id']}: resume that."
+        )
+    return create_run(run.dataset_id, run.config, created_by, resumes=run_id)
 
 
 def list_runs(dataset_id: str) -> list[Run]:
@@ -489,7 +519,7 @@ def check_access(org_id: str, run_id: str) -> None:
 
 
 def stop_run(run_id: str) -> Run:
-    """Stop after the calls in flight; a queued run stops right away. Starting the same run again
+    """Stop after the calls in flight; a queued run stops right away. Resuming it
     asks for what it didn't get to."""
     run = get_run(run_id)
     if run.status == "queued":
@@ -710,7 +740,7 @@ def _process_chunk(
     found = replies.stored(
         run.dataset_id, [model for task in run.config.tasks for model in task.models], row_ids
     ) | replies.journaled(run.id)
-    done_before = get_run(run.id).done
+    before = get_run(run.id)
     stopping = threading.Event()
     given: list[_Answer | None] = [None] * len(units)
     # The replies to keep, written beside the part; those paid for now are journaled until it is.
@@ -769,7 +799,11 @@ def _process_chunk(
             while not all(f.done() for f in futures):
                 time.sleep(PROGRESS_INTERVAL_SECONDS)
                 # Saving progress also shows other runners this run still has its runner.
-                _set(run.id, done=done_before + sum(a is not None for a in given))
+                _set(
+                    run.id,
+                    done=before.done + sum(a is not None for a in given),
+                    reused=before.reused + sum(_reused(a) for a in given),
+                )
                 record_spent()
                 # A deleted dataset takes its run with it.
                 if _status(run.id) in ("stopping", None):
@@ -809,11 +843,12 @@ def _process_chunk(
                 (n, run.dataset_id, column, model),
             )
         conn.execute(
-            "UPDATE runs SET next_chunk = ?, done = ?, costs = ?, cost = ?, updated_at = ?"
-            " WHERE id = ?",
+            "UPDATE runs SET next_chunk = ?, done = ?, reused = ?, costs = ?, cost = ?,"
+            " updated_at = ? WHERE id = ?",
             (
                 chunk + 1,
-                done_before + len(units),
+                before.done + len(units),
+                before.reused + sum(_reused(a) for a in given),
                 json.dumps([c.model_dump() for c in costs.values()]),
                 sum(c.cost for c in costs.values()),
                 datetime.now(UTC).isoformat(),
@@ -853,6 +888,11 @@ def write_part(
         storage.write(con, "SELECT * FROM part", datasets.run_part(dataset_id, run_id, chunk))
 
 
+def _reused(answer: _Answer | None) -> bool:
+    """Whether the answer is a reply kept from before, not asked again."""
+    return answer is not None and answer.cached and answer.error is None
+
+
 def _count(spent: usage.Spent, answer: _Answer) -> None:
     """Add an answer to what was spent. Cached replies cost nothing and used no tokens this time."""
     spent.answers += answer.error is None
@@ -866,14 +906,14 @@ def _count(spent: usage.Spent, answer: _Answer) -> None:
 
 class ProviderProblem(Exception):
     """The provider refuses the key, is out of credits, or can't be reached: every call would fail
-    alike, so the run fails with this. Starting it again once that is fixed asks for what it didn't
+    alike, so the run fails with this. Resuming it once that is fixed asks for what it didn't
     get."""
 
 
 _KEY_PROBLEMS = {
     401: "The model provider refused the key. Change it in Settings → Providers, then start the "
     "run again",
-    402: "The model provider's key is out of credits. Add some, then start the run again",
+    402: "The model provider's key is out of credits. Add some, then continue the run",
 }
 
 
@@ -907,7 +947,7 @@ def _ask(
             raise ProviderProblem(f"{_KEY_PROBLEMS[e.status]} ({e})") from e
         if e.unreachable:
             raise ProviderProblem(
-                f"{e}. Is the model's server up, at the provider's base URL? Start the run again "
+                f"{e}. Is the model's server up, at the provider's base URL? Continue the run "
                 "once it is"
             ) from e
         return _Answer(error=str(e)), None
@@ -964,6 +1004,8 @@ def _from_row(row) -> Run:
         error=row["error"],
         created_by=row["created_by"],
         provider_id=row["provider_id"],
+        resumes=row["resumes"],
+        reused=row["reused"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

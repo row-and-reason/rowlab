@@ -139,8 +139,8 @@ saves moving it at all.
 When a run can't reach its model's server at all, it stops and says so, rather than filling the
 rest of the rows with failures. That includes a tunnel or proxy with nothing behind it: Cloudflare's
 530 for a tunnel whose connector isn't running, or a 502 or 504 while the server is still loading.
-Start the server again, move the provider if its address changed, and start the run again: it asks
-only for the answers it didn't get.
+Start the server again, move the provider if its address changed, and continue the run: it asks
+only for the answers it didn't get, and takes the replies it already paid for free.
 
 ## Comparing fairly
 

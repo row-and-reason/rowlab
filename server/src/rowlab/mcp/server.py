@@ -62,7 +62,7 @@ INSTRUCTIONS = (
     "and with labels from the file or set by people; adjust the prompt or model; then run_start "
     "the same tasks on all rows: only the answers still missing are asked and paid for. A changed "
     "prompt, options or answer type needs a new column name; put variants side by side as tasks "
-    "of one run. To start a stopped or failed run again, start it again: it asks what is missing. "
+    "of one run. To finish a stopped or failed run, or retry its failed answers, run_resume it. "
     "Runs cost money and take time: tell the user the estimate before a run on many rows. People's "
     "labels go in with labels_set, before or after models run, on any rows: the same task the "
     "models do, or a judgement of a model's answer (e.g. a yes/no task 'is fallacy__jev-1.14 "
@@ -342,8 +342,8 @@ def create_server() -> FastMCP:
         """Ask every task of every model about the rows the SQL picks, adding the answers to the
         dataset as columns `<column>__<model>`. Only answers the dataset doesn't have are asked,
         so start on a sample, look, then run the same tasks on all rows and pay only for the rest;
-        to start a stopped or failed run again, start it again. Rows missing a value the prompt
-        uses are skipped. Small runs finish within `wait_seconds`; poll the rest with run_get."""
+        to finish a stopped or failed run, run_resume it. Rows missing a value the prompt uses are
+        skipped. Small runs finish within `wait_seconds`; poll the rest with run_get."""
         me = _me("member")
         datasets.check_access(me.org.id, dataset_id)
         run = runs.create_run(
@@ -412,11 +412,20 @@ def create_server() -> FastMCP:
 
     @tool
     def run_stop(run_id: str) -> Run:
-        """Stop a run after the calls in flight, e.g. when the first answers look wrong. Starting
-        it again later asks for what it didn't get to; what it paid for stays free."""
+        """Stop a run after the calls in flight, e.g. when the first answers look wrong. Resuming
+        it later asks for what it didn't get to; what it paid for stays free."""
         me = _me("member")
         runs.check_access(me.org.id, run_id)
         return runs.stop_run(run_id)
+
+    @tool
+    def run_resume(run_id: str, wait_seconds: WaitSeconds = 0) -> Run:
+        """Start an ended run again, as a new run that resumes it: it asks the answers it didn't
+        get to and those that failed (`costs[i].failed`), e.g. once the provider is back. Replies
+        it paid for are free. Only the latest attempt can be resumed (`resumes` links them)."""
+        me = _me("member")
+        runs.check_access(me.org.id, run_id)
+        return _wait(runs.resume_run(run_id, me.user.id if me.user else None), wait_seconds)
 
     @tool
     def dataset_export(

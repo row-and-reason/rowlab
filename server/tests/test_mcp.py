@@ -31,6 +31,7 @@ def test_every_tool_is_listed_with_a_description(mcp):
         "runs_list",
         "run_get",
         "run_stop",
+        "run_resume",
         "labels_set",
         "answers_delete",
         "dataset_export",

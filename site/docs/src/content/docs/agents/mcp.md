@@ -56,7 +56,7 @@ organisation.
 | `sql_query`                                       | rows from one DuckDB `SELECT` over `data`                                        |
 | `columns_compare`                                 | coverage, agreement between answer columns, and accuracy against a reference     |
 | `run_preview`                                     | the estimate and the rendered prompts for a run, before it costs anything        |
-| `run_start`, `run_get`, `run_stop`, `runs_list`   | runs, with `run_start` and `run_get` waiting up to 30 seconds for progress       |
+| `run_start`, `run_get`, `run_stop`, `run_resume`, `runs_list` | runs, with `run_start`, `run_resume` and `run_get` waiting up to 30 seconds for progress |
 | `labels_set`                                      | set or clear labels people give, in a column of their own                        |
 | `answers_delete`                                  | delete a model's answers to a task, or a column of labels                        |
 | `dataset_export`                                  | a dataset as CSV, JSONL or Parquet, to S3 (locally, also a path)                 |
