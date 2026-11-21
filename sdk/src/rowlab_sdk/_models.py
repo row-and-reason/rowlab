@@ -269,7 +269,7 @@ class DatasetSummary(BaseModel):
     last_activity_at: Annotated[
         AwareDatetime,
         Field(
-            description='When something last happened on it: added, a run started, went or ended (failed too), a label set, or brought back from Settled.',
+            description='When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled.',
             title='Last Activity At',
         ),
     ]
@@ -764,9 +764,9 @@ class Settling(BaseModel):
         ),
     ] = None
     auto_settle: Annotated[
-        bool | None,
+        Literal['organisation', 'on', 'off'] | None,
         Field(
-            description="Whether it settles by itself after 24 hours of nothing, or null to follow the organisation's. Left out, unchanged.",
+            description='Whether it settles by itself after 24 hours of nothing: as the organisation says, or on or off for it alone. Left out, unchanged.',
             title='Auto Settle',
         ),
     ] = None
@@ -1159,7 +1159,7 @@ class Dataset(BaseModel):
     last_activity_at: Annotated[
         AwareDatetime,
         Field(
-            description='When something last happened on it: added, a run started, went or ended (failed too), a label set, or brought back from Settled.',
+            description='When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled.',
             title='Last Activity At',
         ),
     ]

@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
+import { useEffect } from "react";
 
 import { PaneHeader } from "@/components/pane";
 import { TooltipButton } from "@/components/tooltip-button";
@@ -97,8 +98,11 @@ export function DatasetsPanel({
   const canAdmin = useCan("admin");
   const [showSettled, setShowSettled] = useShowSettled();
   const { active, settled } = shelves(datasets ?? []);
-  // The dataset open is always in view, even settled.
-  const settledOpen = showSettled || settled.some((d) => d.id === selectedId);
+  // The dataset open is always in view: selecting a settled one opens the section.
+  const selectedSettled = settled.some((d) => d.id === selectedId);
+  useEffect(() => {
+    if (selectedSettled) setShowSettled(true);
+  }, [selectedSettled, setShowSettled]);
   const autoDefault = settings?.auto_settle ?? true;
   const row = (dataset: DatasetSummary) => (
     <DatasetRow
@@ -159,7 +163,7 @@ export function DatasetsPanel({
           <>
             <ItemGroup className="gap-0.5">{active.map(row)}</ItemGroup>
             {settled.length > 0 && (
-              <Collapsible open={settledOpen} onOpenChange={setShowSettled} className="mt-2">
+              <Collapsible open={showSettled} onOpenChange={setShowSettled} className="mt-2">
                 <CollapsibleTrigger
                   render={
                     <Button
@@ -264,7 +268,7 @@ function DatasetRow({
   onDelete: (dataset: DatasetSummary) => void;
   onSettle: (dataset: DatasetSummary, body: Settling) => void;
 }) {
-  const auto = dataset.auto_settle === null ? "default" : dataset.auto_settle ? "on" : "off";
+  const auto = dataset.auto_settle === null ? "organisation" : dataset.auto_settle ? "on" : "off";
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -319,10 +323,10 @@ function DatasetRow({
             <ContextMenuRadioGroup
               value={auto}
               onValueChange={(value) =>
-                onSettle(dataset, { auto_settle: value === "default" ? null : value === "on" })
+                onSettle(dataset, { auto_settle: value as NonNullable<Settling["auto_settle"]> })
               }
             >
-              <ContextMenuRadioItem value="default">
+              <ContextMenuRadioItem value="organisation">
                 As set for all ({autoDefault ? "on" : "off"})
               </ContextMenuRadioItem>
               <ContextMenuRadioItem value="on">After 24 hours left alone</ContextMenuRadioItem>

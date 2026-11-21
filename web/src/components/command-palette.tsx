@@ -54,6 +54,8 @@ export function CommandPalette({
   onRename,
   onExport,
   onSettle,
+  autoSettle,
+  onAutoSettle,
   onAdd,
   onSettings,
 }: {
@@ -71,6 +73,9 @@ export function CommandPalette({
   onRename: (dataset: DatasetSummary) => void;
   onExport: (dataset: DatasetSummary) => void;
   onSettle: (dataset: DatasetSummary, body: Settling) => void;
+  /** Whether datasets settle by themselves; unknown until the settings load. */
+  autoSettle: boolean | undefined;
+  onAutoSettle: (on: boolean) => void;
   onAdd: () => void;
   onSettings: (section: Section) => void;
 }) {
@@ -234,6 +239,12 @@ export function CommandPalette({
               <CommandItem onSelect={() => command(onAdd)}>
                 <PlusIcon />
                 Add data
+              </CommandItem>
+            )}
+            {canAdmin && autoSettle !== undefined && (
+              <CommandItem onSelect={() => command(() => onAutoSettle(!autoSettle))}>
+                <ArchiveIcon />
+                {autoSettle ? "Stop settling datasets by themselves" : "Settle datasets idle for 24 hours"}
               </CommandItem>
             )}
             {sections(me).map((section) => (

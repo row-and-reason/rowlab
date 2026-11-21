@@ -1302,7 +1302,7 @@ export interface components {
             /**
              * Last Activity At
              * Format: date-time
-             * @description When something last happened on it: added, a run started, went or ended (failed too), a label set, or brought back from Settled.
+             * @description When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled.
              */
             last_activity_at: string;
             /**
@@ -1374,7 +1374,7 @@ export interface components {
             /**
              * Last Activity At
              * Format: date-time
-             * @description When something last happened on it: added, a run started, went or ended (failed too), a label set, or brought back from Settled.
+             * @description When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled.
              */
             last_activity_at: string;
             /**
@@ -2231,9 +2231,9 @@ export interface components {
             settled?: boolean | null;
             /**
              * Auto Settle
-             * @description Whether it settles by itself after 24 hours of nothing, or null to follow the organisation's. Left out, unchanged.
+             * @description Whether it settles by itself after 24 hours of nothing: as the organisation says, or on or off for it alone. Left out, unchanged.
              */
-            auto_settle?: boolean | null;
+            auto_settle?: ("organisation" | "on" | "off") | null;
         };
         /** Task */
         "Task-Input": {

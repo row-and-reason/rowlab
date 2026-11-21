@@ -36,8 +36,8 @@ Open the dataset to see its rows and, per column, a profile: type, range, distin
 share of empty cells.
 
 A dataset nothing has happened on for 24 hours (no run started or ended, failed ones too, and no
-label set) moves to **Settled** at the bottom of the list, and comes back when something happens on
-it. An admin can settle or unsettle one by right-clicking it, choose there whether it settles by
+labels set or cleared) moves to **Settled** at the bottom of the list, and comes back when something
+happens on it. An admin can settle or unsettle one by right-clicking it, choose there whether it settles by
 itself, and turn settling by itself off for the whole organisation in the list's display menu.
 
 ## Ask a question

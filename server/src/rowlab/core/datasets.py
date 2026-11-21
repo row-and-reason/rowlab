@@ -88,7 +88,7 @@ class DatasetSummary(BaseModel):
     )
     last_activity_at: datetime = Field(
         description="When something last happened on it: added, a run started, went or ended "
-        "(failed too), a label set, or brought back from Settled."
+        "(failed too), labels set or cleared, or brought back from Settled."
     )
     settled: bool = Field(
         description="Listed apart as left alone: settled by an admin until something happens on "
@@ -327,10 +327,10 @@ class Settling(BaseModel):
         description="Settle it, or bring it back: then it settles by itself again only after "
         "another 24 hours of nothing. Left out, unchanged.",
     )
-    auto_settle: bool | None = Field(
+    auto_settle: Literal["organisation", "on", "off"] | None = Field(
         default=None,
-        description="Whether it settles by itself after 24 hours of nothing, or null to follow the "
-        "organisation's. Left out, unchanged.",
+        description="Whether it settles by itself after 24 hours of nothing: as the organisation "
+        "says, or on or off for it alone. Left out, unchanged.",
     )
 
 
@@ -348,8 +348,8 @@ def settle_dataset(dataset_id: str, request: Settling) -> Dataset:
                 "UPDATE datasets SET settled_at = NULL, unsettled_at = ? WHERE id = ?",
                 (now, dataset_id),
             )
-        if "auto_settle" in request.model_fields_set:
-            auto = None if request.auto_settle is None else int(request.auto_settle)
+        if request.auto_settle is not None:
+            auto = {"organisation": None, "on": 1, "off": 0}[request.auto_settle]
             conn.execute("UPDATE datasets SET auto_settle = ? WHERE id = ?", (auto, dataset_id))
     return get_dataset(dataset_id)
 
@@ -374,7 +374,7 @@ def set_auto_settle(org_id: str, on: bool) -> None:
 
 def _settling(row: Any, auto_default: bool, now: datetime) -> dict[str, Any]:
     """A dataset row with when it was last active and whether it is settled."""
-    times = (row["created_at"], row["last_run_at"], row["last_label_at"], row["unsettled_at"])
+    times = (row["created_at"], row["last_run_at"], row["labelled_at"], row["unsettled_at"])
     last = max(datetime.fromisoformat(t) for t in times if t)
     settled_at = datetime.fromisoformat(row["settled_at"]) if row["settled_at"] else None
     auto = None if row["auto_settle"] is None else bool(row["auto_settle"])
@@ -456,8 +456,7 @@ _SUMMARY = f"""
     (SELECT r.status FROM runs r WHERE r.dataset_id = d.id
         ORDER BY r.created_at DESC LIMIT 1) AS last_run_status,
     (SELECT max(coalesce(r.updated_at, r.created_at)) FROM runs r
-        WHERE r.dataset_id = d.id) AS last_run_at,
-    (SELECT max(l.updated_at) FROM labels l WHERE l.dataset_id = d.id) AS last_label_at
+        WHERE r.dataset_id = d.id) AS last_run_at
 """
 
 
@@ -618,6 +617,10 @@ def delete_answers(dataset_id: str, name: str, model: str | None) -> None:
         )
         if model is None:
             conn.execute("DELETE FROM labels WHERE dataset_id = ? AND name = ?", (dataset_id, name))
+            conn.execute(
+                "UPDATE datasets SET labelled_at = ? WHERE id = ?",
+                (datetime.now(UTC).isoformat(), dataset_id),
+            )
 
 
 def lock(conn: db.Connection, dataset_id: str) -> None:

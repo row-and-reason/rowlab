@@ -8,7 +8,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from helpers import NEGATIVE, run, start, stored, stored_datasets
+from helpers import NEGATIVE, start, stored, stored_datasets
 
 from rowlab.core import db, runs
 
@@ -376,12 +376,15 @@ def test_a_dataset_settles_after_a_day_of_nothing_unless_that_is_off(client, dat
     # Off for the organisation, on for this one, and the other way round.
     assert client.patch("/v1/settings", json={"auto_settle": False}).json()["auto_settle"] is False
     assert not settled(client, dataset["id"])
-    assert settle(client, dataset["id"], auto_settle=True)["settled"]
+    assert settle(client, dataset["id"], auto_settle="on")["settled"]
     assert client.patch("/v1/settings", json={"auto_settle": True}).status_code == 200
-    assert not settle(client, dataset["id"], auto_settle=False)["settled"]
+    assert not settle(client, dataset["id"], auto_settle="off")["settled"]
     # Back to following the organisation.
-    assert settle(client, dataset["id"], auto_settle=None)["auto_settle"] is None
+    assert settle(client, dataset["id"], auto_settle="organisation")["auto_settle"] is None
     assert client.get(path).json()["settled"]
+    # Settling leaves its own choice alone.
+    settle(client, dataset["id"], auto_settle="off")
+    assert settle(client, dataset["id"], settled=True)["auto_settle"] is False
 
 
 def test_a_settled_dataset_wakes_when_a_run_starts_or_ends(client, dataset, api_key):
@@ -397,14 +400,34 @@ def test_a_settled_dataset_wakes_when_a_run_starts_or_ends(client, dataset, api_
     assert not settled(client, dataset["id"])
     response = client.patch(f"/v1/datasets/{dataset['id']}/settling", json={"settled": True})
     assert response.status_code == 400
-    # Its end, however it went, is something happening.
     while runs.process_next():
         pass
     assert not settled(client, dataset["id"])
 
-    assert settle(client, dataset["id"], settled=True)["settled"]
-    another = {**job, "tasks": [{**NEGATIVE, "template": "Is {{city}} big?", "column": "big"}]}
-    assert run(client, another)["status"] == "done"
+    # A run started long ago that ended (failed) an hour ago is something happening an hour ago.
+    backdate(dataset["id"], hours=25, column="settled_at")
+    backdate(dataset["id"], hours=25)
+    assert settled(client, dataset["id"])
+    an_hour_ago = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE runs SET status = 'failed', updated_at = ? WHERE dataset_id = ?",
+            (an_hour_ago, dataset["id"]),
+        )
+    assert not settled(client, dataset["id"])
+
+
+def test_a_settled_dataset_wakes_when_labels_are_set_or_cleared(client, dataset):
+    path = f"/v1/datasets/{dataset['id']}/labels/checked"
+    label = {"labels": [{"row_id": 0, "value": True}], "task": {"type": "yes_no"}}
+    assert client.put(path, json=label).status_code == 200
+    backdate(dataset["id"], hours=25, column="labelled_at")
+    backdate(dataset["id"], hours=25)
+    assert settled(client, dataset["id"])
+
+    # Clearing is something happening too, though it leaves no label behind.
+    cleared = {"labels": [{"row_id": 0, "value": None}]}
+    assert client.put(path, json=cleared).status_code == 200
     assert not settled(client, dataset["id"])
 
 

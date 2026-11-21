@@ -98,6 +98,8 @@ function Workspace() {
     reload();
   }, [load, reload]);
   const exportable = canEdit && !!selected;
+  const changeAutoSettle = (on: boolean) =>
+    setAutoSettle(on).then((data) => data && setSettings(data));
   const select = useCallback((id: string) => router.push(`/?dataset=${id}`), [router]);
 
   // Keyboard shortcuts. ⌘K and ⌘↵ work everywhere; single keys only when not typing.
@@ -152,7 +154,7 @@ function Workspace() {
             onRename={setRenaming}
             onDelete={setDeleting}
             onSettle={settle}
-            onAutoSettle={(on) => setAutoSettle(on).then((data) => data && setSettings(data))}
+            onAutoSettle={changeAutoSettle}
             onSettings={openSettings}
           />
         </ResizablePanel>
@@ -275,6 +277,8 @@ function Workspace() {
         onRename={setRenaming}
         onExport={setExporting}
         onSettle={settle}
+        autoSettle={settings?.auto_settle}
+        onAutoSettle={changeAutoSettle}
         onAdd={() => setAdding("choose")}
         onSettings={openSettings}
       />
