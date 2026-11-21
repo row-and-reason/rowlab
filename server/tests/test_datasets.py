@@ -11,6 +11,7 @@ import pytest
 from helpers import NEGATIVE, run, start, stored, stored_datasets
 
 from rowlab.core import db, runs
+from rowlab.core.config import config
 
 CSV = "name,age,city\nAda,36,London\nAlan,41,Wilmslow\nGrace,,Arlington\n"
 
@@ -494,3 +495,43 @@ def test_a_datasets_columns_are_those_its_rows_have(client, dataset, api_key):
     rows = query(client, dataset["id"], sql="SELECT * FROM data", limit=1)["columns"]
     assert listed == rows
     assert not any(c["name"].startswith("kind") for c in listed)
+
+
+def test_a_query_reads_only_the_columns_asked_for(client, dataset, api_key, monkeypatch):
+    # Answer columns pile up run after run: together more than a query's memory holds at once.
+    for n in range(12):
+        extract = {
+            "type": "extract",
+            "template": "About {{name}}",
+            "column": f"facts{n}",
+            "models": ["x/llm"],
+            "fields": [f"f{i}:number" for i in range(100)],
+        }
+        job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [extract]}
+        assert run(client, job)["status"] == "done"
+    monkeypatch.setenv("ROWLAB_DUCKDB_MEMORY", "64MB")
+    config.cache_clear()
+    path = f"/v1/datasets/{dataset['id']}/query"
+
+    whole = client.post(path, json={"sql": "SELECT * FROM data ORDER BY name"})
+    assert whole.status_code == 400
+    assert "Name the columns you need" in whole.json()["detail"]
+
+    shown = ["name", "facts0_f0__llm", "facts11_f99__llm"]
+    page = query(client, dataset["id"], sql="SELECT * FROM data ORDER BY name", columns=shown)
+    names = [c["name"] for c in page["columns"]]
+    assert names == ["__row_id", "facts11_f99__llm", "facts0_f0__llm", "name"]
+    assert [row["name"] for row in page["rows"]] == ["Ada", "Alan", "Grace"]
+    assert all(row["facts0_f0__llm"] is not None for row in page["rows"])
+
+
+def test_columns_narrow_a_query_that_returns_them_all(client, dataset):
+    def names(sql):
+        return [
+            c["name"] for c in query(client, dataset["id"], sql=sql, columns=["age"])["columns"]
+        ]
+
+    # What the query adds itself is kept, as is `__row_id`, which picks rows.
+    assert names("SELECT *, age > 40 AS old FROM data") == ["__row_id", "age", "old"]
+    # A query that names its columns says what it wants.
+    assert names("SELECT name, city FROM data") == ["name", "city"]

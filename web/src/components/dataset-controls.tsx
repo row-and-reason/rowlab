@@ -1,8 +1,9 @@
 "use client";
 
-import { CodeIcon, ListFilterIcon, SlidersHorizontalIcon } from "lucide-react";
+import { ChevronDownIcon, CodeIcon, ListFilterIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useState } from "react";
 
+import { PickList } from "@/components/pick-list";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { Dataset } from "@/lib/api/client";
-import { columnLabel } from "@/lib/format";
+import { displayGroups, hiddenColumns, shownColumns, toggleHidden } from "@/lib/columns";
+import { columnLabel, formatNumber } from "@/lib/format";
 import type { ColumnFilter, View } from "@/lib/sql";
 
 const OPS: { value: ColumnFilter["op"]; label: string }[] = [
@@ -108,13 +110,18 @@ export function FilterButton({
   );
 }
 
-/** How the rows are shown: the limit (which the next run keeps to too) and the page size. */
+/**
+ * How the rows are shown: the limit (which the next run keeps to too), the page size and the
+ * columns.
+ */
 export function DisplayButton({
+  dataset,
   view,
   pageSize,
   onViewChange,
   onPageSizeChange,
 }: {
+  dataset: Dataset;
   view: View;
   pageSize: number;
   onViewChange: (changes: Partial<View>) => void;
@@ -183,7 +190,58 @@ export function DisplayButton({
               </SelectContent>
             </Select>
           </Field>
+          <Field>
+            <FieldLabel>Columns</FieldLabel>
+            <ColumnsButton dataset={dataset} view={view} onViewChange={onViewChange} />
+          </Field>
         </FieldGroup>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Which columns the table shows, and the search looks in: an answer's columns go together. */
+function ColumnsButton({
+  dataset,
+  view,
+  onViewChange,
+}: {
+  dataset: Dataset;
+  view: View;
+  onViewChange: (changes: Partial<View>) => void;
+}) {
+  const groups = displayGroups(dataset);
+  const hidden = hiddenColumns(dataset, view);
+  const shown = shownColumns(dataset, view).length;
+  return (
+    <Popover>
+      <PopoverTrigger render={<Button variant="outline" size="sm" className="justify-between" />}>
+        {shown === dataset.columns.length
+          ? `All ${formatNumber(shown)}`
+          : `${formatNumber(shown)} of ${formatNumber(dataset.columns.length)}`}
+        <ChevronDownIcon data-icon="inline-end" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-1">
+        <PickList
+          groups={groups}
+          picked={groups.flatMap((g) => g.items.map((i) => i.value)).filter((k) => !hidden.includes(k))}
+          onPick={(key) => onViewChange({ hidden: toggleHidden(dataset, view, key) })}
+          placeholder="Find a column…"
+          empty="No matching columns."
+        />
+        <div className="flex items-center gap-2 px-2 pb-1">
+          <p className="flex-1 text-xs text-muted-foreground">
+            A dataset with many answers shows its newest ones, until you pick.
+          </p>
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={!view.hidden}
+            onClick={() => onViewChange({ hidden: undefined })}
+          >
+            Reset
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );

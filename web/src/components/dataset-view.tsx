@@ -42,6 +42,7 @@ import { useModels, useTaskTypes } from "@/lib/catalog";
 import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format";
 import { useDraft } from "@/lib/draft";
 import { useEstimate } from "@/lib/use-estimate";
+import { revealed } from "@/lib/columns";
 import { ALL_ROWS, type View, viewSql, type WhereFilter } from "@/lib/sql";
 import { emptyTask, newId, withFittingModels, withPreset } from "@/lib/tasks";
 
@@ -106,7 +107,7 @@ export function DatasetPanels({
     (changes: Partial<View>) => update((draft) => ({ view: { ...draft.view, ...changes } })),
     [update],
   );
-  const sql = viewSql(draft.view, dataset.columns);
+  const sql = viewSql(draft.view, dataset);
   const mode = draft.mode ?? "ask";
   const labelColumns = dataset.answers.filter((a) => a.model === null);
   // The label column being labelled: one the dataset has, or a new one, set up in the draft.
@@ -136,7 +137,16 @@ export function DatasetPanels({
   // Compare counts the whole dataset, so drill-through replaces any unrelated search/filter/limit.
   function showRows(filters: WhereFilter[], columns: string[]) {
     setComparedColumns(columns);
-    update({ view: { search: "", filters, sort: [], limit: null, sql: null } });
+    update((draft) => ({
+      view: {
+        search: "",
+        filters,
+        sort: [],
+        limit: null,
+        sql: null,
+        hidden: revealed(dataset, draft.view, columns),
+      },
+    }));
     onTabChange("rows");
   }
   // Verifiers read; running, labelling, exporting and deleting need a member.
@@ -193,7 +203,7 @@ export function DatasetPanels({
 
   // A run's tasks and rows in the task editor, to change and start.
   function editRun(run: Run) {
-    update({
+    update((draft) => ({
       mode: "ask",
       tasks: run.config.tasks,
       view: {
@@ -202,8 +212,9 @@ export function DatasetPanels({
         sort: [],
         limit: null,
         sql: run.config.sql === ALL_ROWS ? null : run.config.sql,
+        hidden: draft.view.hidden,
       },
-    });
+    }));
     toast(`Loaded the run's ${run.config.tasks.length === 1 ? "task" : "tasks"} into the editor`);
   }
 

@@ -4,6 +4,7 @@ storage."""
 import asyncio
 import json
 
+import duckdb
 import httpx
 from fastmcp import Client
 
@@ -265,6 +266,20 @@ def tools(mcp):
             return {t.name: t.description for t in await client.list_tools()}
 
     return asyncio.run(go())
+
+
+def wide_dataset(client, tmp_path, monkeypatch):
+    """A dataset of thousands of columns, as many as answer columns pile up to, and less memory for
+    DuckDB than they take at once."""
+    path = tmp_path / "wide.parquet"
+    columns = ", ".join(f"random() AS c{i}" for i in range(3000))
+    duckdb.sql(
+        f"COPY (SELECT 'review ' || i AS review, {columns} FROM range(600) t(i)) TO '{path}'"
+    )
+    dataset = client.post("/v1/datasets", data={"source": str(path)}).json()
+    monkeypatch.setenv("ROWLAB_DUCKDB_MEMORY", "32MB")
+    config.cache_clear()
+    return dataset
 
 
 NEGATIVE = {"template": "Is this review negative? {{review}}", "column": "negative"}

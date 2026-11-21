@@ -33,7 +33,8 @@ content, gzipped or not; from disk, the web, or S3 (with a connection from **Set
 rowlab keeps a copy as Parquet; your file is never changed.
 
 Open the dataset to see its rows and, per column, a profile: type, range, distinct values and the
-share of empty cells.
+share of empty cells. **Display** picks the columns the rows show; a dataset with hundreds of answer
+columns shows its newest answers until you pick.
 
 A dataset nothing has happened on for 24 hours (no run started or ended, failed ones too, and no
 labels set or cleared) moves to **Settled** at the bottom of the list, and comes back when something

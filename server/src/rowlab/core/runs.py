@@ -433,8 +433,12 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
         problem = str(e)
     try:
         plan = _plan(dataset_id, request)
+        keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
+        # Only the columns the prompts use: a dataset can have too many to read whole.
+        used = [k[0] for task in request.tasks for k in prompts.inputs(task.template, keys)]
         rows = sql.query(
-            dataset_id, sql.QueryRequest(sql=request.sql, limit=ESTIMATE_SAMPLE_ROWS)
+            dataset_id,
+            sql.QueryRequest(sql=request.sql, limit=ESTIMATE_SAMPLE_ROWS, columns=used),
         ).rows
     except InvalidRequest as e:
         return Estimate(
@@ -473,7 +477,6 @@ def estimate(dataset_id: str, request: RunRequest) -> Estimate:
         if m.prompt_price is None or (m.kind == "llm" and m.completion_price is None)
     )
 
-    keys = {path: k for path, (_, k) in datasets.dataset_fields(dataset_id).items()}
     for task in request.tasks:
         prompts_by_row = [prompts.render(task.template, row, keys) for row in rows]
         if task.type == "write":

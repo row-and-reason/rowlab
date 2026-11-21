@@ -33,3 +33,11 @@ Column names with dots or dashes need double quotes: `"team__jev-1.14"`.
 Each query gets `ROWLAB_QUERY_SECONDS` (30 by default; ten times that for adding and exporting a
 dataset), `ROWLAB_DUCKDB_THREADS` threads and `ROWLAB_DUCKDB_MEMORY` of memory. DuckDB's full SQL
 is available: window functions, `regexp_matches`, list and struct functions, and so on.
+
+Answer columns add up: a Classify task where any of twenty options can apply has two columns per
+option, for each model, so a dataset many models have answered many such tasks on has thousands.
+Only the columns a query reads take memory, and all of them at once take more than a query gets. So
+on such a dataset name the columns to view (`SELECT __row_id, review, "team__jev-1.14" FROM data`)
+rather than `SELECT *`. The table in the app does that for you: it reads the columns it shows,
+picked under **Display**, and the search looks in those. Through the API, `columns` on a query does
+the same for `SELECT *`. Picking rows for a run with `SELECT *` is fine: only the row ids are read.

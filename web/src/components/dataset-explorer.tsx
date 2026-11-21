@@ -35,6 +35,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { answerLabel } from "@/components/delete-answers";
 import type { AnswerColumn, Column, Dataset, Row } from "@/lib/api/client";
 import { columnLabel, formatCell, formatNumber } from "@/lib/format";
+import { shownColumns } from "@/lib/columns";
 import type { View } from "@/lib/sql";
 import { useDatasetRows } from "@/lib/use-dataset-rows";
 import {
@@ -104,15 +105,24 @@ export function DatasetExplorer({
     setPage(0);
   }
 
-  const { result, shown, loading } = useDatasetRows(dataset.id, sql, page, pageSize, version);
+  // Only the columns shown are fetched: a dataset can have too many answer columns to read whole.
+  const columns = useMemo(() => shownColumns(dataset, view), [dataset, view]);
+  const { result, shown, loading } = useDatasetRows(
+    dataset.id,
+    sql,
+    columns.length < dataset.columns.length ? columns.map((c) => c.name) : undefined,
+    page,
+    pageSize,
+    version,
+  );
 
   useEffect(() => {
     if (result?.data) onCount?.(result.data.total);
   }, [result, onCount]);
 
   // The query's columns, which SQL can choose or compute.
-  const shownColumns = useMemo(() => {
-    const available = shown?.columns ?? dataset.columns;
+  const tableColumns = useMemo(() => {
+    const available = shown?.columns ?? columns;
     if (!priorityColumns?.length) return available;
     const order = [ROW_ID, ...priorityColumns];
     return [...available].sort((a, b) => {
@@ -120,9 +130,9 @@ export function DatasetExplorer({
         bi = order.indexOf(b.name);
       return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
     });
-  }, [shown?.columns, dataset.columns, priorityColumns]);
+  }, [shown?.columns, columns, priorityColumns]);
   const rows = shown?.rows ?? emptyRows;
-  const widths = useMemo(() => columnWidths(shownColumns, rows), [shownColumns, rows]);
+  const widths = useMemo(() => columnWidths(tableColumns, rows), [tableColumns, rows]);
 
   // Only the rows and columns on screen are rendered: a wide page has tens of thousands of cells.
   // The header scrolls with the rows; the overscan absorbs its height.
@@ -137,7 +147,7 @@ export function DatasetExplorer({
   });
   const columnVirtualizer = useVirtualizer({
     horizontal: true,
-    count: shownColumns.length,
+    count: tableColumns.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) => widths[i],
     overscan: OVERSCAN_COLUMNS,
@@ -187,6 +197,7 @@ export function DatasetExplorer({
               onAdd={(filter) => changeView({ filters: [...filters, filter] })}
             />
             <DisplayButton
+              dataset={dataset}
               view={view}
               pageSize={pageSize}
               onViewChange={changeView}
@@ -278,7 +289,7 @@ export function DatasetExplorer({
             <TableRow>
               {before > 0 && <th style={{ width: before }} />}
               {visibleColumns.map((item) => {
-                const column = shownColumns[item.index];
+                const column = tableColumns[item.index];
                 const answer = dataset.answers.find((a) => a.columns.includes(column.name));
                 const SortIcon =
                   sort?.column !== column.name
@@ -353,10 +364,10 @@ export function DatasetExplorer({
                   {before > 0 && <td />}
                   {visibleColumns.map((column) => (
                     <TableCell
-                      key={shownColumns[column.index].name}
+                      key={tableColumns[column.index].name}
                       className="truncate px-3 tabular-nums"
                     >
-                      <CellValue value={row[shownColumns[column.index].name]} />
+                      <CellValue value={row[tableColumns[column.index].name]} />
                     </TableCell>
                   ))}
                   {after > 0 && <td />}

@@ -50,9 +50,11 @@ export function LabelPane({
   onChanged: () => void;
   canEdit: boolean;
 }) {
+  const labelColumns = dataset.answers.filter((a) => a.model === null);
   const { item, loading, error, saving, saved, pending, disabled, move, save } = useLabelling({
     datasetId: dataset.id,
     task,
+    columns: labelColumns.find((a) => a.name === task.column)?.columns ?? [],
     isNew,
     sql,
     position,
@@ -60,7 +62,6 @@ export function LabelPane({
     onChanged,
     canEdit,
   });
-  const labelColumns = dataset.answers.filter((a) => a.model === null);
   const answered = labelColumns.find((a) => a.name === task.column)?.answered ?? 0;
   const names = [...labelColumns.map((a) => a.name), ...(isNew ? [task.column] : [])];
 

@@ -24,7 +24,7 @@ from rowlab.core import datasets, storage
 from rowlab.core.config import config
 from rowlab.core.datasets import ROW_ID, Column
 from rowlab.core.errors import InvalidRequest
-from rowlab.core.storage import sql_string
+from rowlab.core.storage import sql_ident, sql_string
 
 ALL_ROWS = "SELECT * FROM data"
 
@@ -65,11 +65,18 @@ class QueryRequest(BaseModel):
     limit: int = Field(
         100, ge=1, le=1000, description="Rows to return; the query's own `LIMIT` caps the total."
     )
+    columns: list[str] | None = Field(
+        None,
+        description="For a query that returns every column of the dataset, as `SELECT *` does: "
+        "only these of them, and `__row_id`, e.g. the ones a table shows. Columns the query adds "
+        "itself are kept. A dataset can have thousands of answer columns, too many to read at "
+        "once.",
+    )
 
 
 class QueryResult(BaseModel):
     columns: list[Column] = Field(
-        description="What the query returns, which needn't be the dataset's."
+        description="What the rows have: what the query returns, which needn't be the dataset's."
     )
     rows: list[dict[str, Any]]
     total: int = Field(description="Rows the query returns, ignoring `offset` and `limit`.")
@@ -106,6 +113,13 @@ def execute(con: duckdb.DuckDBPyConnection, sql: str, params: list | None = None
         return con.execute(sql, params or [])
     except duckdb.InterruptException:
         raise  # Took too long: `storage.connect` says so.
+    except duckdb.OutOfMemoryException as e:
+        # DuckDB's own message advises settings a query can't change.
+        raise InvalidRequest(
+            f"The query needs more memory than a query gets ({config().duckdb_memory}). Name the "
+            "columns you need instead of `SELECT *`: a dataset with thousands of columns doesn't "
+            "fit at once."
+        ) from e
     except duckdb.Error as e:
         raise InvalidRequest(_sql_error(e)) from e
 
@@ -122,6 +136,7 @@ def query(dataset_id: str, request: QueryRequest) -> QueryResult:
     with connect(dataset_id) as con:
         sql = check(con, request.sql)
         total = execute(con, f"SELECT count(*) FROM ({sql})").fetchone()[0]
+        sql = only(con, sql, request.columns)
         page = execute(
             con,
             f"SELECT to_json(q) FROM ({sql}) AS q LIMIT ? OFFSET ?",
@@ -133,6 +148,21 @@ def query(dataset_id: str, request: QueryRequest) -> QueryResult:
             for r in execute(con, f"DESCRIBE SELECT * FROM ({sql})").fetchall()
         ]
     return QueryResult(columns=columns, rows=rows, total=total)
+
+
+def only(con: duckdb.DuckDBPyConnection, sql: str, columns: list[str] | None) -> str:
+    """The query with only `columns` of the dataset's, and `__row_id`, if it returns them all as
+    `SELECT *` does; what it adds itself is kept. A query that names its columns is left as it is.
+    DuckDB then reads just those columns, where every column of a dataset with thousands of answer
+    columns takes more memory than a query gets."""
+    if columns is None:
+        return sql
+    returned = [r[0] for r in execute(con, f"DESCRIBE SELECT * FROM ({sql})").fetchall()]
+    own = {r[0] for r in con.execute("DESCRIBE data").fetchall()}
+    if not own <= set(returned):
+        return sql
+    keep = [c for c in returned if c not in own or c in columns or c == ROW_ID]
+    return f"SELECT {', '.join(map(sql_ident, keep))} FROM ({sql})"
 
 
 def row_ids(con: duckdb.DuckDBPyConnection, sql: str) -> str:
@@ -149,10 +179,13 @@ def count(dataset_id: str, sql: str) -> int:
         return execute(con, f"SELECT count(*) FROM ({row_ids(con, sql)})").fetchone()[0]
 
 
-def sample(dataset_id: str, sql: str, n: int) -> list[dict[str, Any]]:
-    """Up to `n` of the rows a query picks, at random, the same ones on every call."""
+def sample(
+    dataset_id: str, sql: str, n: int, columns: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Up to `n` of the rows a query picks, at random, the same ones on every call; with only
+    `columns` of the dataset's, as `only` leaves them."""
     with connect(dataset_id) as con:
-        sql = check(con, sql)
+        sql = only(con, check(con, sql), columns)
         rows = execute(
             con,
             f"SELECT to_json(q) FROM (SELECT * FROM ({sql})) AS q "
