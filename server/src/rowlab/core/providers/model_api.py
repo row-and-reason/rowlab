@@ -158,8 +158,9 @@ def _request(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     host = httpx.URL(url).host
-    # httpx's timeout is per read, so a server that sends a byte now and then (whitespace to keep a
-    # slow call open) could hold the call open for good. The deadline is for the whole call: a runner
+    # httpx's timeout is per step (connecting, each read), so a server that sends a byte now and then
+    # (whitespace to keep a slow call open) could hold the call open for good: past the deadline it is
+    # cut off. Silence is still httpx's, so one try takes at most about twice `timeout`. A runner
     # stopping waits for its calls in flight.
     deadline = time.monotonic() + timeout
     try:
