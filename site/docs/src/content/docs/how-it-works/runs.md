@@ -60,8 +60,9 @@ for in it are kept, and cost nothing when asked again. When a runner stops or re
 the run goes back in the queue and continues from that chunk. A run fails, with the reason shown,
 when the provider refuses the key or the key is out of credits, or the provider was deleted, since
 every call would fail alike; the answers so far stay. Other calls fail on their own (rate limits, a
-provider error, a reply that doesn't fit the answer type): the run finishes with those cells empty and
-counted as failed.
+provider error, no whole reply within 60 seconds, a reply that doesn't fit the answer type), after up to
+four tries for those that may pass: the run finishes with those cells empty and counted as failed. So
+a stop takes a few minutes at most, however slow the model.
 
 To finish a run, resume it: **Continue** on a stopped or failed run, **Retry failed** on one that
 finished with failed cells, both saying how many they will ask. It asks for what is still missing,

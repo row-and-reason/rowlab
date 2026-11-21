@@ -1,8 +1,11 @@
 """Model providers: an organisation's own keys, one active for catalog models, and where each run's
 calls go."""
 
+import time
+
+import httpx
 import pytest
-from helpers import NEGATIVE, REAL_REQUEST, HtmlReply, call, run, start
+from helpers import NEGATIVE, REAL_REQUEST, call, html_reply, run, serving, start
 
 from rowlab.core import db, model_providers, runs
 from rowlab.core.providers import model_api
@@ -212,7 +215,7 @@ def test_a_reply_that_cant_be_read_fails_its_answer_not_the_run(client, dataset,
 
 def test_a_base_url_that_isnt_an_api_is_refused_on_save(client, monkeypatch):
     monkeypatch.setattr(model_api, "_request", REAL_REQUEST)
-    monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: HtmlReply())
+    monkeypatch.setattr(model_api, "_client", serving(html_reply()))
     response = add(client, **GATEWAY)
     assert response.status_code == 400
     assert "wasn't JSON" in response.json()["detail"]
@@ -221,11 +224,32 @@ def test_a_base_url_that_isnt_an_api_is_refused_on_save(client, monkeypatch):
 @pytest.mark.parametrize("status", [530, 502, 504])
 def test_a_tunnel_with_no_server_behind_it_says_so_on_save(client, monkeypatch, status):
     monkeypatch.setattr(model_api, "_request", REAL_REQUEST)
-    monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: HtmlReply(status))
+    monkeypatch.setattr(model_api, "_client", serving(html_reply(status)))
     response = add(client, **GATEWAY)
     assert response.status_code == 400
     assert "nothing behind it is answering" in response.json()["detail"]
     assert "Is the server up?" in response.json()["detail"]
+
+
+def test_a_server_trickling_bytes_cant_hold_a_call_past_its_deadline(monkeypatch):
+    # Whitespace now and then, as a proxy may send to keep a slow call open, resets a read timeout.
+    class Trickle(httpx.SyncByteStream):
+        def __iter__(self):
+            while True:
+                time.sleep(0.02)
+                yield b" "
+
+    monkeypatch.setattr(model_api, "_request", REAL_REQUEST)
+    monkeypatch.setattr(
+        model_api, "_client", serving(lambda r: httpx.Response(200, stream=Trickle()))
+    )
+    request = model_api.completion_request("x/llm", [{"role": "user", "content": "Hi"}], {})
+    started = time.monotonic()
+    with pytest.raises(model_api.ProviderError) as raised:
+        model_api.post(GATEWAY["base_url"], request, "sk-good", attempts=1, timeout=0.2)
+    assert time.monotonic() - started < 2
+    # Retried, like any call that didn't answer in time.
+    assert raised.value.retryable
 
 
 def test_an_openai_decision_reply_missing_its_probabilities_fails_its_answer(

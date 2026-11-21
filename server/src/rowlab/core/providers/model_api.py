@@ -6,6 +6,7 @@ Chat completions: `POST {base}/v1/chat/completions`, with `response_format` set 
 reply reports its tokens, and its cost in USD as `usage.cost` where the provider knows it.
 """
 
+import json
 import random
 import time
 from typing import Any
@@ -16,7 +17,7 @@ from pydantic import BaseModel
 from rowlab import __version__
 from rowlab.core import metrics
 
-# Per call: wait this long for an answer, and try this many times when the failure may pass.
+# Per call: wait this long for the whole answer, and try this many times when the failure may pass.
 TIMEOUT_SECONDS = 60
 ATTEMPTS = 4
 RETRY_BASE_SECONDS = 1.0
@@ -156,12 +157,22 @@ def _request(
     headers = {"User-Agent": f"rowlab/{__version__}", "X-Title": "rowlab"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    host = httpx.URL(url).host
+    # httpx's timeout is per read, so a server that sends a byte now and then (whitespace to keep a
+    # slow call open) could hold the call open for good. The deadline is for the whole call: a runner
+    # stopping waits for its calls in flight.
+    deadline = time.monotonic() + timeout
     try:
-        response = _client.request(method, url, headers=headers, json=body, timeout=timeout)
+        with _client.stream(method, url, headers=headers, json=body, timeout=timeout) as response:
+            content = b""
+            for part in response.iter_bytes():
+                content += part
+                if time.monotonic() > deadline:
+                    raise ProviderError(f"{host} didn't answer within {timeout:g} seconds")
     except httpx.ConnectError as e:
-        raise ProviderError(f"Could not reach {httpx.URL(url).host}: {e}", unreachable=True) from e
+        raise ProviderError(f"Could not reach {host}: {e}", unreachable=True) from e
     except httpx.HTTPError as e:
-        raise ProviderError(f"Could not reach {httpx.URL(url).host}: {e}") from e
+        raise ProviderError(f"Could not reach {host}: {e}") from e
     if response.is_redirect:
         # Not followed: a call goes only where its base URL was checked to point.
         raise ProviderError(
@@ -171,14 +182,14 @@ def _request(
         )
     if response.is_error:
         try:
-            found = response.json()
+            found = json.loads(content)
         except ValueError:
             found = None
         retry_after = response.headers.get("retry-after")
         retry_after = float(retry_after) if retry_after and retry_after.isdigit() else None
         if found is None and response.status_code in _NOTHING_BEHIND:
             raise ProviderError(
-                f"HTTP {response.status_code} from {httpx.URL(url).host}: nothing behind it is "
+                f"HTTP {response.status_code} from {host}: nothing behind it is "
                 "answering (a tunnel or proxy whose server is down, or still starting)",
                 status=response.status_code,
                 retry_after=retry_after,
@@ -187,14 +198,14 @@ def _request(
         try:
             message = found["error"]["message"]
         except (KeyError, TypeError):
-            message = response.text[:200]
+            message = content.decode(errors="replace")[:200]
         raise ProviderError(
             f"HTTP {response.status_code}: {message}",
             status=response.status_code,
             retry_after=retry_after,
         )
     try:
-        return response.json()
+        return json.loads(content)
     except ValueError:
         raise ProviderError(
             f"HTTP {response.status_code}: the reply wasn't JSON. Is the base URL the API's?",

@@ -2,7 +2,7 @@
 for good what answered."""
 
 import pytest
-from helpers import NEGATIVE, REAL_REQUEST, HtmlReply, call, run
+from helpers import NEGATIVE, REAL_REQUEST, call, html_reply, run, serving
 
 from rowlab.core.providers import model_api
 from rowlab.core.providers.model_api import ProviderError
@@ -141,7 +141,9 @@ def test_a_run_fails_when_its_models_server_is_down_and_resumes_once_up(
     assert failed["status"] == "failed"
     assert "Is the model's server up" in failed["error"]
 
-    # Back up, at a new address: the run asks only what it didn't get.
+    # Back up, at a new address: the run asks only what it didn't get. Which OpenRouter calls the
+    # failure cut off depends on timing, but none is asked twice.
+    openrouter_asked = [url for url, _ in posts(fake) if "openrouter" in url]
     monkeypatch.setattr(model_api, "_request", fake)
     providers = client.get("/v1/settings/providers").json()
     gpu_id = next(p["id"] for p in providers if p["name"] == "gpu")
@@ -151,7 +153,11 @@ def test_a_run_fails_when_its_models_server_is_down_and_resumes_once_up(
     fake.urls.clear()
     finished = run(client, job)
     assert finished["status"] == "done"
-    assert {url for url, _ in posts(fake)} == {"https://gpu-2.example.com/v1/systemone"}
+    openrouter_asked += [url for url, _ in posts(fake) if "openrouter" in url]
+    assert {url for url, _ in posts(fake) if "openrouter" not in url} == {
+        "https://gpu-2.example.com/v1/systemone"
+    }
+    assert len(openrouter_asked) == 2  # One per row.
 
 
 def test_a_provider_is_deleted_only_once_its_models_are(client, gpu):
@@ -239,7 +245,7 @@ def test_a_run_stops_when_its_tunnel_has_no_server_behind_it(
         return fake(method, url, api_key=api_key, body=body)
 
     monkeypatch.setattr(model_api, "_request", tunnel)
-    monkeypatch.setattr(model_api._client, "request", lambda *args, **kwargs: HtmlReply(530))
+    monkeypatch.setattr(model_api, "_client", serving(html_reply(530)))
     job = {
         "dataset_id": dataset["id"],
         "sql": "SELECT * FROM data",

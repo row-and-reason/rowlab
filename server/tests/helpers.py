@@ -4,6 +4,7 @@ storage."""
 import asyncio
 import json
 
+import httpx
 from fastmcp import Client
 
 from rowlab.core import runs, storage
@@ -15,17 +16,15 @@ from rowlab.core.providers.model_api import ProviderError
 REAL_REQUEST = model_api._request
 
 
-class HtmlReply:
+def serving(reply):
+    """An HTTP client whose every request gets `reply(request)`, an `httpx.Response`: for what a call
+    really does with odd replies. Put in place of `model_api._client`, with `REAL_REQUEST`."""
+    return httpx.Client(transport=httpx.MockTransport(reply))
+
+
+def html_reply(status=200):
     """A reply that isn't the API's: an HTML page, as a proxy or tunnel gives, with `status`."""
-
-    headers, is_redirect, text = {}, False, "<html>error code: 1033</html>"
-
-    def __init__(self, status=200):
-        self.status_code = status
-        self.is_error = status >= 400
-
-    def json(self):
-        raise ValueError("not JSON")
+    return lambda request: httpx.Response(status, text="<html>error code: 1033</html>")
 
 
 def stored(dataset_id, *names):
