@@ -2,6 +2,11 @@
 
 import {
   ChevronDownIcon,
+  ChevronRightIcon,
+  CircleCheckIcon,
+  CircleStopIcon,
+  CircleXIcon,
+  ClockIcon,
   EllipsisIcon,
   GitCompareArrowsIcon,
   PencilIcon,
@@ -28,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -51,7 +57,7 @@ import { ALL_ROWS } from "@/lib/sql";
 import { modelSlug } from "@/lib/tasks";
 import { useEstimate } from "@/lib/use-estimate";
 
-/** Where the dataset came from, and its runs, newest first: what each asked, how it went, its cost.
+/** Where the dataset came from, and its runs, newest first, one line each; going runs start open.
  * A run resumed is one piece of work with its resumes, shown once with its earlier attempts. */
 export function RunsView({
   dataset,
@@ -68,8 +74,8 @@ export function RunsView({
   onDeleteAnswers: (answer: AnswerColumn) => void;
 }) {
   return (
-    <div className="space-y-4 p-3 text-sm">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
+    <div className="text-sm">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b px-3 py-2 text-xs">
         <span className="text-muted-foreground">Imported from</span>
         <span className="break-all select-text">{dataset.source}</span>
         <span className="text-muted-foreground" title={formatDate(dataset.created_at)}>
@@ -77,7 +83,7 @@ export function RunsView({
         </span>
       </div>
       {runs.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="p-3 text-xs text-muted-foreground">
           No runs yet. The tasks on the right ask models about the rows in the table, adding their
           answers as columns.
         </p>
@@ -107,7 +113,27 @@ const STATUS = {
   done: "Done",
 };
 
-/** A piece of work: its latest attempt, with its earlier ones (`attempts`, latest first). */
+function StatusIcon({ status }: { status: Run["status"] }) {
+  if (status === "queued") return <ClockIcon className="size-4 text-muted-foreground" />;
+  if (status === "running" || status === "stopping") return <Spinner className="size-4" />;
+  if (status === "failed") return <CircleXIcon className="size-4 text-destructive" />;
+  if (status === "stopped") return <CircleStopIcon className="size-4 text-muted-foreground" />;
+  return <CircleCheckIcon className="size-4 text-muted-foreground" />;
+}
+
+/** What a run asked, in a few words: `6 tasks · gpt-6.1-sol · 50 rows`. */
+function runSummary(run: Run): string {
+  const tasks = run.config.tasks;
+  const models = [...new Set(tasks.flatMap((t) => t.models))];
+  return [
+    tasks.length === 1 ? tasks[0].column : `${tasks.length} tasks`,
+    models.length === 1 ? modelSlug(models[0]) : `${models.length} models`,
+    `${formatNumber(run.row_count)} rows`,
+  ].join(" · ");
+}
+
+/** A piece of work, one line: its latest attempt, with its earlier ones (`attempts`, latest
+ * first). Opened, a row per task and model, with each task's setup behind its name. */
 function RunSection({
   dataset,
   attempts,
@@ -127,6 +153,7 @@ function RunSection({
   const [run, ...earlier] = attempts;
   const speed = useSpeed(run);
   const [busy, setBusy] = useState(false);
+  const [openTasks, setOpenTasks] = useState<string[]>([]);
   const failed = run.costs.reduce((n, c) => n + c.failed, 0);
   const active = isActive(run);
   // What resuming would ask: the answers not got to, and those that failed. Asked again when the
@@ -141,11 +168,20 @@ function RunSection({
   );
   const resumable = !active && estimate ? resumeLabel(estimate) : null;
   const spent = attempts.reduce((n, a) => n + a.cost, 0);
+  const unpriced = Object.values(run.models ?? {}).some((m) => m.prompt_price === null);
   const answerOf = (column: string, model: string) =>
     dataset.answers.find((a) => a.name === column && a.model === model);
   const deletable = run.config.tasks.flatMap((task) =>
     task.models.map((model) => answerOf(task.column, model)).filter((a) => !!a),
   );
+  const comparable = run.config.tasks
+    .map((task) => ({
+      task,
+      columns: task.models
+        .map((m) => answerOf(task.column, m)?.columns[0])
+        .filter((c) => c !== undefined),
+    }))
+    .filter((c) => c.columns.length > 1);
 
   async function stop() {
     setBusy(true);
@@ -177,247 +213,274 @@ function RunSection({
     router.push(`/?${query}`);
   }
 
+  function toggleTask(id: string) {
+    setOpenTasks((open) => (open.includes(id) ? open.filter((t) => t !== id) : [...open, id]));
+  }
+
   return (
-    <section className="space-y-2 border-t pt-3" aria-label={`Run ${run.id}`}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-medium">{STATUS[run.status]}</span>
-        <span className="text-xs text-muted-foreground" title={formatDate(run.created_at)}>
-          {earlier.length > 0 && `attempt ${attempts.length} · `}
-          {formatAgo(run.created_at)}
-        </span>
-        <div className="ml-auto flex items-center gap-1">
-          {canEdit && active && (
+    <Collapsible
+      defaultOpen={active}
+      render={<section className="border-b" aria-label={`Run ${run.id}`} />}
+    >
+      <div className="flex items-center gap-2 px-1 py-1">
+        <CollapsibleTrigger
+          render={
             <Button
-              size="sm"
               variant="ghost"
-              disabled={busy || run.status === "stopping"}
-              onClick={stop}
-            >
-              <SquareIcon data-icon="inline-start" />
-              Stop
-            </Button>
-          )}
-          {canEdit && resumable && (
-            <Button
               size="sm"
-              variant="ghost"
-              title={
-                problem ??
-                `About ${formatUsd(estimate?.cost ?? 0)}${estimate?.unpriced.length ? " + not priced" : ""}; replies already paid for are free`
-              }
-              disabled={busy}
-              onClick={resume}
+              className="group h-auto min-w-0 flex-1 justify-start gap-2 py-1.5 font-normal"
+            />
+          }
+        >
+          <ChevronRightIcon className="size-3.5 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90" />
+          <StatusIcon status={run.status} />
+          <span className="w-20 shrink-0 text-left font-medium">{STATUS[run.status]}</span>
+          <span className="min-w-0 truncate text-muted-foreground">
+            {runSummary(run)}
+            {earlier.length > 0 && ` · attempt ${attempts.length}`}
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-4 text-xs tabular-nums">
+            {active ? (
+              <span className="flex items-center gap-2">
+                <Progress
+                  className="w-20"
+                  value={run.total ? (100 * run.done) / run.total : 0}
+                  aria-label="Progress"
+                />
+                <span className="w-16 text-muted-foreground">
+                  {formatNumber(run.done)} / {formatNumber(run.total)}
+                </span>
+              </span>
+            ) : (
+              failed > 0 && <span className="text-destructive">{formatNumber(failed)} failed</span>
+            )}
+            <span
+              className="w-14 text-right"
+              title="By every attempt. Cached answers are free; models without prices aren't counted."
             >
-              <RotateCcwIcon data-icon="inline-start" />
-              {resumable}
-            </Button>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-sm" aria-label="Run actions" />}
+              {formatUsd(spent)}
+              {unpriced && "+"}
+            </span>
+            <span
+              className="w-24 text-right text-muted-foreground"
+              title={formatDate(run.created_at)}
             >
-              <EllipsisIcon />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuItem disabled={!canEdit || !active || busy} onClick={stop}>
+              {formatAgo(run.created_at)}
+            </span>
+          </span>
+        </CollapsibleTrigger>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="icon-sm" aria-label="Run actions" />}
+          >
+            <EllipsisIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            {active && (
+              <DropdownMenuItem
+                disabled={!canEdit || busy || run.status === "stopping"}
+                onClick={stop}
+              >
                 <SquareIcon />
                 Stop
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={!canEdit || !resumable || busy} onClick={resume}>
+            )}
+            {canEdit && resumable && (
+              <DropdownMenuItem
+                disabled={busy}
+                title={
+                  problem ??
+                  `About ${formatUsd(estimate?.cost ?? 0)}${estimate?.unpriced.length ? " + not priced" : ""}; replies already paid for are free`
+                }
+                onClick={resume}
+              >
                 <RotateCcwIcon />
-                {resumable ?? "Continue"}
+                {resumable}
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={!canEdit} onClick={onEdit}>
-                <PencilIcon />
-                Edit its tasks
-              </DropdownMenuItem>
-              {deletable.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Delete answers</DropdownMenuLabel>
-                    {deletable.map((answer) => (
-                      <DropdownMenuItem
-                        key={`${answer.name}:${answer.model}`}
-                        variant="destructive"
-                        disabled={!canEdit}
-                        onClick={() => onDeleteAnswers(answer)}
-                      >
-                        <Trash2Icon />
-                        <span className="truncate">{answerLabel(answer)}…</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+            )}
+            <DropdownMenuItem disabled={!canEdit} onClick={onEdit}>
+              <PencilIcon />
+              Edit its tasks
+            </DropdownMenuItem>
+            {comparable.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Compare models</DropdownMenuLabel>
+                  {comparable.map(({ task, columns }) => (
+                    <DropdownMenuItem key={task.id} onClick={() => compare(columns)}>
+                      <GitCompareArrowsIcon />
+                      <span className="truncate">{task.column}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </>
+            )}
+            {deletable.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Delete answers</DropdownMenuLabel>
+                  {deletable.map((answer) => (
+                    <DropdownMenuItem
+                      key={`${answer.name}:${answer.model}`}
+                      variant="destructive"
+                      disabled={!canEdit}
+                      onClick={() => onDeleteAnswers(answer)}
+                    >
+                      <Trash2Icon />
+                      <span className="truncate">{answerLabel(answer)}…</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums">
-        <span>{formatNumber(run.row_count)} rows</span>
-        <span>
+      <CollapsibleContent className="space-y-2 pr-3 pb-3 pl-9">
+        <p className="text-xs text-muted-foreground tabular-nums">
           {formatNumber(run.done)} / {formatNumber(run.total)} answers asked
-        </span>
-        <span className={failed ? "text-destructive" : "text-muted-foreground"}>
-          {formatNumber(failed)} failed
-        </span>
-        {run.reused > 0 && (
-          <span
-            className="text-muted-foreground"
-            title="Replies paid for by earlier attempts or runs: free, not asked again."
-          >
-            {formatNumber(run.reused)} reused
-          </span>
-        )}
-        <span title="By every attempt. Cached answers are free; models without prices aren't counted.">
-          {formatUsd(spent)} spent
-          {Object.values(run.models ?? {}).some((m) => m.prompt_price === null) && " + not priced"}
-        </span>
-      </div>
-      {active && (
-        <div className="space-y-1.5">
-          <Progress value={run.total ? (100 * run.done) / run.total : 0} aria-label="Progress" />
-          {speed && (
-            <p className="text-xs text-muted-foreground">
-              {formatNumber(Math.round(speed.perSecond))} calls / second · about{" "}
-              {formatDuration(speed.secondsLeft)} left
-            </p>
+          {run.reused > 0 && (
+            <span title="Replies paid for by earlier attempts or runs: free, not asked again.">
+              {" "}
+              · {formatNumber(run.reused)} reused
+            </span>
           )}
-        </div>
-      )}
-      {run.error && (
-        <Alert variant="destructive">
-          <AlertDescription>{run.error}</AlertDescription>
-        </Alert>
-      )}
-      {resumeEnabled && !resumable && problem && (
-        <p className="text-xs text-muted-foreground">Can&apos;t resume it: {problem}</p>
-      )}
-      {earlier.length > 0 && (
-        <ol className="space-y-0.5 text-xs text-muted-foreground" aria-label="Earlier attempts">
-          {earlier.map((attempt, i) => (
-            <li key={attempt.id} className="flex gap-x-2">
-              <span className="shrink-0 tabular-nums" title={formatDate(attempt.created_at)}>
-                Attempt {attempts.length - 1 - i} · {STATUS[attempt.status]}{" "}
-                {formatAgo(attempt.created_at)} · {formatNumber(attempt.done)} /{" "}
-                {formatNumber(attempt.total)} asked ·{" "}
-                {formatNumber(attempt.costs.reduce((n, c) => n + c.failed, 0))} failed
-              </span>
-              {attempt.error && (
-                <span className="truncate" title={attempt.error}>
-                  · {attempt.error}
+          {active &&
+            speed &&
+            ` · ${formatNumber(Math.round(speed.perSecond))} calls / second · about ${formatDuration(speed.secondsLeft)} left`}
+        </p>
+        {run.error && (
+          <Alert variant="destructive">
+            <AlertDescription>{run.error}</AlertDescription>
+          </Alert>
+        )}
+        {resumeEnabled && !resumable && problem && (
+          <p className="text-xs text-muted-foreground">Can&apos;t resume it: {problem}</p>
+        )}
+        {earlier.length > 0 && (
+          <ol className="space-y-0.5 text-xs text-muted-foreground" aria-label="Earlier attempts">
+            {earlier.map((attempt, i) => (
+              <li key={attempt.id} className="flex gap-x-2">
+                <span className="shrink-0 tabular-nums" title={formatDate(attempt.created_at)}>
+                  Attempt {attempts.length - 1 - i} · {STATUS[attempt.status]}{" "}
+                  {formatAgo(attempt.created_at)} · {formatNumber(attempt.done)} /{" "}
+                  {formatNumber(attempt.total)} asked ·{" "}
+                  {formatNumber(attempt.costs.reduce((n, c) => n + c.failed, 0))} failed
                 </span>
-              )}
-            </li>
-          ))}
-        </ol>
-      )}
-      {run.config.tasks.map((task) => {
-        const comparable = task.models
-          .map((m) => answerOf(task.column, m)?.columns[0])
-          .filter((c) => c !== undefined);
-        return (
-          <div key={task.id} className="space-y-1.5 pt-1" aria-label={`Task ${task.column}`}>
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <h3 className="font-medium">{task.column}</h3>
-              <span className="text-xs text-muted-foreground">
-                {types?.types.find((t) => t.id === task.type)?.label ?? task.type}
-                {task.reason ? " · with explanation" : ""}
-              </span>
-              {comparable.length > 1 && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="ml-auto text-xs"
-                  onClick={() => compare(comparable)}
-                >
-                  <GitCompareArrowsIcon />
-                  Compare models
-                </Button>
-              )}
-            </div>
-            {task.options.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {task.type === "scale" ? "Levels" : "Options"}:{" "}
-                {task.options.map((o) => o.name).join(", ")}
-              </p>
-            )}
-            {task.fields.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Fields:{" "}
-                {task.fields.map((f) => `${f.name} (${fieldLabel(f.type, types)})`).join(", ")}
-              </p>
-            )}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Model</TableHead>
-                  <TableHead className="text-right" title="Rows of the dataset with its answer">
-                    Answered
-                  </TableHead>
-                  <TableHead className="text-right">Failed</TableHead>
-                  <TableHead className="text-right">Cost</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {task.models.map((model) => {
+                {attempt.error && (
+                  <span className="truncate" title={attempt.error}>
+                    · {attempt.error}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+        <Table className="text-xs">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Task</TableHead>
+              <TableHead>Model</TableHead>
+              <TableHead className="text-right" title="Rows of the dataset with its answer">
+                Answered
+              </TableHead>
+              <TableHead className="text-right">Failed</TableHead>
+              <TableHead className="text-right">Cost</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {run.config.tasks.map((task) => {
+              const open = openTasks.includes(task.id);
+              return [
+                ...task.models.map((model, i) => {
                   // Failed: those the latest attempt didn't get, as each asks all earlier failures
                   // again. Cost: every attempt's.
-                  const costs = attempts.flatMap((a) =>
-                    a.costs.filter((c) => c.task_id === task.id && c.model === model),
-                  );
                   const cost = run.costs.find((c) => c.task_id === task.id && c.model === model);
-                  const modelSpent = costs.reduce((n, c) => n + c.cost, 0);
+                  const modelSpent = attempts
+                    .flatMap((a) => a.costs.filter((c) => c.task_id === task.id && c.model === model))
+                    .reduce((n, c) => n + c.cost, 0);
                   const answer = answerOf(task.column, model);
-                  const unpriced = run.models?.[model]?.prompt_price === null;
                   return (
-                    <TableRow key={model}>
+                    <TableRow key={`${task.id}:${model}`} className={i > 0 ? "border-t-0" : ""}>
+                      <TableCell>
+                        {i === 0 && (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            className="-ml-2"
+                            aria-expanded={open}
+                            onClick={() => toggleTask(task.id)}
+                          >
+                            <ChevronRightIcon
+                              className={`size-3 transition-transform ${open ? "rotate-90" : ""}`}
+                            />
+                            {task.column}
+                          </Button>
+                        )}
+                      </TableCell>
                       <TableCell title={model}>{modelSlug(model)}</TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {answer ? formatNumber(answer.answered) : "—"}
+                        {formatNumber(answer?.answered ?? 0)}
                       </TableCell>
                       <TableCell
                         className={`text-right tabular-nums ${cost?.failed ? "text-destructive" : "text-muted-foreground"}`}
                       >
-                        {cost ? formatNumber(cost.failed) : "—"}
+                        {formatNumber(cost?.failed ?? 0)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {!costs.length ? "—" : unpriced ? "Not priced" : formatUsd(modelSpent)}
+                        {run.models?.[model]?.prompt_price === null
+                          ? "Not priced"
+                          : formatUsd(modelSpent)}
                       </TableCell>
                     </TableRow>
                   );
-                })}
-              </TableBody>
-            </Table>
-            <Collapsible>
-              <CollapsibleTrigger
-                render={<Button variant="ghost" size="xs" className="px-0 text-xs" />}
-              >
-                <ChevronDownIcon className="size-3" />
-                Prompt
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <p className="border-l-2 pl-3 text-sm whitespace-pre-wrap select-text">
-                  {task.template}
-                </p>
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
-        );
-      })}
-      <Collapsible defaultOpen={run.config.sql !== ALL_ROWS}>
-        <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="px-0 text-xs" />}>
-          <ChevronDownIcon className="size-3" />
-          Rows asked about
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <pre className="pt-1 font-mono text-xs whitespace-pre-wrap break-all select-text">
-            {run.config.sql}
-          </pre>
-        </CollapsibleContent>
-      </Collapsible>
-    </section>
+                }),
+                open && (
+                  <TableRow key={`${task.id}:details`} className="hover:bg-transparent">
+                    <TableCell colSpan={5} className="space-y-1.5 pb-3 pl-6 whitespace-normal">
+                      <p className="text-muted-foreground">
+                        {types?.types.find((t) => t.id === task.type)?.label ?? task.type}
+                        {task.reason ? " · with explanation" : ""}
+                      </p>
+                      {task.options.length > 0 && (
+                        <p className="text-muted-foreground">
+                          {task.type === "scale" ? "Levels" : "Options"}:{" "}
+                          {task.options.map((o) => o.name).join(", ")}
+                        </p>
+                      )}
+                      {task.fields.length > 0 && (
+                        <p className="text-muted-foreground">
+                          Fields:{" "}
+                          {task.fields
+                            .map((f) => `${f.name} (${fieldLabel(f.type, types)})`)
+                            .join(", ")}
+                        </p>
+                      )}
+                      <p className="border-l-2 pl-3 text-sm whitespace-pre-wrap select-text">
+                        {task.template}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ),
+              ];
+            })}
+          </TableBody>
+        </Table>
+        <Collapsible defaultOpen={run.config.sql !== ALL_ROWS}>
+          <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="px-0 text-xs" />}>
+            <ChevronDownIcon className="size-3" />
+            Rows asked about
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <pre className="pt-1 font-mono text-xs break-all whitespace-pre-wrap select-text">
+              {run.config.sql}
+            </pre>
+          </CollapsibleContent>
+        </Collapsible>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
