@@ -1,5 +1,31 @@
-import type { Estimate, Run } from "@/lib/api/client";
+import type { Run } from "@/lib/api/client";
 import { formatNumber } from "@/lib/format";
+
+// How long to wait after one poll's answer before the next.
+const POLL_SECONDS = 2;
+
+/** Call `load` again and again while runs go, each time a while after the last one answered, so
+ * slow answers never pile up, and not while the tab is hidden. Returns the function that stops it,
+ * for an effect's cleanup. */
+export function poll(load: () => Promise<unknown>): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const next = () => {
+    timer = setTimeout(async () => {
+      try {
+        if (!document.hidden) await load();
+      } finally {
+        // A load that throws (the network dropped) doesn't end the polling.
+        if (!stopped) next();
+      }
+    }, POLL_SECONDS * 1000);
+  };
+  next();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
+}
 
 /** Whether a run still has work to do, so its progress keeps changing. */
 export function isActive(run: Pick<Run, "status">): boolean {
@@ -19,14 +45,14 @@ export function attempts(runs: Run[]): Run[][] {
     });
 }
 
-/** What resuming a run would ask, for its button: e.g. "Continue · 64 left, retry 3 failed".
- * Nothing when there is nothing left to ask. */
-export function resumeLabel(estimate: Pick<Estimate, "calls" | "failed_before">): string | null {
-  const retry = estimate.failed_before;
-  const left = estimate.calls - retry;
-  if (left > 0 && retry > 0)
-    return `Continue · ${formatNumber(left)} left, retry ${formatNumber(retry)} failed`;
-  if (left > 0) return `Continue · ${formatNumber(left)} left`;
-  if (retry > 0) return `Retry ${formatNumber(retry)} failed`;
-  return null;
+/** What resuming an ended run does, for its button: "Continue" (after a stop or an interruption)
+ * or "Retry 3 failed", or both. Nothing when it went through without a failure. How many a
+ * continue asks isn't told: the chunk under way when it stopped is asked again, and cells another
+ * run answered since are skipped. */
+export function resumeLabel(run: Pick<Run, "status" | "costs">): string | null {
+  if (isActive(run)) return null;
+  const failed = formatNumber(run.costs.reduce((n, c) => n + c.failed, 0));
+  const anyFailed = failed !== "0";
+  if (run.status !== "done") return anyFailed ? `Continue, retry ${failed} failed` : "Continue";
+  return anyFailed ? `Retry ${failed} failed` : null;
 }
