@@ -75,8 +75,13 @@ def render_dataset(dataset_id: str, request: RenderRequest) -> RenderResult:
     if request.template.strip() and not used:
         warnings.append("The template uses no columns, so every row gets the same prompt.")
 
+    # Only the columns the template uses: a dataset can have too many to read whole.
+    columns = [k[0] for k in inputs(request.template, keys)]
     page = sql.query(
-        dataset_id, sql.QueryRequest(sql=request.sql, offset=request.offset, limit=request.limit)
+        dataset_id,
+        sql.QueryRequest(
+            sql=request.sql, offset=request.offset, limit=request.limit, columns=columns
+        ),
     )
     rows = []
     for row in page.rows:
@@ -88,7 +93,7 @@ def render_dataset(dataset_id: str, request: RenderRequest) -> RenderResult:
             )
         )
 
-    sample = sql.sample(dataset_id, request.sql, SAMPLE_SIZE)
+    sample = sql.sample(dataset_id, request.sql, SAMPLE_SIZE, columns)
     counts = [count_tokens(render(request.template, row, keys)) for row in sample]
     for path in used:
         if path in keys:

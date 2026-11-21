@@ -6,21 +6,24 @@ import { api, type QueryResult } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
 
 /**
- * One page of the rows `sql` picks, fetched again when `version` changes. `result` answers the
- * current request or an earlier one; `shown` is the last good page, kept on screen while the next
- * one loads.
+ * One page of the rows `sql` picks, with only `columns` of the dataset's (all of them without it),
+ * fetched again when `version` changes. `result` answers the current request or an earlier one;
+ * `shown` is the last good page, kept on screen while the next one loads.
  */
 export function useDatasetRows(
   datasetId: string,
   sql: string,
+  columns: string[] | undefined,
   page: number,
   pageSize: number,
   version?: number,
 ) {
   // Each result remembers the request it answers, so a stale response is never shown as current.
+  // The request by value: the dataset is fetched anew as runs go, with the same columns.
+  const body = JSON.stringify({ sql, columns, offset: page * pageSize, limit: pageSize });
   const request = useMemo(
-    () => ({ sql, offset: page * pageSize, limit: pageSize }),
-    [sql, page, pageSize],
+    () => JSON.parse(body) as { sql: string; columns?: string[]; offset: number; limit: number },
+    [body],
   );
   const [result, setResult] = useState<{
     request: typeof request;

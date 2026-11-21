@@ -244,7 +244,9 @@ def create_server() -> FastMCP:
     ) -> QueryResult:
         """A page of what a SELECT over `data` returns, with the total. The way to look at rows and
         answers: it can read nothing but the dataset. `agree([a, b])` and `disagree([a, b])`
-        compare columns in a row. The same SQL picks the rows for a run or an export."""
+        compare columns in a row. The same SQL picks the rows for a run or an export. To look at a
+        dataset with hundreds of answer columns, name the columns you need: all of them at once
+        (`SELECT *`) can take more memory than a query gets."""
         me = _me()
         datasets.check_access(me.org.id, dataset_id)
         return sql_core.query(dataset_id, QueryRequest(sql=sql, offset=offset, limit=limit))

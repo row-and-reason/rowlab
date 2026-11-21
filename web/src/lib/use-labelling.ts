@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Row, type Task } from "@/lib/api/client";
 import { errorMessage } from "@/lib/format";
 
@@ -16,12 +16,14 @@ function positionSql(query: string, rowId: unknown) {
 
 /**
  * Loads one row of the view at a time and saves its label in the label column `task.column`, with
- * the task itself while the column is `isNew`. `busy` guards against overlapping saves; `pending`
- * holds an answer whose response was lost, so it can be retried as-is.
+ * the task itself while the column is `isNew`. Of the row, only the label's own `columns` are
+ * read: the prompt shows the rest. `busy` guards against overlapping saves; `pending` holds an
+ * answer whose response was lost, so it can be retried as-is.
  */
 export function useLabelling({
   datasetId,
   task,
+  columns,
   isNew,
   sql,
   position,
@@ -31,6 +33,7 @@ export function useLabelling({
 }: {
   datasetId: string;
   task: Task;
+  columns: string[];
   isNew: boolean;
   sql: string;
   position: number;
@@ -50,6 +53,9 @@ export function useLabelling({
   // under way: their late responses then no longer apply.
   const loads = useRef(0);
   const query = sql.trim().replace(/;\s*$/, "");
+  // By value: the dataset is fetched anew as labels are saved, with the same columns.
+  const names = JSON.stringify(columns);
+  const labelColumns = useMemo(() => JSON.parse(names) as string[], [names]);
   // The prompt shows the row; the rest of the task (options, fields) doesn't change what is loaded.
   const template = task.template;
 
@@ -63,7 +69,7 @@ export function useLabelling({
       try {
         const { data, error } = await api.POST("/v1/datasets/{dataset_id}/query", {
           params: { path: { dataset_id: datasetId } },
-          body: { sql: query, offset: position, limit: 1 },
+          body: { sql: query, columns: labelColumns, offset: position, limit: 1 },
         });
         if (!current) return;
         if (!data) throw new Error(errorMessage(error));
@@ -94,7 +100,7 @@ export function useLabelling({
     return () => {
       current = false;
     };
-  }, [datasetId, template, query, position, refresh]);
+  }, [datasetId, template, query, labelColumns, position, refresh]);
 
   const move = useCallback(
     async (direction: number, afterSave = false) => {
@@ -159,7 +165,12 @@ export function useLabelling({
         }
         const updated = await api.POST("/v1/datasets/{dataset_id}/query", {
           params: { path: { dataset_id: datasetId } },
-          body: { sql: rowSql(answer.row_id), offset: 0, limit: 1 },
+          body: {
+            sql: rowSql(answer.row_id),
+            columns: labelColumns,
+            offset: 0,
+            limit: 1,
+          },
         });
         if (updated.data?.rows[0] && loads.current === started)
           setItem((current) => (current ? { ...current, row: updated.data!.rows[0] } : current));
@@ -172,7 +183,7 @@ export function useLabelling({
         setSaving(false);
       }
     },
-    [canEdit, datasetId, isNew, item, move, onChanged, pending, task],
+    [canEdit, datasetId, isNew, item, labelColumns, move, onChanged, pending, task],
   );
 
   const disabled = !canEdit || loading || saving || !!pending;

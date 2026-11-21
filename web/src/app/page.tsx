@@ -341,7 +341,7 @@ function Workspace() {
 /** The query behind the rows a dataset's table shows, if its draft has one. */
 function tableSql(dataset: Dataset): string | null {
   const draft = loadDraft(dataset.id);
-  return draft ? viewSql(draft.view, dataset.columns) : null;
+  return draft ? viewSql(draft.view, dataset) : null;
 }
 
 /** Whether a key press is going into a text field, where single-key shortcuts must not fire. */

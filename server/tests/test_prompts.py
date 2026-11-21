@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from helpers import wide_dataset
 
 from rowlab.core.prompts import count_tokens, to_text
 
@@ -112,6 +113,13 @@ def test_renders_only_the_rows_the_query_picks(client, dataset):
     assert result["selected_rows"] == 1
     assert result["tokens"]["sample_size"] == 1
     assert result["tokens"]["total_estimate"] == 1
+
+
+def test_renders_with_only_the_columns_the_template_uses(client, tmp_path, monkeypatch):
+    dataset = wide_dataset(client, tmp_path, monkeypatch)
+    result = render(client, dataset, "Is this negative? {{review}}")
+    assert result["rows"][0]["prompt"] == "Is this negative? review 0"
+    assert result["tokens"]["sample_size"] == 200
 
 
 def test_cold_tokenizer_without_system_temp(client, dataset, monkeypatch):

@@ -42,7 +42,7 @@ import { useModels, useTaskTypes } from "@/lib/catalog";
 import { errorMessage, formatBytes, formatNumber, formatUsd } from "@/lib/format";
 import { useDraft } from "@/lib/draft";
 import { useEstimate } from "@/lib/use-estimate";
-import { isActive } from "@/lib/runs";
+import { revealed } from "@/lib/columns";
 import { ALL_ROWS, type View, viewSql, type WhereFilter } from "@/lib/sql";
 import { emptyTask, newId, withFittingModels, withPreset } from "@/lib/tasks";
 
@@ -107,7 +107,7 @@ export function DatasetPanels({
     (changes: Partial<View>) => update((draft) => ({ view: { ...draft.view, ...changes } })),
     [update],
   );
-  const sql = viewSql(draft.view, dataset.columns);
+  const sql = viewSql(draft.view, dataset);
   const mode = draft.mode ?? "ask";
   const labelColumns = dataset.answers.filter((a) => a.model === null);
   // The label column being labelled: one the dataset has, or a new one, set up in the draft.
@@ -137,13 +137,21 @@ export function DatasetPanels({
   // Compare counts the whole dataset, so drill-through replaces any unrelated search/filter/limit.
   function showRows(filters: WhereFilter[], columns: string[]) {
     setComparedColumns(columns);
-    update({ view: { search: "", filters, sort: [], limit: null, sql: null } });
+    update((draft) => ({
+      view: {
+        search: "",
+        filters,
+        sort: [],
+        limit: null,
+        sql: null,
+        hidden: revealed(dataset, draft.view, columns),
+      },
+    }));
     onTabChange("rows");
   }
   // Verifiers read; running, labelling, exporting and deleting need a member.
   const canEdit = useCan("member");
   const [deletingAnswers, setDeletingAnswers] = useState<AnswerColumn>();
-  const active = runs.filter(isActive);
   const latest = runs[0];
 
   const [starting, setStarting] = useState(false);
@@ -195,7 +203,7 @@ export function DatasetPanels({
 
   // A run's tasks and rows in the task editor, to change and start.
   function editRun(run: Run) {
-    update({
+    update((draft) => ({
       mode: "ask",
       tasks: run.config.tasks,
       view: {
@@ -204,8 +212,9 @@ export function DatasetPanels({
         sort: [],
         limit: null,
         sql: run.config.sql === ALL_ROWS ? null : run.config.sql,
+        hidden: draft.view.hidden,
       },
-    });
+    }));
     toast(`Loaded the run's ${run.config.tasks.length === 1 ? "task" : "tasks"} into the editor`);
   }
 
@@ -238,17 +247,6 @@ export function DatasetPanels({
               {formatNumber(dataset.row_count)} rows · {formatBytes(dataset.size_bytes)}
             </span>
             <div className="ml-auto flex items-center gap-1">
-              {active.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-xs"
-                  onClick={() => onTabChange("runs")}
-                >
-                  <Spinner data-icon="inline-start" />
-                  {progress(active)}
-                </Button>
-              )}
               <TabsList>
                 <TabsTrigger className="dark:data-active:bg-popover" value="rows">
                   Rows
@@ -443,13 +441,6 @@ function describeEstimate(estimate: Estimate): string {
   ]
     .filter(Boolean)
     .join(" · ");
-}
-
-/** How far the active runs are, e.g. "Running 40%". */
-function progress(active: Run[]): string {
-  const total = active.reduce((n, r) => n + r.total, 0);
-  const done = active.reduce((n, r) => n + r.done, 0);
-  return total ? `Running ${Math.floor((100 * done) / total)}%` : "Queued";
 }
 
 /** A label column to start with: `label`, or `label_2` and so on when that is taken. */

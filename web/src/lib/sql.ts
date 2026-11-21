@@ -1,4 +1,5 @@
-import type { Column } from "@/lib/api/client";
+import type { Dataset } from "@/lib/api/client";
+import { shownColumns } from "@/lib/columns";
 
 /** A condition on one column's value, set in the Filter popover. */
 export type ColumnFilter = {
@@ -15,6 +16,7 @@ export type ViewFilter = ColumnFilter | WhereFilter;
 /**
  * Which rows the table shows, and the next run asks about: set with the search box, filters, sorting
  * and limit, which the UI turns into SQL. Or written as SQL directly (`sql`), which they can't show.
+ * And which columns it leaves out (`hidden`, see `hiddenColumns`): the search looks in those shown.
  */
 export type View = {
   search: string;
@@ -22,6 +24,7 @@ export type View = {
   sort: { column: string; desc: boolean }[];
   limit: number | null;
   sql: string | null;
+  hidden?: string[];
 };
 
 export const ALL_ROWS = "SELECT * FROM data";
@@ -29,13 +32,13 @@ export const ALL_ROWS = "SELECT * FROM data";
 const OPERATORS = { eq: "=", ne: "IS DISTINCT FROM", lt: "<", lte: "<=", gt: ">", gte: ">=" };
 
 /** The view as one DuckDB SELECT over `data`, e.g. `SELECT * FROM data WHERE … LIMIT 20`. */
-export function viewSql(view: View, columns: Column[]): string {
+export function viewSql(view: View, dataset: Pick<Dataset, "columns" | "answers">): string {
   if (view.sql !== null) return view.sql;
-  const types = new Map(columns.map((c) => [c.name, c.type]));
+  const types = new Map(dataset.columns.map((c) => [c.name, c.type]));
   const where: string[] = [];
   if (view.search) {
     const text = sqlString(`%${view.search.toLowerCase()}%`);
-    const searched = columns
+    const searched = shownColumns(dataset, view)
       .filter((c) => c.name !== "__row_id")
       .map((c) => `lower(CAST(${ident(c.name)} AS VARCHAR)) LIKE ${text}`);
     if (searched.length) where.push(`(${searched.join(" OR ")})`);

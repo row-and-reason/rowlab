@@ -1932,12 +1932,17 @@ export interface components {
              * @default 100
              */
             limit: number;
+            /**
+             * Columns
+             * @description For a query that returns every column of the dataset, as `SELECT *` does: only these of them, and `__row_id`, e.g. the ones a table shows. Columns the query adds itself are kept. A dataset can have thousands of answer columns, too many to read at once.
+             */
+            columns?: string[] | null;
         };
         /** QueryResult */
         QueryResult: {
             /**
              * Columns
-             * @description What the query returns, which needn't be the dataset's.
+             * @description What the rows have: what the query returns, which needn't be the dataset's.
              */
             columns: components["schemas"]["Column"][];
             /** Rows */
