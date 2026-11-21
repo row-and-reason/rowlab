@@ -1,6 +1,7 @@
 import threading
 import time
 
+import duckdb
 import pytest
 from helpers import NEGATIVE, run, start, stored, stored_datasets
 
@@ -744,3 +745,22 @@ def test_a_runner_shutting_down_gives_its_run_back_without_paying_twice(
     assert len(_paid_calls(fake)) == 3
     # The chunk asked again counts its answers once, and its own replies aren't reused ones.
     assert (finished["done"], finished["reused"]) == (finished["total"], 0)
+
+
+def test_a_run_reads_only_its_columns_of_a_very_wide_dataset(
+    client, tmp_path, api_key, monkeypatch
+):
+    # Thousands of columns, as answer columns pile up: more than DuckDB's memory holds at once.
+    path = tmp_path / "wide.parquet"
+    columns = ", ".join(f"random() AS c{i}" for i in range(3000))
+    duckdb.sql(
+        f"COPY (SELECT 'review ' || i AS review, {columns} FROM range(600) t(i)) TO '{path}'"
+    )
+    dataset = client.post("/v1/datasets", data={"source": str(path)}).json()
+    monkeypatch.setenv("ROWLAB_DUCKDB_MEMORY", "32MB")
+    config.cache_clear()
+
+    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [NEGATIVE]}
+    finished = run(client, job)
+    assert finished["status"] == "done", finished.get("error")
+    assert finished["done"] == 600
