@@ -15,6 +15,7 @@ export type RenderResult = components["schemas"]["RenderResult"];
 export type Run = components["schemas"]["Run"];
 export type Model = components["schemas"]["Model"];
 export type Settings = components["schemas"]["Settings"];
+export type Settling = components["schemas"]["Settling"];
 // As a run returns it, with every field; the API accepts the same shape.
 export type Task = Run["config"]["tasks"][number];
 export type Column = Dataset["columns"][number];

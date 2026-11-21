@@ -35,6 +35,11 @@ rowlab keeps a copy as Parquet; your file is never changed.
 Open the dataset to see its rows and, per column, a profile: type, range, distinct values and the
 share of empty cells.
 
+A dataset nothing has happened on for 24 hours (no run started or ended, failed ones too, and no
+label set) moves to **Settled** at the bottom of the list, and comes back when something happens on
+it. An admin can settle or unsettle one by right-clicking it, choose there whether it settles by
+itself, and turn settling by itself off for the whole organisation in the list's display menu.
+
 ## Ask a question
 
 Pick the rows with SQL over the table `data`, for the first try a sample of them, in an order that

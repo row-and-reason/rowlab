@@ -42,7 +42,7 @@ import { loadDraft } from "@/lib/draft";
 import { viewSql } from "@/lib/sql";
 import { type Section, settingsUrl } from "@/lib/settings";
 import { useDataset } from "@/lib/use-dataset";
-import { useDatasets } from "@/lib/use-datasets";
+import { shelves, useDatasets } from "@/lib/use-datasets";
 
 // The whole app is this one page: datasets | rows | job, in resizable columns. What is selected lives
 // in the query string (`/?dataset=<id>&tab=rows`), because a static export can't have routes for
@@ -61,7 +61,7 @@ function Workspace() {
   const params = useSearchParams();
   const selectedId = params.get("dataset");
   const tab: Tab = TABS.find((t) => t === params.get("tab")) ?? "rows";
-  const { datasets, load, remove } = useDatasets(selectedId);
+  const { datasets, load, remove, settle, setAutoSettle } = useDatasets(selectedId);
   const [settings, setSettings] = useState<Settings>();
   // Open with "add data" at its first step, or at a source's step when that's already picked.
   const [adding, setAdding] = useState<SourceKind | "choose">();
@@ -117,7 +117,9 @@ function Workspace() {
         } else taskActionsRef.current?.run();
       } else if (!mod && !e.altKey && !isTyping(e.target)) {
         if ((e.key === "j" || e.key === "k") && datasets?.length) {
-          const order = datasets.map((d) => d.id);
+          // As listed: settled ones after the rest.
+          const { active, settled } = shelves(datasets);
+          const order = [...active, ...settled].map((d) => d.id);
           const index = order.indexOf(selectedId ?? "");
           const next = e.key === "j" ? index + 1 : index - 1;
           select(order[Math.min(order.length - 1, Math.max(0, next))]);
@@ -149,6 +151,8 @@ function Workspace() {
             onExport={setExporting}
             onRename={setRenaming}
             onDelete={setDeleting}
+            onSettle={settle}
+            onAutoSettle={(on) => setAutoSettle(on).then((data) => data && setSettings(data))}
             onSettings={openSettings}
           />
         </ResizablePanel>
@@ -270,6 +274,7 @@ function Workspace() {
         onSelect={select}
         onRename={setRenaming}
         onExport={setExporting}
+        onSettle={settle}
         onAdd={() => setAdding("choose")}
         onSettings={openSettings}
       />
