@@ -351,25 +351,23 @@ function describe(dataset: DatasetSummary): string {
   return `${rows} · ${dataset.answer_columns} answer column${dataset.answer_columns === 1 ? "" : "s"}`;
 }
 
-/** How the dataset's runs stand, unless all is well: going, or the newest failed or was stopped. */
+/** How the dataset's last run ended, unless all is well: it failed or was stopped. Runs going show
+ * as the bar along the top (`RunProgress`). */
 function RunStatus({ dataset }: { dataset: DatasetSummary }) {
+  if (dataset.active_runs > 0) return null;
   const [icon, label] =
-    dataset.active_runs > 0
-      ? [<Spinner key="running" />, `${dataset.active_runs} running`]
-      : dataset.last_run_status === "failed"
-        ? [<CircleAlertIcon key="failed" className="text-destructive" />, "Its last run failed"]
-        : dataset.last_run_status === "stopped"
-          ? [<CirclePauseIcon key="stopped" />, "Its last run was stopped"]
-          : [null, null];
+    dataset.last_run_status === "failed"
+      ? [<CircleAlertIcon key="failed" className="text-destructive" />, "Its last run failed"]
+      : dataset.last_run_status === "stopped"
+        ? [<CirclePauseIcon key="stopped" />, "Its last run was stopped"]
+        : [null, null];
   if (!icon) return null;
   return (
-    // Whole pixels: with the 14px root, size-3.5 is 12.25px, and Safari turns a spinner that size
-    // about a point off its centre, so it wobbles.
     <ItemActions
       role="img"
       aria-label={label!}
       title={label!}
-      className="text-muted-foreground [&_svg]:size-[12px]"
+      className="text-muted-foreground [&_svg]:size-3.5"
     >
       {icon}
     </ItemActions>

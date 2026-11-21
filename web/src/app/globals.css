@@ -141,3 +141,14 @@
   pointer-events: none;
   @apply text-muted-foreground;
 }
+
+/* A spinner turns its arc inside its box, not the box: at most zoom levels the box isn't a whole
+   number of screen pixels, and Safari turns such a box a little off its centre, so it wobbles. */
+[data-slot="spinner"] {
+  animation: none;
+}
+[data-slot="spinner"] path {
+  animation: var(--animate-spin);
+  transform-box: view-box;
+  transform-origin: center;
+}
