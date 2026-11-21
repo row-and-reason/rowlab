@@ -7,7 +7,8 @@ description: What changed in each release.
 
 rowlab is pre-alpha, on its way to a first release. What is in it today:
 
-- Datasets from CSV, JSON, JSONL and Parquet; from upload, URL, disk or S3.
+- Datasets from CSV, JSON, JSONL and Parquet; from upload, URL, disk or S3. Those left alone for a
+  day settle at the bottom of the list until something happens on them.
 - Runs with Classify, Extract and Write tasks, on decision models and LLMs through your model
   provider: rowlab's picked list first (recommended ones at the top), or any other in OpenRouter's
   catalog, at OpenRouter's current prices, or models of your own, such as open-weight models and

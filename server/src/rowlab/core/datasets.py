@@ -17,7 +17,7 @@ import tempfile
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, BinaryIO, Literal
 from urllib.error import HTTPError, URLError
@@ -85,6 +85,18 @@ class DatasetSummary(BaseModel):
     ) = Field(
         description="How its newest run stands: `failed` or `stopped` until it is resumed or "
         "another run starts. Empty before any run."
+    )
+    last_activity_at: datetime = Field(
+        description="When something last happened on it: added, a run started, went or ended "
+        "(failed too), labels set or cleared, or brought back from Settled."
+    )
+    settled: bool = Field(
+        description="Listed apart as left alone: settled by an admin until something happens on "
+        "it, or by itself after 24 hours of nothing (`auto_settle`). Never while a run goes."
+    )
+    auto_settle: bool | None = Field(
+        description="Whether it settles by itself after 24 hours of nothing: its own choice, or "
+        "empty to follow the organisation's (`GET /v1/settings`)."
     )
 
 
@@ -303,6 +315,76 @@ def rename_dataset(dataset_id: str, request: RenameDataset) -> Dataset:
     return get_dataset(dataset_id)
 
 
+# Settling: a dataset nothing has happened on for this long settles by itself, unless that is off for
+# it or its organisation (`settings` key `AUTO_SETTLE`, on unless set to "0").
+SETTLE_AFTER = timedelta(hours=24)
+AUTO_SETTLE = "auto_settle"
+
+
+class Settling(BaseModel):
+    settled: bool | None = Field(
+        default=None,
+        description="Settle it, or bring it back: then it settles by itself again only after "
+        "another 24 hours of nothing. Left out, unchanged.",
+    )
+    auto_settle: Literal["organisation", "on", "off"] | None = Field(
+        default=None,
+        description="Whether it settles by itself after 24 hours of nothing: as the organisation "
+        "says, or on or off for it alone. Left out, unchanged.",
+    )
+
+
+def settle_dataset(dataset_id: str, request: Settling) -> Dataset:
+    """Settle a dataset or bring it back, or choose whether it settles by itself."""
+    dataset = get_dataset(dataset_id)
+    now = datetime.now(UTC).isoformat()
+    with db.connect() as conn:
+        if request.settled:
+            if dataset.active_runs:
+                raise InvalidRequest("It has runs going: settle it once they end.")
+            conn.execute("UPDATE datasets SET settled_at = ? WHERE id = ?", (now, dataset_id))
+        elif request.settled is False:
+            conn.execute(
+                "UPDATE datasets SET settled_at = NULL, unsettled_at = ? WHERE id = ?",
+                (now, dataset_id),
+            )
+        if request.auto_settle is not None:
+            auto = {"organisation": None, "on": 1, "off": 0}[request.auto_settle]
+            conn.execute("UPDATE datasets SET auto_settle = ? WHERE id = ?", (auto, dataset_id))
+    return get_dataset(dataset_id)
+
+
+def auto_settle(org_id: str) -> bool:
+    """Whether the organisation's datasets settle by themselves, unless one says otherwise."""
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE org_id = ? AND key = ?", (org_id, AUTO_SETTLE)
+        ).fetchone()
+    return row is None or row["value"] != "0"
+
+
+def set_auto_settle(org_id: str, on: bool) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO settings (org_id, key, value) VALUES (?, ?, ?)"
+            " ON CONFLICT (org_id, key) DO UPDATE SET value = excluded.value",
+            (org_id, AUTO_SETTLE, "1" if on else "0"),
+        )
+
+
+def _settling(row: Any, auto_default: bool, now: datetime) -> dict[str, Any]:
+    """A dataset row with when it was last active and whether it is settled."""
+    times = (row["created_at"], row["last_run_at"], row["labelled_at"], row["unsettled_at"])
+    last = max(datetime.fromisoformat(t) for t in times if t)
+    settled_at = datetime.fromisoformat(row["settled_at"]) if row["settled_at"] else None
+    auto = None if row["auto_settle"] is None else bool(row["auto_settle"])
+    settled = not row["active_runs"] and (
+        (settled_at is not None and settled_at >= last)
+        or ((auto_default if auto is None else auto) and last < now - SETTLE_AFTER)
+    )
+    return {**row, "last_activity_at": last, "settled": settled, "auto_settle": auto}
+
+
 def _register(dataset_id: str, *, org_id: str, name: str, source: str) -> Dataset:
     """Record a dataset whose file has been written."""
     file = storage.location(dataset_id, "data.parquet")
@@ -341,7 +423,8 @@ def list_datasets(org_id: str) -> list[DatasetSummary]:
             f"SELECT d.*, {_SUMMARY} FROM datasets d WHERE d.org_id = ? ORDER BY d.created_at DESC",
             (org_id,),
         ).fetchall()
-    return [DatasetSummary(**row) for row in rows]
+    auto_default, now = auto_settle(org_id), datetime.now(UTC)
+    return [DatasetSummary(**_settling(row, auto_default, now)) for row in rows]
 
 
 def get_dataset(dataset_id: str) -> Dataset:
@@ -354,14 +437,15 @@ def get_dataset(dataset_id: str) -> Dataset:
     with storage.connect() as con:
         attach(con, dataset_id)
         columns = [Column(name=r[0], type=r[1]) for r in con.execute("DESCRIBE data").fetchall()]
-    return Dataset(**{**row, "columns": columns}, answers=answer_columns(dataset_id))
+    found = _settling(row, auto_settle(row["org_id"]), datetime.now(UTC))
+    return Dataset(**{**found, "columns": columns}, answers=answer_columns(dataset_id))
 
 
 # Statuses of a run that still has work to do, and as SQL.
 ACTIVE = ("queued", "running", "stopping")
 _ACTIVE = "('queued', 'running', 'stopping')"
 
-# What a dataset's summary says of its answers and runs, for `SELECT d.*, … FROM datasets d`.
+# What a dataset's summary says of its answers, runs and activity, for `SELECT d.*, … FROM datasets d`.
 _SUMMARY = f"""
     (SELECT count(*) FROM answer_columns a WHERE a.dataset_id = d.id) AS answer_columns,
     (SELECT count(*) FROM runs r WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_runs,
@@ -370,7 +454,9 @@ _SUMMARY = f"""
     (SELECT coalesce(sum(r.total), 0) FROM runs r
         WHERE r.dataset_id = d.id AND r.status IN {_ACTIVE}) AS active_total,
     (SELECT r.status FROM runs r WHERE r.dataset_id = d.id
-        ORDER BY r.created_at DESC LIMIT 1) AS last_run_status
+        ORDER BY r.created_at DESC LIMIT 1) AS last_run_status,
+    (SELECT max(coalesce(r.updated_at, r.created_at)) FROM runs r
+        WHERE r.dataset_id = d.id) AS last_run_at
 """
 
 
@@ -531,6 +617,10 @@ def delete_answers(dataset_id: str, name: str, model: str | None) -> None:
         )
         if model is None:
             conn.execute("DELETE FROM labels WHERE dataset_id = ? AND name = ?", (dataset_id, name))
+            conn.execute(
+                "UPDATE datasets SET labelled_at = ? WHERE id = ?",
+                (datetime.now(UTC).isoformat(), dataset_id),
+            )
 
 
 def lock(conn: db.Connection, dataset_id: str) -> None:

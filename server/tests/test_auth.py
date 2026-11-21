@@ -77,6 +77,7 @@ def test_organisations_dont_see_each_others_things(hosted):
         alan.post(f"/v1/datasets/{dataset['id']}/query", json={"sql": "SELECT * FROM data"}),
         alan.delete(f"/v1/datasets/{dataset['id']}"),
         alan.patch(f"/v1/datasets/{dataset['id']}", json={"name": "stolen"}),
+        alan.patch(f"/v1/datasets/{dataset['id']}/settling", json={"settled": True}),
     ):
         assert response.status_code == 404
 

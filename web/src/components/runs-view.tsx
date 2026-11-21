@@ -55,9 +55,8 @@ import {
 import { attempts, isActive, resumeLabel } from "@/lib/runs";
 import { ALL_ROWS } from "@/lib/sql";
 import { modelSlug } from "@/lib/tasks";
-import { useEstimate } from "@/lib/use-estimate";
 
-/** Where the dataset came from, and its runs, newest first, one line each; going runs start open.
+/** Where the dataset came from, and its runs, newest first, one line each, opened on a click.
  * A run resumed is one piece of work with its resumes, shown once with its earlier attempts. */
 export function RunsView({
   dataset,
@@ -156,17 +155,9 @@ function RunSection({
   const [openTasks, setOpenTasks] = useState<string[]>([]);
   const failed = run.costs.reduce((n, c) => n + c.failed, 0);
   const active = isActive(run);
-  // What resuming would ask: the answers not got to, and those that failed. Asked again when the
-  // dataset's answers change (another run, a delete), as that changes what is missing.
-  const resumeEnabled = canEdit && !active && (run.status !== "done" || failed > 0);
-  const { estimate, problem } = useEstimate(
-    dataset.id,
-    run.config.sql,
-    run.config.tasks,
-    resumeEnabled,
-    JSON.stringify(dataset.answers.map((a) => [a.name, a.model, a.answered])),
-  );
-  const resumable = !active && estimate ? resumeLabel(estimate) : null;
+  // From the run's own counts, not an estimate: that reads the whole dataset, too much to ask for
+  // every ended run each time answers come in.
+  const resumable = resumeLabel(run);
   const spent = attempts.reduce((n, a) => n + a.cost, 0);
   const unpriced = Object.values(run.models ?? {}).some((m) => m.prompt_price === null);
   const answerOf = (column: string, model: string) =>
@@ -219,7 +210,6 @@ function RunSection({
 
   return (
     <Collapsible
-      defaultOpen={active}
       render={<section className="border-b" aria-label={`Run ${run.id}`} />}
     >
       <div className="flex items-center gap-2 px-1 py-1">
@@ -288,10 +278,7 @@ function RunSection({
             {canEdit && resumable && (
               <DropdownMenuItem
                 disabled={busy}
-                title={
-                  problem ??
-                  `About ${formatUsd(estimate?.cost ?? 0)}${estimate?.unpriced.length ? " + not priced" : ""}; replies already paid for are free`
-                }
+                title="Asks only what is still missing; replies already paid for are free."
                 onClick={resume}
               >
                 <RotateCcwIcon />
@@ -355,9 +342,6 @@ function RunSection({
           <Alert variant="destructive">
             <AlertDescription>{run.error}</AlertDescription>
           </Alert>
-        )}
-        {resumeEnabled && !resumable && problem && (
-          <p className="text-xs text-muted-foreground">Can&apos;t resume it: {problem}</p>
         )}
         {earlier.length > 0 && (
           <ol className="space-y-0.5 text-xs text-muted-foreground" aria-label="Earlier attempts">

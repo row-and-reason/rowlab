@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
   DownloadIcon,
   GitCompareArrowsIcon,
   ListChecksIcon,
@@ -20,7 +22,7 @@ import { useTheme } from "next-themes";
 import type { RefObject } from "react";
 
 import type { Tab, TaskActions } from "@/components/dataset-view";
-import { useMe } from "@/components/me";
+import { useCan, useMe } from "@/components/me";
 import {
   Command,
   CommandDialog,
@@ -31,7 +33,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import type { DatasetSummary } from "@/lib/api/client";
+import type { DatasetSummary, Settling } from "@/lib/api/client";
 import { useTaskTypes } from "@/lib/catalog";
 import { type Section, sections } from "@/lib/settings";
 import type { ComparisonActions } from "@/lib/use-comparison";
@@ -51,6 +53,9 @@ export function CommandPalette({
   onSelect,
   onRename,
   onExport,
+  onSettle,
+  autoSettle,
+  onAutoSettle,
   onAdd,
   onSettings,
 }: {
@@ -67,6 +72,10 @@ export function CommandPalette({
   onSelect: (id: string) => void;
   onRename: (dataset: DatasetSummary) => void;
   onExport: (dataset: DatasetSummary) => void;
+  onSettle: (dataset: DatasetSummary, body: Settling) => void;
+  /** Whether datasets settle by themselves; unknown until the settings load. */
+  autoSettle: boolean | undefined;
+  onAutoSettle: (on: boolean) => void;
   onAdd: () => void;
   onSettings: (section: Section) => void;
 }) {
@@ -75,6 +84,7 @@ export function CommandPalette({
   const { resolvedTheme, setTheme } = useTheme();
   const taskTypes = useTaskTypes();
   const me = useMe();
+  const canAdmin = useCan("admin");
 
   // Runs a palette command after closing the palette.
   function command(action: () => void) {
@@ -94,6 +104,23 @@ export function CommandPalette({
                 <CommandItem disabled={!canEdit} onSelect={() => command(() => onRename(selected))}>
                   Rename dataset…
                 </CommandItem>
+                {canAdmin &&
+                  (selected.settled ? (
+                    <CommandItem
+                      onSelect={() => command(() => onSettle(selected, { settled: false }))}
+                    >
+                      <ArchiveRestoreIcon />
+                      Unsettle dataset
+                    </CommandItem>
+                  ) : (
+                    <CommandItem
+                      disabled={selected.active_runs > 0}
+                      onSelect={() => command(() => onSettle(selected, { settled: true }))}
+                    >
+                      <ArchiveIcon />
+                      Settle dataset
+                    </CommandItem>
+                  ))}
                 <CommandItem
                   onSelect={() =>
                     command(() => {
@@ -212,6 +239,12 @@ export function CommandPalette({
               <CommandItem onSelect={() => command(onAdd)}>
                 <PlusIcon />
                 Add data
+              </CommandItem>
+            )}
+            {canAdmin && autoSettle !== undefined && (
+              <CommandItem onSelect={() => command(() => onAutoSettle(!autoSettle))}>
+                <ArchiveIcon />
+                {autoSettle ? "Stop settling datasets by themselves" : "Settle datasets idle for 24 hours"}
               </CommandItem>
             )}
             {sections(me).map((section) => (

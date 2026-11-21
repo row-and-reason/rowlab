@@ -63,6 +63,7 @@ def set_labels(
     with db.connect() as conn:
         datasets.lock(conn, dataset_id)
         datasets.add_answers(conn, dataset_id, task, None)
+        conn.execute("UPDATE datasets SET labelled_at = ? WHERE id = ?", (now, dataset_id))
         for row_id, value in values.items():
             if value is None:
                 conn.execute(

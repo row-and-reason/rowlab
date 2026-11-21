@@ -497,6 +497,67 @@
         }
       }
     },
+    "/v1/datasets/{dataset_id}/settling": {
+      "patch": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Settle Dataset",
+        "description": "Settle a dataset (listed apart until something happens on it) or bring it back, or choose\nwhether it settles by itself after 24 hours of nothing. Settling is the organisation's.",
+        "operationId": "settleDataset",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Settling"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dataset"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/datasets/{dataset_id}/labels/{column}": {
       "put": {
         "tags": [
@@ -2140,6 +2201,53 @@
             "APIKeyCookie": []
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Update Settings",
+        "operationId": "updateSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyCookie": []
+          }
+        ]
       }
     },
     "/v1/settings/api-keys": {
@@ -3438,6 +3546,29 @@
             "title": "Last Run Status",
             "description": "How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run."
           },
+          "last_activity_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Activity At",
+            "description": "When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled."
+          },
+          "settled": {
+            "type": "boolean",
+            "title": "Settled",
+            "description": "Listed apart as left alone: settled by an admin until something happens on it, or by itself after 24 hours of nothing (`auto_settle`). Never while a run goes."
+          },
+          "auto_settle": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Settle",
+            "description": "Whether it settles by itself after 24 hours of nothing: its own choice, or empty to follow the organisation's (`GET /v1/settings`)."
+          },
           "columns": {
             "items": {
               "$ref": "#/components/schemas/Column"
@@ -3468,6 +3599,9 @@
           "active_done",
           "active_total",
           "last_run_status",
+          "last_activity_at",
+          "settled",
+          "auto_settle",
           "columns",
           "answers"
         ],
@@ -3540,6 +3674,29 @@
             ],
             "title": "Last Run Status",
             "description": "How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run."
+          },
+          "last_activity_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Activity At",
+            "description": "When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled."
+          },
+          "settled": {
+            "type": "boolean",
+            "title": "Settled",
+            "description": "Listed apart as left alone: settled by an admin until something happens on it, or by itself after 24 hours of nothing (`auto_settle`). Never while a run goes."
+          },
+          "auto_settle": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Settle",
+            "description": "Whether it settles by itself after 24 hours of nothing: its own choice, or empty to follow the organisation's (`GET /v1/settings`)."
           }
         },
         "type": "object",
@@ -3554,7 +3711,10 @@
           "active_runs",
           "active_done",
           "active_total",
-          "last_run_status"
+          "last_run_status",
+          "last_activity_at",
+          "settled",
+          "auto_settle"
         ],
         "title": "DatasetSummary"
       },
@@ -5272,15 +5432,69 @@
             "type": "boolean",
             "title": "Server Files",
             "description": "Whether datasets can be added from, and exported to, paths on the server."
+          },
+          "auto_settle": {
+            "type": "boolean",
+            "title": "Auto Settle",
+            "description": "Whether the organisation's datasets settle by themselves after 24 hours of nothing happening on them, unless a dataset says otherwise. On by default."
           }
         },
         "type": "object",
         "required": [
           "provider",
           "mode",
-          "server_files"
+          "server_files",
+          "auto_settle"
         ],
         "title": "Settings"
+      },
+      "SettingsUpdate": {
+        "properties": {
+          "auto_settle": {
+            "type": "boolean",
+            "title": "Auto Settle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "auto_settle"
+        ],
+        "title": "SettingsUpdate"
+      },
+      "Settling": {
+        "properties": {
+          "settled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled",
+            "description": "Settle it, or bring it back: then it settles by itself again only after another 24 hours of nothing. Left out, unchanged."
+          },
+          "auto_settle": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "organisation",
+                  "on",
+                  "off"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Settle",
+            "description": "Whether it settles by itself after 24 hours of nothing: as the organisation says, or on or off for it alone. Left out, unchanged."
+          }
+        },
+        "type": "object",
+        "title": "Settling"
       },
       "Task-Input": {
         "properties": {

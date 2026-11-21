@@ -4,7 +4,7 @@ from fastapi import APIRouter, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from rowlab.api.auth import CanEdit, CanRead
+from rowlab.api.auth import CanAdmin, CanEdit, CanRead
 from rowlab.core import compare, datasets, exports, labels, prompts, sql
 from rowlab.core.compare import CompareRequest, Comparison
 from rowlab.core.datasets import AnswerColumn, ColumnProfile, Dataset, DatasetSummary
@@ -59,6 +59,14 @@ def get_dataset(dataset_id: str, me: CanRead) -> Dataset:
 def rename_dataset(dataset_id: str, request: datasets.RenameDataset, me: CanEdit) -> Dataset:
     datasets.check_access(me.org.id, dataset_id)
     return datasets.rename_dataset(dataset_id, request)
+
+
+@router.patch("/{dataset_id}/settling", operation_id="settleDataset")
+def settle_dataset(dataset_id: str, request: datasets.Settling, me: CanAdmin) -> Dataset:
+    """Settle a dataset (listed apart until something happens on it) or bring it back, or choose
+    whether it settles by itself after 24 hours of nothing. Settling is the organisation's."""
+    datasets.check_access(me.org.id, dataset_id)
+    return datasets.settle_dataset(dataset_id, request)
 
 
 @router.delete("/{dataset_id}", operation_id="deleteDataset", status_code=204)

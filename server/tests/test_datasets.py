@@ -3,11 +3,14 @@ import gzip
 import http.server
 import json
 import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import duckdb
 import pytest
-from helpers import stored, stored_datasets
+from helpers import NEGATIVE, start, stored, stored_datasets
+
+from rowlab.core import db, runs
 
 CSV = "name,age,city\nAda,36,London\nAlan,41,Wilmslow\nGrace,,Arlington\n"
 
@@ -337,3 +340,115 @@ def test_renamed_dataset_exports_a_filename_not_a_path(client, dataset, tmp_path
     )
     assert result.status_code == 200
     assert Path(result.json()["path"]).parent == tmp_path
+
+
+# Settling
+
+
+def settled(client, dataset_id):
+    return client.get(f"/v1/datasets/{dataset_id}").json()["settled"]
+
+
+def backdate(dataset_id, hours, column="created_at"):
+    """Move what happened on a dataset into the past, as if that long went by."""
+    then = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    with db.connect() as conn:
+        conn.execute(f"UPDATE datasets SET {column} = ? WHERE id = ?", (then, dataset_id))
+        conn.execute(
+            "UPDATE runs SET created_at = ?, updated_at = ? WHERE dataset_id = ?",
+            (then, then, dataset_id),
+        )
+
+
+def settle(client, dataset_id, **body):
+    response = client.patch(f"/v1/datasets/{dataset_id}/settling", json=body)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_a_dataset_settles_after_a_day_of_nothing_unless_that_is_off(client, dataset):
+    path = f"/v1/datasets/{dataset['id']}"
+    assert not settled(client, dataset["id"])
+    backdate(dataset["id"], hours=25)
+    assert settled(client, dataset["id"])
+    assert client.get("/v1/datasets").json()[0]["settled"]
+
+    # Off for the organisation, on for this one, and the other way round.
+    assert client.patch("/v1/settings", json={"auto_settle": False}).json()["auto_settle"] is False
+    assert not settled(client, dataset["id"])
+    assert settle(client, dataset["id"], auto_settle="on")["settled"]
+    assert client.patch("/v1/settings", json={"auto_settle": True}).status_code == 200
+    assert not settle(client, dataset["id"], auto_settle="off")["settled"]
+    # Back to following the organisation.
+    assert settle(client, dataset["id"], auto_settle="organisation")["auto_settle"] is None
+    assert client.get(path).json()["settled"]
+    # Settling leaves its own choice alone.
+    settle(client, dataset["id"], auto_settle="off")
+    assert settle(client, dataset["id"], settled=True)["auto_settle"] is False
+
+
+def test_a_settled_dataset_wakes_when_a_run_starts_or_ends(client, dataset, api_key):
+    job = {
+        "dataset_id": dataset["id"],
+        "sql": "SELECT * FROM data",
+        "tasks": [{**NEGATIVE, "template": "Is {{name}} old?"}],
+    }
+    assert settle(client, dataset["id"], settled=True)["settled"]
+
+    # A run going is never settled, and can't be settled.
+    start(client, job)
+    assert not settled(client, dataset["id"])
+    response = client.patch(f"/v1/datasets/{dataset['id']}/settling", json={"settled": True})
+    assert response.status_code == 400
+    while runs.process_next():
+        pass
+    assert not settled(client, dataset["id"])
+
+    # A run started long ago that ended (failed) an hour ago is something happening an hour ago.
+    backdate(dataset["id"], hours=25, column="settled_at")
+    backdate(dataset["id"], hours=25)
+    assert settled(client, dataset["id"])
+    an_hour_ago = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE runs SET status = 'failed', updated_at = ? WHERE dataset_id = ?",
+            (an_hour_ago, dataset["id"]),
+        )
+    assert not settled(client, dataset["id"])
+
+
+def test_a_settled_dataset_wakes_when_labels_are_set_or_cleared(client, dataset):
+    path = f"/v1/datasets/{dataset['id']}/labels/checked"
+    label = {"labels": [{"row_id": 0, "value": True}], "task": {"type": "yes_no"}}
+    assert client.put(path, json=label).status_code == 200
+    backdate(dataset["id"], hours=25, column="labelled_at")
+    backdate(dataset["id"], hours=25)
+    assert settled(client, dataset["id"])
+
+    # Clearing is something happening too, though it leaves no label behind.
+    cleared = {"labels": [{"row_id": 0, "value": None}]}
+    assert client.put(path, json=cleared).status_code == 200
+    assert not settled(client, dataset["id"])
+
+
+def test_bringing_a_dataset_back_gives_it_another_day(client, dataset):
+    backdate(dataset["id"], hours=25)
+    assert settled(client, dataset["id"])
+    assert not settle(client, dataset["id"], settled=False)["settled"]
+    backdate(dataset["id"], hours=25, column="unsettled_at")
+    assert settled(client, dataset["id"])
+
+
+def test_only_admins_settle(hosted):
+    ada = hosted("ada@example.com")
+    dataset = ada.post("/v1/datasets", files={"file": ("people.csv", CSV)}).json()
+    assert ada.post("/v1/settings/invites", json={"email": "bob@example.com"}).status_code == 201
+    bob = hosted("bob@example.com")
+    assert bob.get("/v1/me").json()["role"] == "member"
+
+    path = f"/v1/datasets/{dataset['id']}/settling"
+    assert bob.patch(path, json={"settled": True}).status_code == 403
+    assert bob.patch("/v1/settings", json={"auto_settle": False}).status_code == 403
+    assert ada.patch(path, json={"settled": True}).status_code == 200
+    # Settling is the organisation's: everyone sees it.
+    assert bob.get("/v1/datasets").json()[0]["settled"]

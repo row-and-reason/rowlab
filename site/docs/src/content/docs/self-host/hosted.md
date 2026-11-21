@@ -19,8 +19,8 @@ the project, add `<ROWLAB_URL>/auth/callback` as a redirect URI and `<ROWLAB_URL
 redirect.
 
 The first person to sign in gets an organisation of their own as its admin, and invites the others
-in **Settings → Members**. Roles: **admin** (settings, connections, members), **member** (adding
-data, running, exporting), **verifier** (reads). Roles live in rowlab; WorkOS only says who someone
+in **Settings → Members**. Roles: **admin** (settings, connections, members, settling datasets),
+**member** (adding data, running, exporting), **verifier** (reads). Roles live in rowlab; WorkOS only says who someone
 is.
 
 For agents over MCP, under _Connect → Configuration → MCP Auth_ in WorkOS, turn Dynamic Client

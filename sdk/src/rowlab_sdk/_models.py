@@ -266,6 +266,27 @@ class DatasetSummary(BaseModel):
             title='Last Run Status',
         ),
     ]
+    last_activity_at: Annotated[
+        AwareDatetime,
+        Field(
+            description='When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled.',
+            title='Last Activity At',
+        ),
+    ]
+    settled: Annotated[
+        bool,
+        Field(
+            description='Listed apart as left alone: settled by an admin until something happens on it, or by itself after 24 hours of nothing (`auto_settle`). Never while a run goes.',
+            title='Settled',
+        ),
+    ]
+    auto_settle: Annotated[
+        bool | None,
+        Field(
+            description="Whether it settles by itself after 24 hours of nothing: its own choice, or empty to follow the organisation's (`GET /v1/settings`).",
+            title='Auto Settle',
+        ),
+    ]
 
 
 class Day(BaseModel):
@@ -721,6 +742,34 @@ class Settings(BaseModel):
             title='Server Files',
         ),
     ]
+    auto_settle: Annotated[
+        bool,
+        Field(
+            description="Whether the organisation's datasets settle by themselves after 24 hours of nothing happening on them, unless a dataset says otherwise. On by default.",
+            title='Auto Settle',
+        ),
+    ]
+
+
+class SettingsUpdate(BaseModel):
+    auto_settle: Annotated[bool, Field(title='Auto Settle')]
+
+
+class Settling(BaseModel):
+    settled: Annotated[
+        bool | None,
+        Field(
+            description='Settle it, or bring it back: then it settles by itself again only after another 24 hours of nothing. Left out, unchanged.',
+            title='Settled',
+        ),
+    ] = None
+    auto_settle: Annotated[
+        Literal['organisation', 'on', 'off'] | None,
+        Field(
+            description='Whether it settles by itself after 24 hours of nothing: as the organisation says, or on or off for it alone. Left out, unchanged.',
+            title='Auto Settle',
+        ),
+    ] = None
 
 
 class TaskInput(BaseModel):
@@ -1105,6 +1154,27 @@ class Dataset(BaseModel):
         Field(
             description='How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.',
             title='Last Run Status',
+        ),
+    ]
+    last_activity_at: Annotated[
+        AwareDatetime,
+        Field(
+            description='When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled.',
+            title='Last Activity At',
+        ),
+    ]
+    settled: Annotated[
+        bool,
+        Field(
+            description='Listed apart as left alone: settled by an admin until something happens on it, or by itself after 24 hours of nothing (`auto_settle`). Never while a run goes.',
+            title='Settled',
+        ),
+    ]
+    auto_settle: Annotated[
+        bool | None,
+        Field(
+            description="Whether it settles by itself after 24 hours of nothing: its own choice, or empty to follow the organisation's (`GET /v1/settings`).",
+            title='Auto Settle',
         ),
     ]
     columns: Annotated[

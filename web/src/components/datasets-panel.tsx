@@ -2,6 +2,9 @@
 
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  ChevronRightIcon,
   ChevronUpIcon,
   CircleAlertIcon,
   CirclePauseIcon,
@@ -13,24 +16,34 @@ import {
   PlugIcon,
   PlusIcon,
   SettingsIcon,
+  SlidersHorizontalIcon,
   SunIcon,
   Trash2Icon,
 } from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
+import { useEffect } from "react";
 
 import { PaneHeader } from "@/components/pane";
 import { TooltipButton } from "@/components/tooltip-button";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useCan, useMe } from "@/components/me";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -49,11 +62,13 @@ import {
 } from "@/components/ui/item";
 import { ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
-import { type DatasetSummary, type Settings, signOut } from "@/lib/api/client";
+import { type DatasetSummary, type Settings, type Settling, signOut } from "@/lib/api/client";
 import type { Section } from "@/lib/settings";
 import { formatNumber } from "@/lib/format";
+import { shelves, useShowSettled } from "@/lib/use-datasets";
 
-/** The left column: every dataset, one per file, newest first, and app-wide settings. */
+/** The left column: every dataset, one per file, newest first, those settled (left alone) in a
+ * section of their own; and app-wide settings. */
 export function DatasetsPanel({
   datasets,
   selectedId,
@@ -62,6 +77,8 @@ export function DatasetsPanel({
   onExport,
   onRename,
   onDelete,
+  onSettle,
+  onAutoSettle,
   onSettings,
 }: {
   datasets: DatasetSummary[] | null;
@@ -71,12 +88,36 @@ export function DatasetsPanel({
   onExport: (dataset: DatasetSummary) => void;
   onRename: (dataset: DatasetSummary) => void;
   onDelete: (dataset: DatasetSummary) => void;
+  onSettle: (dataset: DatasetSummary, body: Settling) => void;
+  onAutoSettle: (on: boolean) => void;
   onSettings: (section: Section) => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
   const me = useMe();
   const canEdit = useCan("member");
   const canAdmin = useCan("admin");
+  const [showSettled, setShowSettled] = useShowSettled();
+  const { active, settled } = shelves(datasets ?? []);
+  // The dataset open is always in view: selecting a settled one opens the section.
+  const selectedSettled = settled.some((d) => d.id === selectedId);
+  useEffect(() => {
+    if (selectedSettled) setShowSettled(true);
+  }, [selectedSettled, setShowSettled]);
+  const autoDefault = settings?.auto_settle ?? true;
+  const row = (dataset: DatasetSummary) => (
+    <DatasetRow
+      key={dataset.id}
+      dataset={dataset}
+      selected={dataset.id === selectedId}
+      autoDefault={autoDefault}
+      canEdit={canEdit}
+      canAdmin={canAdmin}
+      onExport={onExport}
+      onRename={onRename}
+      onDelete={onDelete}
+      onSettle={onSettle}
+    />
+  );
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -88,14 +129,26 @@ export function DatasetsPanel({
           />
           rowlab
         </span>
-        {canEdit && (
-          <TooltipButton
-            label="Add data"
-            variant="ghost"
-            size="icon-sm"
-            className="ml-auto"
-            onClick={onAdd}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label="Display" />
+            }
           >
+            <SlidersHorizontalIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            <DropdownMenuCheckboxItem
+              checked={autoDefault}
+              disabled={!canAdmin || !settings}
+              onCheckedChange={onAutoSettle}
+            >
+              Settle datasets idle for 24 hours
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {canEdit && (
+          <TooltipButton label="Add data" variant="ghost" size="icon-sm" onClick={onAdd}>
             <PlusIcon />
           </TooltipButton>
         )}
@@ -107,51 +160,28 @@ export function DatasetsPanel({
         ) : datasets.length === 0 ? (
           <p className="px-2 py-1 text-sm text-muted-foreground">No datasets yet.</p>
         ) : (
-          <ItemGroup className="gap-0.5">
-            {datasets.map((dataset) => (
-              <ContextMenu key={dataset.id}>
-                <ContextMenuTrigger
+          <>
+            <ItemGroup className="gap-0.5">{active.map(row)}</ItemGroup>
+            {settled.length > 0 && (
+              <Collapsible open={showSettled} onOpenChange={setShowSettled} className="mt-2">
+                <CollapsibleTrigger
                   render={
-                    <Item
+                    <Button
+                      variant="ghost"
                       size="xs"
-                      variant={dataset.id === selectedId ? "muted" : "default"}
-                      aria-current={dataset.id === selectedId ? "page" : undefined}
-                      className="relative min-w-0 flex-nowrap overflow-hidden aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground"
-                      render={<Link href={`/?dataset=${dataset.id}`} />}
+                      className="group w-full justify-start text-muted-foreground"
                     />
                   }
                 >
-                  {dataset.active_runs > 0 && <RunProgress dataset={dataset} />}
-                  <ItemContent className="min-w-0">
-                    <ItemTitle className="w-full truncate" title={dataset.name}>
-                      {dataset.name}
-                    </ItemTitle>
-                    <ItemDescription className="truncate text-xs">
-                      {describe(dataset)}
-                    </ItemDescription>
-                  </ItemContent>
-                  <RunStatus dataset={dataset} />
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem disabled={!canEdit} onClick={() => onRename(dataset)}>
-                    Rename…
-                  </ContextMenuItem>
-                  <ContextMenuItem disabled={!canEdit} onClick={() => onExport(dataset)}>
-                    <DownloadIcon />
-                    Export…
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    variant="destructive"
-                    disabled={!canEdit}
-                    onClick={() => onDelete(dataset)}
-                  >
-                    <Trash2Icon />
-                    Delete
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-            ))}
-          </ItemGroup>
+                  <ChevronRightIcon className="transition-transform group-data-[panel-open]:rotate-90" />
+                  Settled · {settled.length}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <ItemGroup className="gap-0.5 pt-0.5">{settled.map(row)}</ItemGroup>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+          </>
         )}
       </div>
 
@@ -215,6 +245,105 @@ export function DatasetsPanel({
   );
 }
 
+/** A dataset in the list, with its menu (right-click): rename, export, settle, delete. */
+function DatasetRow({
+  dataset,
+  selected,
+  autoDefault,
+  canEdit,
+  canAdmin,
+  onExport,
+  onRename,
+  onDelete,
+  onSettle,
+}: {
+  dataset: DatasetSummary;
+  selected: boolean;
+  /** Whether datasets settle by themselves unless one says otherwise. */
+  autoDefault: boolean;
+  canEdit: boolean;
+  canAdmin: boolean;
+  onExport: (dataset: DatasetSummary) => void;
+  onRename: (dataset: DatasetSummary) => void;
+  onDelete: (dataset: DatasetSummary) => void;
+  onSettle: (dataset: DatasetSummary, body: Settling) => void;
+}) {
+  const auto = dataset.auto_settle === null ? "organisation" : dataset.auto_settle ? "on" : "off";
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={
+          <Item
+            size="xs"
+            variant={selected ? "muted" : "default"}
+            aria-current={selected ? "page" : undefined}
+            className="relative min-w-0 flex-nowrap overflow-hidden aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground"
+            render={<Link href={`/?dataset=${dataset.id}`} />}
+          />
+        }
+      >
+        {dataset.active_runs > 0 && <RunProgress dataset={dataset} />}
+        <ItemContent className="min-w-0">
+          <ItemTitle className="w-full truncate" title={dataset.name}>
+            {dataset.name}
+          </ItemTitle>
+          <ItemDescription className="truncate text-xs">{describe(dataset)}</ItemDescription>
+        </ItemContent>
+        <RunStatus dataset={dataset} />
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem disabled={!canEdit} onClick={() => onRename(dataset)}>
+          Rename…
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!canEdit} onClick={() => onExport(dataset)}>
+          <DownloadIcon />
+          Export…
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {dataset.settled ? (
+          <ContextMenuItem
+            disabled={!canAdmin}
+            onClick={() => onSettle(dataset, { settled: false })}
+          >
+            <ArchiveRestoreIcon />
+            Unsettle
+          </ContextMenuItem>
+        ) : (
+          <ContextMenuItem
+            disabled={!canAdmin || dataset.active_runs > 0}
+            onClick={() => onSettle(dataset, { settled: true })}
+          >
+            <ArchiveIcon />
+            Settle
+          </ContextMenuItem>
+        )}
+        <ContextMenuSub>
+          <ContextMenuSubTrigger disabled={!canAdmin}>Settle by itself</ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            <ContextMenuRadioGroup
+              value={auto}
+              onValueChange={(value) =>
+                onSettle(dataset, { auto_settle: value as NonNullable<Settling["auto_settle"]> })
+              }
+            >
+              <ContextMenuRadioItem value="organisation">
+                As set for all ({autoDefault ? "on" : "off"})
+              </ContextMenuRadioItem>
+              <ContextMenuRadioItem value="on">After 24 hours left alone</ContextMenuRadioItem>
+              <ContextMenuRadioItem value="off">Never</ContextMenuRadioItem>
+            </ContextMenuRadioGroup>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" disabled={!canEdit} onClick={() => onDelete(dataset)}>
+          <Trash2Icon />
+          Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 /** E.g. "600 rows · 3 answer columns". */
 function describe(dataset: DatasetSummary): string {
   const rows = `${formatNumber(dataset.row_count)} rows`;
@@ -234,11 +363,13 @@ function RunStatus({ dataset }: { dataset: DatasetSummary }) {
           : [null, null];
   if (!icon) return null;
   return (
+    // Whole pixels: with the 14px root, size-3.5 is 12.25px, and Safari turns a spinner that size
+    // about a point off its centre, so it wobbles.
     <ItemActions
       role="img"
       aria-label={label!}
       title={label!}
-      className="text-muted-foreground [&_svg]:size-3.5"
+      className="text-muted-foreground [&_svg]:size-[12px]"
     >
       {icon}
     </ItemActions>

@@ -157,6 +157,27 @@ export interface paths {
         patch: operations["renameDataset"];
         trace?: never;
     };
+    "/v1/datasets/{dataset_id}/settling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Settle Dataset
+         * @description Settle a dataset (listed apart until something happens on it) or bring it back, or choose
+         *     whether it settles by itself after 24 hours of nothing. Settling is the organisation's.
+         */
+        patch: operations["settleDataset"];
+        trace?: never;
+    };
     "/v1/datasets/{dataset_id}/labels/{column}": {
         parameters: {
             query?: never;
@@ -670,7 +691,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Settings */
+        patch: operations["updateSettings"];
         trace?: never;
     };
     "/v1/settings/api-keys": {
@@ -1278,6 +1300,22 @@ export interface components {
              */
             last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
             /**
+             * Last Activity At
+             * Format: date-time
+             * @description When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled.
+             */
+            last_activity_at: string;
+            /**
+             * Settled
+             * @description Listed apart as left alone: settled by an admin until something happens on it, or by itself after 24 hours of nothing (`auto_settle`). Never while a run goes.
+             */
+            settled: boolean;
+            /**
+             * Auto Settle
+             * @description Whether it settles by itself after 24 hours of nothing: its own choice, or empty to follow the organisation's (`GET /v1/settings`).
+             */
+            auto_settle: boolean | null;
+            /**
              * Columns
              * @description Every column of `data`: `__row_id`, the answer columns, newest first, then the file's own.
              */
@@ -1333,6 +1371,22 @@ export interface components {
              * @description How its newest run stands: `failed` or `stopped` until it is resumed or another run starts. Empty before any run.
              */
             last_run_status: ("queued" | "running" | "stopping" | "stopped" | "done" | "failed") | null;
+            /**
+             * Last Activity At
+             * Format: date-time
+             * @description When something last happened on it: added, a run started, went or ended (failed too), labels set or cleared, or brought back from Settled.
+             */
+            last_activity_at: string;
+            /**
+             * Settled
+             * @description Listed apart as left alone: settled by an admin until something happens on it, or by itself after 24 hours of nothing (`auto_settle`). Never while a run goes.
+             */
+            settled: boolean;
+            /**
+             * Auto Settle
+             * @description Whether it settles by itself after 24 hours of nothing: its own choice, or empty to follow the organisation's (`GET /v1/settings`).
+             */
+            auto_settle: boolean | null;
         };
         /** Day */
         Day: {
@@ -2157,6 +2211,29 @@ export interface components {
              * @description Whether datasets can be added from, and exported to, paths on the server.
              */
             server_files: boolean;
+            /**
+             * Auto Settle
+             * @description Whether the organisation's datasets settle by themselves after 24 hours of nothing happening on them, unless a dataset says otherwise. On by default.
+             */
+            auto_settle: boolean;
+        };
+        /** SettingsUpdate */
+        SettingsUpdate: {
+            /** Auto Settle */
+            auto_settle: boolean;
+        };
+        /** Settling */
+        Settling: {
+            /**
+             * Settled
+             * @description Settle it, or bring it back: then it settles by itself again only after another 24 hours of nothing. Left out, unchanged.
+             */
+            settled?: boolean | null;
+            /**
+             * Auto Settle
+             * @description Whether it settles by itself after 24 hours of nothing: as the organisation says, or on or off for it alone. Left out, unchanged.
+             */
+            auto_settle?: ("organisation" | "on" | "off") | null;
         };
         /** Task */
         "Task-Input": {
@@ -2838,6 +2915,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RenameDataset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dataset"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settleDataset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Settling"];
             };
         };
         responses: {
@@ -3837,6 +3949,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Settings"];
+                };
+            };
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
