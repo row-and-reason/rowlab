@@ -8,7 +8,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from helpers import NEGATIVE, start, stored, stored_datasets
+from helpers import NEGATIVE, run, start, stored, stored_datasets
 
 from rowlab.core import db, runs
 
@@ -452,3 +452,45 @@ def test_only_admins_settle(hosted):
     assert ada.patch(path, json={"settled": True}).status_code == 200
     # Settling is the organisation's: everyone sees it.
     assert bob.get("/v1/datasets").json()[0]["settled"]
+
+
+def test_a_datasets_columns_are_those_its_rows_have(client, dataset, api_key):
+    # Read without the runs' files, so they must match what the rows give, type for type.
+    extract = {
+        "type": "extract",
+        "template": "About {{name}}",
+        "column": "info",
+        "models": ["x/llm"],
+        "fields": [
+            "town",
+            "age:number",
+            "tags:list",
+            {"name": "pets", "type": "items", "fields": ["name", "legs:number"]},
+        ],
+        "reason": True,
+    }
+    pick = {
+        "type": "pick_any",
+        "template": "{{city}}",
+        "column": "kind",
+        "models": ["x/llm"],
+        "options": [{"name": "big"}, {"name": "old"}],
+    }
+    job = {"dataset_id": dataset["id"], "sql": "SELECT * FROM data", "tasks": [extract, pick]}
+    assert run(client, job)["status"] == "done"
+    yes_no = {**NEGATIVE, "template": "Is {{name}} old?"}
+    assert run(client, {**job, "tasks": [yes_no]})["status"] == "done"
+    label = {
+        "labels": [{"row_id": 0, "value": "big"}],
+        "task": {"type": "pick_one", "options": [{"name": "big"}, {"name": "small"}]},
+    }
+    assert client.put(f"/v1/datasets/{dataset['id']}/labels/size", json=label).status_code == 200
+    deleted = client.delete(
+        f"/v1/datasets/{dataset['id']}/answers", params={"column": "kind", "model": "x/llm"}
+    )
+    assert deleted.status_code == 204
+
+    listed = client.get(f"/v1/datasets/{dataset['id']}").json()["columns"]
+    rows = query(client, dataset["id"], sql="SELECT * FROM data", limit=1)["columns"]
+    assert listed == rows
+    assert not any(c["name"].startswith("kind") for c in listed)

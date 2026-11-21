@@ -435,7 +435,7 @@ def get_dataset(dataset_id: str) -> Dataset:
     if row is None:
         raise NotFound(f"Dataset {dataset_id} not found")
     with storage.connect() as con:
-        attach(con, dataset_id)
+        attach(con, dataset_id, empty=True)
         columns = [Column(name=r[0], type=r[1]) for r in con.execute("DESCRIBE data").fetchall()]
     found = _settling(row, auto_settle(row["org_id"]), datetime.now(UTC))
     return Dataset(**{**found, "columns": columns}, answers=answer_columns(dataset_id))
@@ -654,13 +654,27 @@ def run_part(dataset_id: str, run_id: str, chunk: int) -> str:
     return storage.location(dataset_id, "runs", run_id, f"part-{chunk:06d}.parquet")
 
 
-def attach(con: duckdb.DuckDBPyConnection, dataset_id: str) -> None:
+def attach(con: duckdb.DuckDBPyConnection, dataset_id: str, *, empty: bool = False) -> None:
     """Make the dataset the view `data` on a DuckDB connection: its file's rows, each answer column
     from the runs that wrote it (a run only writes cells that were empty, so they never overlap),
     and labels people set, loaded into a temporary table. The answer columns come right after
-    `__row_id`, newest first."""
+    `__row_id`, newest first.
+
+    `empty` leaves the answer columns without their values, typed NULLs: the dataset's columns
+    and their types, without reading its runs' files (one per run, which on a dataset with many
+    runs takes seconds)."""
     _own_columns(dataset_id)  # Raises NotFound.
     answers = answer_columns(dataset_id)
+    data = sql_string(storage.location(dataset_id, "data.parquet"))
+    if empty:
+        select = [f"d.{ROW_ID}"] + [
+            f"NULL::{type_} AS {sql_ident(name)}" for a in answers for name, type_ in _columns(a)
+        ]
+        con.execute(
+            f"CREATE VIEW data AS SELECT {', '.join(select)}, d.* EXCLUDE ({ROW_ID})"
+            f" FROM read_parquet({data}) AS d"
+        )
+        return
     with db.connect() as conn:
         runs = conn.execute(
             "SELECT id, status, next_chunk, config, created_at FROM runs WHERE dataset_id = ?"
@@ -732,7 +746,6 @@ def attach(con: duckdb.DuckDBPyConnection, dataset_id: str) -> None:
                 else f"NULL::{type_}"
             )
             select.append(f"{value} AS {sql_ident(name)}")
-    data = sql_string(storage.location(dataset_id, "data.parquet"))
     con.execute(
         f"CREATE VIEW data AS SELECT {', '.join(select)}, d.* EXCLUDE ({ROW_ID})"
         f" FROM read_parquet({data}) AS d {' '.join(joins)}"
@@ -746,7 +759,7 @@ def dataset_fields(dataset_id: str) -> dict[str, tuple[str, list[str]]]:
     e.g. `["actor", "login"]`. Keys may contain dots themselves; the path is only for display.
     """
     with storage.connect() as con:
-        attach(con, dataset_id)
+        attach(con, dataset_id, empty=True)
         relation = con.sql(f"SELECT * EXCLUDE ({ROW_ID}) FROM data")
         columns = list(zip(relation.columns, relation.types))
     fields: dict[str, tuple[str, list[str]]] = {}
