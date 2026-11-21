@@ -692,13 +692,21 @@ def _next_chunk(run_id: str) -> int:
     return row["next_chunk"]
 
 
-def _chunk_rows(run: Run, chunk: int) -> list[dict[str, Any]]:
-    """A chunk's rows, as `data` has them now: values and answers so far."""
+def _chunk_rows(run: Run, chunk: int, keys: dict[str, list[str]]) -> list[dict[str, Any]]:
+    """A chunk's rows, as `data` has them now, with only what the run reads: the columns its
+    prompts use, and its own answers so far (a row with its answer isn't asked again). A dataset
+    can grow thousands of answer columns, too many to load whole."""
+    have = {k[0] for k in keys.values()}
+    wanted = [ROW_ID]
+    for task in run.config.tasks:
+        wanted += [path[0] for path in prompts.inputs(task.template, keys)]
+        wanted += [c[0][0] for c in (tasks.columns(task, m) for m in task.models) if c]
+    columns = ", ".join(sql_ident(c) for c in dict.fromkeys(wanted) if c == ROW_ID or c in have)
     asked = sql_string(_asked_file(run.dataset_id, run.id))
     with storage.connect() as con:
         datasets.attach(con, run.dataset_id)
         rows = con.execute(
-            f"SELECT to_json(t) FROM data AS t WHERE {ROW_ID} IN"
+            f"SELECT to_json(t) FROM (SELECT {columns} FROM data) AS t WHERE {ROW_ID} IN"
             f" (SELECT {ROW_ID} FROM read_parquet({asked}) WHERE chunk = ?) ORDER BY {ROW_ID}",
             [chunk],
         ).fetchall()
@@ -717,7 +725,7 @@ def _process_chunk(
     journal or kept by the dataset's runs, is used instead of asking. Returns False, writing nothing,
     if the run was stopped meanwhile, or the runner is shutting down: calls not yet started are not
     made."""
-    rows = _chunk_rows(run, chunk)
+    rows = _chunk_rows(run, chunk, keys)
     units = [
         (row, task, model)
         for row in rows
